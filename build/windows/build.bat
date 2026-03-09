@@ -56,7 +56,7 @@ for %%p in (
 if not defined ISCC (
     echo   ERROR: Inno Setup 6 not found.
     echo   Download from: https://jrsoftware.org/isinfo.php
-    pause
+    if not defined CI pause
     exit /b 1
 )
 echo   [OK] Inno Setup: %ISCC%
@@ -74,7 +74,7 @@ powershell -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityPr
 
 if not exist "%INSTALLER%" (
     echo   ERROR: Download failed. Check internet connection.
-    pause
+    if not defined CI pause
     exit /b 1
 )
 
@@ -82,9 +82,9 @@ echo   Installing Python to python_dist\ ...
 echo   (This takes 1-2 minutes)
 "%INSTALLER%" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Include_tcltk=1 TargetDir="%PYTHON_DIR%" >> "%SCRIPT_DIR%build_log.txt" 2>&1
 
-:: Wait for installer to complete
+:: Wait for installer to complete (ping used as portable sleep — works in cmd and bash)
 :wait_python
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul 2>&1
 if not exist "%PYTHON_DIR%\python.exe" goto :wait_python
 
 del "%INSTALLER%" 2>nul
@@ -93,7 +93,7 @@ del "%INSTALLER%" 2>nul
 "%PYTHON_DIR%\python.exe" -c "import tkinter; print('tkinter OK')" >> "%SCRIPT_DIR%build_log.txt" 2>&1
 if !ERRORLEVEL! NEQ 0 (
     echo   ERROR: Python installed but tkinter missing.
-    pause
+    if not defined CI pause
     exit /b 1
 )
 echo   [OK] Python %PYTHON_VER% installed with tkinter
@@ -114,7 +114,7 @@ echo   Creating virtual environment...
 
 if not exist "%VENV_LITE%\Scripts\python.exe" (
     echo   ERROR: Lite venv creation failed.
-    pause
+    if not defined CI pause
     exit /b 1
 )
 
@@ -145,7 +145,7 @@ echo   Creating virtual environment...
 
 if not exist "%VENV_FULL%\Scripts\python.exe" (
     echo   ERROR: Full venv creation failed.
-    pause
+    if not defined CI pause
     exit /b 1
 )
 
@@ -227,4 +227,4 @@ echo     build\windows\venv_lite\
 echo     build\windows\venv_full\
 echo.
 
-pause
+if not defined CI pause
