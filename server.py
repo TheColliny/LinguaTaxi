@@ -23,6 +23,16 @@ _cuda_lib_paths = [
     r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin",
     r"C:\Program Files\Blackmagic Design\DaVinci Resolve",
 ]
+
+# Scan nvidia pip packages in venv (bundled in Full installer)
+if sys.platform == "win32":
+    _nvidia_pkg_dir = os.path.join(sys.prefix, "Lib", "site-packages", "nvidia")
+    if os.path.isdir(_nvidia_pkg_dir):
+        for _pkg in os.listdir(_nvidia_pkg_dir):
+            _bin = os.path.join(_nvidia_pkg_dir, _pkg, "bin")
+            if os.path.isdir(_bin):
+                _cuda_lib_paths.append(_bin)
+
 for p in _cuda_lib_paths:
     if os.path.isdir(p):
         # Python 3.8+ on Windows: PATH no longer affects DLL search.

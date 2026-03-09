@@ -1,0 +1,23 @@
+THIRD-PARTY NOTICES — LinguaTaxi (Full Edition)
+=================================================
+
+This distribution includes NVIDIA runtime libraries redistributed under the
+NVIDIA Software License Agreement.
+
+NVIDIA CUDA Runtime, cuBLAS, and cuDNN
+---------------------------------------
+Copyright (c) NVIDIA Corporation. All rights reserved.
+
+These libraries are provided under the NVIDIA End User License Agreement.
+Full license text: https://docs.nvidia.com/cuda/eula/index.html
+cuDNN license: https://docs.nvidia.com/deeplearning/cudnn/backend/latest/reference/eula.html
+
+The NVIDIA runtime libraries (.dll files) included in this distribution are
+redistributable components as listed in Attachment A of the NVIDIA CUDA EULA
+and the cuDNN Supplement. They are provided "as is" and remain the property
+of NVIDIA Corporation.
+
+This software contains code provided by NVIDIA Corporation.
+
+All other components of LinguaTaxi are licensed under the MIT License.
+See LICENSE for details.
