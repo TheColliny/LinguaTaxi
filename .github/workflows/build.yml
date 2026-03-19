@@ -1,0 +1,154 @@
+name: Build Installers
+
+# Triggers:
+#   - Push a version tag (e.g., git tag v1.0.1 && git push origin v1.0.1)
+#     → builds all platforms and creates a GitHub Release
+#   - Manual trigger from Actions tab (workflow_dispatch)
+#     → builds all platforms, artifacts available for download
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  # ════════════════════════════════════════
+  # Windows: GPU + CPU installers via Inno Setup
+  # ════════════════════════════════════════
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+        shell: cmd
+
+      - name: Cache Python distribution
+        uses: actions/cache@v4
+        with:
+          path: build/windows/python_dist
+          key: python-dist-3.11.9
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-cache-${{ hashFiles('requirements.txt') }}
+
+      - name: Cache speech models
+        uses: actions/cache@v4
+        with:
+          path: build/windows/models_prebuilt
+          key: models-whisper-v3-turbo-vosk-small
+
+      - name: Build installers
+        run: cd build\windows && build.bat
+        shell: cmd
+        env:
+          CI: "true"
+
+      - name: Upload GPU installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gpu
+          path: dist/LinguaTaxi-GPU-Setup-*.exe
+          retention-days: 30
+
+      - name: Upload CPU installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cpu
+          path: dist/LinguaTaxi-CPU-Setup-*.exe
+          retention-days: 30
+
+  # ════════════════════════════════════════
+  # macOS: DMG with .app bundle
+  # Dependencies install on first launch
+  # ════════════════════════════════════════
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install create-dmg
+        run: brew install create-dmg || true
+
+      - name: Build DMG
+        run: |
+          chmod +x build/mac/build.sh
+          bash build/mac/build.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/LinguaTaxi-*.dmg
+          retention-days: 30
+
+  # ════════════════════════════════════════
+  # Linux: tar.gz with install script
+  # ════════════════════════════════════════
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tar.gz
+        run: |
+          chmod +x build/linux/build.sh
+          bash build/linux/build.sh
+
+      - name: Upload tar.gz
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tar
+          path: dist/LinguaTaxi-*-linux.tar.gz
+          retention-days: 30
+
+  # ════════════════════════════════════════
+  # Release: attach all artifacts to GitHub Release
+  # Only runs on tag pushes (v*)
+  # ════════════════════════════════════════
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "LinguaTaxi ${{ github.ref_name }}"
+          draft: false
+          generate_release_notes: true
+          files: |
+            release-assets/windows-gpu/*.exe
+            release-assets/windows-cpu/*.exe
+            release-assets/macos-dmg/*.dmg
+            release-assets/linux-tar/*.tar.gz
+          body: |
+            ## Downloads
+
+            | Platform | File | Description |
+            |----------|------|-------------|
+            | **Windows (GPU)** | `LinguaTaxi-GPU-Setup-1.0.0.exe` | Best accuracy — NVIDIA GPU (CUDA downloaded during install) |
+            | **Windows (CPU)** | `LinguaTaxi-CPU-Setup-1.0.0.exe` | CPU only — no GPU required |
+            | **macOS** | `LinguaTaxi-1.0.0.dmg` | Universal — Apple Silicon (MLX) or Intel (Vosk) |
+            | **Linux** | `LinguaTaxi-1.0.0-linux.tar.gz` | Extract and run `./install.sh` |
+
+            ## Requirements
+            - **Windows**: Windows 10+ (64-bit). GPU edition needs NVIDIA GPU + internet during install.
+            - **macOS**: macOS 12+. First launch installs dependencies (~2-5 min).
+            - **Linux**: Python 3.10+, tkinter, PortAudio. Install script handles setup.
