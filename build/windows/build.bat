@@ -4,7 +4,7 @@ setlocal EnableDelayedExpansion
 :: LinguaTaxi — Windows Installer Build Script
 ::
 :: Builds TWO installers:
-::   Full  (~600 MB) — GPU (faster-whisper + CUDA) + CPU (Vosk)
+::   Full  (~200 MB) — GPU (faster-whisper) + CPU (Vosk), CUDA downloaded at install
 ::   Lite  (~50 MB)  — CPU only (Vosk)
 ::
 :: Prerequisites on BUILD machine:
@@ -20,8 +20,8 @@ setlocal EnableDelayedExpansion
 ::   4. Compiles both Inno Setup installers
 ::
 :: Output:
-::   dist\LinguaTaxi-Setup-1.0.0.exe       (Full, ~600 MB)
-::   dist\LinguaTaxi-Lite-Setup-1.0.0.exe  (Lite, ~50 MB)
+::   dist\LinguaTaxi-GPU-Setup-1.0.0.exe    (Full, ~200 MB — CUDA downloaded at install)
+::   dist\LinguaTaxi-CPU-Setup-1.0.0.exe   (Lite, ~50 MB)
 :: ════════════════════════════════════════════════════════
 
 title LinguaTaxi - Build Installer
@@ -171,16 +171,11 @@ echo   Installing model conversion tools (transformers + torch-cpu)...
 "%VENV_FULL%\Scripts\pip.exe" install torch --index-url https://download.pytorch.org/whl/cpu >> "%SCRIPT_DIR%build_log.txt" 2>&1
 "%VENV_FULL%\Scripts\pip.exe" install transformers >> "%SCRIPT_DIR%build_log.txt" 2>&1
 
-echo   Installing NVIDIA CUDA libraries (~1.2 GB download)...
-echo   (This may take several minutes)
-"%VENV_FULL%\Scripts\pip.exe" install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 >> "%SCRIPT_DIR%build_log.txt" 2>&1
-if !ERRORLEVEL! NEQ 0 (
-    echo   WARNING: NVIDIA CUDA packages failed to install.
-    echo   The Full installer will work but without bundled GPU libraries.
-    echo   Users will need CUDA Toolkit installed separately.
-)
+echo   [NOTE] NVIDIA CUDA libraries are NOT bundled in the venv.
+echo          The installer will download them from GitHub during install.
+echo          Source: https://github.com/collin3000/LinguaTaxi-CUDA/releases/tag/v12.9
 
-echo   [OK] Full venv ready (faster-whisper + Vosk + CUDA)
+echo   [OK] Full venv ready (faster-whisper + Vosk, CUDA downloaded at install)
 
 :full_ready
 

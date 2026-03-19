@@ -127,6 +127,12 @@ Name: "{group}\Uninstall {#MyAppShortName}"; Filename: "{uninstallexe}"; IconFil
 Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Tasks: desktopicon
 
 [Run]
+#if EDITION == "Full"
+; ── Download NVIDIA CUDA libraries from GitHub (~1.2 GB total) ──
+Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/collin3000/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA CUDA Runtime (3.6 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/collin3000/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA cuBLAS (553 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/collin3000/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA cuDNN (644 MB)..."; Flags: runhidden
+#endif
 ; Optional: check for updated speech models (unchecked by default — bundled models work out of the box)
 Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"""; WorkingDir: "{app}"; Tasks: updatemodels; StatusMsg: "Checking for updated voice recognition models..."
 #if EDITION == "Full"
