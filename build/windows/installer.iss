@@ -104,10 +104,12 @@ Source: "..\..\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Pre-built Python runtime (from build.bat) ──
-Source: ".\python_dist\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Exclude __pycache__ and .pyc — Python regenerates bytecode at runtime.
+; This avoids "file corrupted" errors during install and reduces installer size.
+Source: ".\python_dist\*"; DestDir: "{app}\python"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Pre-built venv (edition-specific: venv_lite or venv_full) ──
-Source: ".\{#VenvSrc}\*"; DestDir: "{app}\venv"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\{#VenvSrc}\*"; DestDir: "{app}\venv"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Bundled speech models (optional — downloaded on first run if not bundled) ──
 #ifexist ".\models_prebuilt\vosk-model-small-en-us-0.15\README"

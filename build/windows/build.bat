@@ -225,7 +225,15 @@ if exist "%MODELS_PRE%\vosk-model-small-en-us-0.15" (
 
 :vosk_done
 
-:: ── Step 7: Compile both installers ──
+:: ── Step 7: Clean __pycache__ from python_dist and venvs ──
+:: .pyc files are regenerated at runtime; bundling them causes "file corrupted" install errors
+echo   Cleaning __pycache__ from build artifacts...
+for /d /r "%PYTHON_DIR%" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
+for /d /r "%VENV_LITE%" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
+for /d /r "%VENV_FULL%" %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
+echo   [OK] __pycache__ cleaned
+
+:: ── Step 8: Compile both installers ──
 mkdir "%DIST_DIR%" 2>nul
 
 echo.

@@ -139,6 +139,12 @@ jobs:
           "@
           }
 
+      - name: Clean __pycache__ from build artifacts
+        run: |
+          Write-Host "  Cleaning __pycache__ directories..."
+          Get-ChildItem -Path python_dist, venv_lite, venv_full -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          Write-Host "  [OK] __pycache__ cleaned"
+
       - name: Compile CPU installer
         shell: pwsh
         working-directory: build/windows
