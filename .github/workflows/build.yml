@@ -106,19 +106,24 @@ jobs:
             Write-Host "  [OK] Full venv ready (CUDA downloaded at install time)"
           }
 
-      - name: Download speech models
+      - name: Download speech models (best-effort)
+        continue-on-error: true
         run: |
           New-Item -ItemType Directory -Path models_prebuilt -Force | Out-Null
-          # Whisper model
+          # Whisper model (may fail if HuggingFace requires auth — users download on first run)
           if (Test-Path "models_prebuilt\faster-whisper-large-v3-turbo\model.bin") {
             Write-Host "  [OK] Whisper model already cached"
           } else {
             Write-Host "  Downloading Whisper large-v3-turbo (~1.5 GB)..."
-            & .\venv_full\Scripts\python.exe -c @"
+            try {
+              & .\venv_full\Scripts\python.exe -c @"
           from huggingface_hub import snapshot_download
           snapshot_download('Systran/faster-whisper-large-v3-turbo', local_dir=r'models_prebuilt\faster-whisper-large-v3-turbo')
           print('  [OK] Whisper model downloaded')
           "@
+            } catch {
+              Write-Host "  [SKIP] Whisper download failed (will download on first run)"
+            }
           }
           # Vosk model
           if (Test-Path "models_prebuilt\vosk-model-small-en-us-0.15\README") {
@@ -135,24 +140,24 @@ jobs:
           }
 
       - name: Compile CPU installer
-        shell: cmd
+        shell: pwsh
         working-directory: build/windows
         run: |
-          for %%p in ("%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do (
-            if exist "%%~p" "%%~p" /DEDITION=Lite installer.iss && goto :done
-          )
-          echo ISCC not found && exit /b 1
-          :done
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe" }
+          Write-Host "  Using ISCC: $iscc"
+          & $iscc /DEDITION=Lite installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "CPU installer compilation failed" }
 
       - name: Compile GPU installer
-        shell: cmd
+        shell: pwsh
         working-directory: build/windows
         run: |
-          for %%p in ("%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do (
-            if exist "%%~p" "%%~p" /DEDITION=Full installer.iss && goto :done
-          )
-          echo ISCC not found && exit /b 1
-          :done
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe" }
+          Write-Host "  Using ISCC: $iscc"
+          & $iscc /DEDITION=Full installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "GPU installer compilation failed" }
 
       - name: Upload GPU installer
         uses: actions/upload-artifact@v4

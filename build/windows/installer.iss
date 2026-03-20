@@ -109,10 +109,14 @@ Source: ".\python_dist\*"; DestDir: "{app}\python"; Flags: ignoreversion recurse
 ; ── Pre-built venv (edition-specific: venv_lite or venv_full) ──
 Source: ".\{#VenvSrc}\*"; DestDir: "{app}\venv"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Bundled speech models (works out of the box, no download needed) ──
+; ── Bundled speech models (optional — downloaded on first run if not bundled) ──
+#ifexist ".\models_prebuilt\vosk-model-small-en-us-0.15\README"
 Source: ".\models_prebuilt\vosk-model-small-en-us-0.15\*"; DestDir: "{app}\models\vosk-model-small-en-us-0.15"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 #if EDITION == "Full"
+  #ifexist ".\models_prebuilt\faster-whisper-large-v3-turbo\model.bin"
 Source: ".\models_prebuilt\faster-whisper-large-v3-turbo\*"; DestDir: "{app}\models\faster-whisper-large-v3-turbo"; Flags: ignoreversion recursesubdirs createallsubdirs
+  #endif
 #endif
 
 [Dirs]
