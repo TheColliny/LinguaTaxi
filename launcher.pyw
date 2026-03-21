@@ -135,6 +135,10 @@ class LinguaTaxiApp(tk.Tk):
             # Handle Ctrl+C
             signal.signal(signal.SIGINT, lambda *a: self._on_close())
 
+        # Auto-check for updates after UI is ready
+        if self.settings.get("check_for_updates", True):
+            self.after(2000, lambda: self._do_update_check(manual=False))
+
     # ── Window Setup ──
 
     def _setup_window(self):
