@@ -226,7 +226,7 @@ class LinguaTaxiApp(tk.Tk):
     # ── Window Setup ──
 
     def _setup_window(self):
-        self.title(APP_FULL)
+        self.title(_t("app.full_name"))
         self.minsize(520, 620)
         self.resizable(True, True)
 
@@ -332,6 +332,30 @@ class LinguaTaxiApp(tk.Tk):
         main = ttk.Frame(self, padding=16)
         main.pack(fill="both", expand=True)
 
+        # ── Language Selector ──
+        lang_row = ttk.Frame(main)
+        lang_row.pack(fill="x", pady=(0, 4))
+
+        ttk.Label(lang_row, text="\U0001F310", font=("Segoe UI", 14)).pack(side="left", padx=(0, 6))
+
+        lang_values = []
+        self._lang_codes = []
+        for code, info in sorted(self._languages.items(), key=lambda x: x[1].get("native", "")):
+            flag = info.get("flag", "")
+            native = info.get("native", info.get("name", code))
+            lang_values.append(f"{flag} {native}")
+            self._lang_codes.append(code)
+
+        self._lang_var = tk.StringVar()
+        self._lang_combo = ttk.Combobox(lang_row, textvariable=self._lang_var,
+                                         values=lang_values, state="readonly",
+                                         font=("Segoe UI", 10), width=25)
+        self._lang_combo.pack(side="left")
+        self._lang_combo.bind("<<ComboboxSelected>>", self._on_language_changed)
+
+        if self._current_lang in self._lang_codes:
+            self._lang_combo.current(self._lang_codes.index(self._current_lang))
+
         # ── Header ──
         hdr = ttk.Frame(main)
         hdr.pack(fill="x", pady=(0, 12))
@@ -340,31 +364,38 @@ class LinguaTaxiApp(tk.Tk):
         hdr_left = ttk.Frame(hdr)
         hdr_left.pack(side="left", fill="both", expand=True)
 
-        edition_suffix = f" — {EDITION} Edition" if EDITION != "Dev" else ""
-        ttk.Label(hdr_left, text=f"\U0001f695  LinguaTaxi{edition_suffix}",
-                  style="Title.TLabel").pack(anchor="w")
-        ttk.Label(hdr_left, text="Live Caption & Translation",
-                  style="Subtitle.TLabel").pack(anchor="w")
+        if EDITION != "Dev":
+            title_text = _t("launcher.title_edition", edition=EDITION)
+        else:
+            title_text = _t("launcher.title_dev")
+        self._title_lbl = ttk.Label(hdr_left, text=title_text,
+                  style="Title.TLabel")
+        self._title_lbl.pack(anchor="w")
+        self._subtitle_lbl = ttk.Label(hdr_left, text=_t("app.subtitle"),
+                  style="Subtitle.TLabel")
+        self._subtitle_lbl.pack(anchor="w")
 
         # Right side — update controls
         hdr_right = ttk.Frame(hdr)
         hdr_right.pack(side="right", anchor="ne")
 
-        ttk.Button(hdr_right, text="Check for Updates",
-                   command=self._check_for_updates_manual).pack(anchor="e")
+        self._update_btn = ttk.Button(hdr_right, text=_t("launcher.check_for_updates"),
+                   command=self._check_for_updates_manual)
+        self._update_btn.pack(anchor="e")
 
         self.update_check_var = tk.BooleanVar(
             value=self.settings.get("check_for_updates", True))
-        ttk.Checkbutton(hdr_right, text="Check on startup",
+        self._update_chk = ttk.Checkbutton(hdr_right, text=_t("launcher.check_on_startup"),
                         variable=self.update_check_var,
                         style="Update.TCheckbutton",
-                        command=self._on_update_check_toggled).pack(anchor="e", pady=(4, 0))
+                        command=self._on_update_check_toggled)
+        self._update_chk.pack(anchor="e", pady=(4, 0))
 
         # ── Server Control ──
-        srv_frame = ttk.LabelFrame(main, text="  Server  ", padding=12)
-        srv_frame.pack(fill="x", pady=(0, 10))
+        self._srv_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_frame") + "  ", padding=12)
+        self._srv_frame.pack(fill="x", pady=(0, 10))
 
-        status_row = ttk.Frame(srv_frame)
+        status_row = ttk.Frame(self._srv_frame)
         status_row.pack(fill="x", pady=(0, 8))
 
         self.status_dot = tk.Canvas(status_row, width=12, height=12,
@@ -372,7 +403,7 @@ class LinguaTaxiApp(tk.Tk):
         self.status_dot.pack(side="left", padx=(0, 6))
         self._draw_dot("#666")
 
-        self.status_label = ttk.Label(status_row, text="Stopped",
+        self.status_label = ttk.Label(status_row, text=_t("launcher.status_stopped"),
                                        style="Status.TLabel")
         self.status_label.pack(side="left")
 
@@ -380,53 +411,54 @@ class LinguaTaxiApp(tk.Tk):
                                         style="Subtitle.TLabel")
         self.backend_label.pack(side="right")
 
-        btn_row = ttk.Frame(srv_frame)
+        btn_row = ttk.Frame(self._srv_frame)
         btn_row.pack(fill="x")
 
-        self.start_btn = ttk.Button(btn_row, text="▶  Start Server",
+        self.start_btn = ttk.Button(btn_row, text=_t("launcher.start_server"),
                                      style="Start.TButton", command=self._start_server)
         self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
 
-        self.stop_btn = ttk.Button(btn_row, text="⏹  Stop",
+        self.stop_btn = ttk.Button(btn_row, text=_t("launcher.stop_server"),
                                     style="Stop.TButton", command=self._stop_server,
                                     state="disabled")
         self.stop_btn.pack(side="right", expand=True, fill="x", padx=(4, 0))
 
         # ── Browser Buttons ──
-        browser_frame = ttk.LabelFrame(main, text="  Open in Browser  ", padding=12)
-        browser_frame.pack(fill="x", pady=(0, 10))
+        self._browser_frame = ttk.LabelFrame(main, text="  " + _t("launcher.browser_frame") + "  ", padding=12)
+        self._browser_frame.pack(fill="x", pady=(0, 10))
 
-        self.op_btn = ttk.Button(browser_frame, text="🎛  Operator Controls",
+        self.op_btn = ttk.Button(self._browser_frame, text=_t("launcher.operator_controls"),
                                   style="Browser.TButton", command=self._open_operator,
                                   state="disabled")
         self.op_btn.pack(fill="x", pady=(0, 5))
 
-        disp_row = ttk.Frame(browser_frame)
+        disp_row = ttk.Frame(self._browser_frame)
         disp_row.pack(fill="x")
 
-        self.main_btn = ttk.Button(disp_row, text="📺  Main Display",
+        self.main_btn = ttk.Button(disp_row, text=_t("launcher.main_display"),
                                     style="Browser.TButton", command=self._open_main,
                                     state="disabled")
         self.main_btn.pack(side="left", expand=True, fill="x", padx=(0, 3))
 
-        self.ext_btn = ttk.Button(disp_row, text="📺  Extended Display",
+        self.ext_btn = ttk.Button(disp_row, text=_t("launcher.extended_display"),
                                    style="Browser.TButton", command=self._open_extended,
                                    state="disabled")
         self.ext_btn.pack(side="right", expand=True, fill="x", padx=(3, 0))
 
-        self.dict_btn = ttk.Button(browser_frame, text="📝  Dictation (Voice-to-Text)",
+        self.dict_btn = ttk.Button(self._browser_frame, text=_t("launcher.dictation"),
                                     style="Browser.TButton", command=self._open_dictation,
                                     state="disabled")
         self.dict_btn.pack(fill="x", pady=(5, 0))
 
         # ── Settings ──
-        settings_frame = ttk.LabelFrame(main, text="  Settings  ", padding=12)
-        settings_frame.pack(fill="x", pady=(0, 10))
+        self._settings_frame = ttk.LabelFrame(main, text="  " + _t("launcher.settings_frame") + "  ", padding=12)
+        self._settings_frame.pack(fill="x", pady=(0, 10))
 
         # Transcript directory
-        ttk.Label(settings_frame, text="Transcript Files:",
-                  style="Section.TLabel").pack(anchor="w")
-        tdir_row = ttk.Frame(settings_frame)
+        self._tfiles_lbl = ttk.Label(self._settings_frame, text=_t("launcher.transcript_files"),
+                  style="Section.TLabel")
+        self._tfiles_lbl.pack(anchor="w")
+        tdir_row = ttk.Frame(self._settings_frame)
         tdir_row.pack(fill="x", pady=(2, 8))
 
         self.tdir_var = tk.StringVar(value=self.settings.get("transcripts_dir",
@@ -435,14 +467,16 @@ class LinguaTaxiApp(tk.Tk):
                                      font=("Segoe UI", 10))
         self.tdir_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        ttk.Button(tdir_row, text="📁 Browse",
-                   command=self._browse_tdir).pack(side="right")
+        self._browse_btn = ttk.Button(tdir_row, text=_t("launcher.browse"),
+                   command=self._browse_tdir)
+        self._browse_btn.pack(side="right")
 
         # Audio Sources
-        ttk.Label(settings_frame, text="Audio Sources:",
-                  style="Section.TLabel").pack(anchor="w")
+        self._audio_lbl = ttk.Label(self._settings_frame, text=_t("launcher.audio_sources"),
+                  style="Section.TLabel")
+        self._audio_lbl.pack(anchor="w")
         self._source_frames = []  # list of (frame, combo, var) tuples
-        self._sources_container = ttk.Frame(settings_frame)
+        self._sources_container = ttk.Frame(self._settings_frame)
         self._sources_container.pack(fill="x", pady=(2, 4))
         self._mic_devices = []
 
@@ -450,41 +484,48 @@ class LinguaTaxiApp(tk.Tk):
         for idx in self.settings.get("source_indices", [-1]):
             self._add_source_row(idx)
 
-        self._add_source_btn = ttk.Button(settings_frame, text="+ Add Source",
+        self._add_source_btn = ttk.Button(self._settings_frame, text=_t("launcher.add_source"),
                                            command=lambda: self._add_source_row())
         self._add_source_btn.pack(fill="x", pady=(0, 8))
 
         # Backend
-        ttk.Label(settings_frame, text="Speech Backend:",
-                  style="Section.TLabel").pack(anchor="w")
-        self._backend_labels = {"auto": "auto", "whisper": "whisper (best)",
-                                 "vosk": "vosk (CPU only)", "mlx": "mlx (Apple Silicon)"}
+        self._backend_lbl = ttk.Label(self._settings_frame, text=_t("launcher.speech_backend"),
+                  style="Section.TLabel")
+        self._backend_lbl.pack(anchor="w")
+        self._backend_labels = {"auto": _t("launcher.backend_auto"),
+                                 "whisper": _t("launcher.backend_whisper"),
+                                 "vosk": _t("launcher.backend_vosk"),
+                                 "mlx": _t("launcher.backend_mlx")}
         self._backend_from_label = {v: k for k, v in self._backend_labels.items()}
         stored_backend = self.settings.get("backend", "auto")
         self.backend_var = tk.StringVar(value=self._backend_labels.get(stored_backend, stored_backend))
-        backend_values = ["auto", "whisper (best)", "vosk (CPU only)"]
+        backend_values = [_t("launcher.backend_auto"), _t("launcher.backend_whisper"),
+                          _t("launcher.backend_vosk")]
         if IS_MAC:
-            backend_values.append("mlx (Apple Silicon)")
-        backend_combo = ttk.Combobox(settings_frame, textvariable=self.backend_var,
+            backend_values.append(_t("launcher.backend_mlx"))
+        self._backend_combo = ttk.Combobox(self._settings_frame, textvariable=self.backend_var,
                                       state="readonly", font=("Segoe UI", 10),
                                       values=backend_values)
-        backend_combo.pack(fill="x", pady=(2, 8))
+        self._backend_combo.pack(fill="x", pady=(2, 8))
 
-        ttk.Button(settings_frame, text="⬇  Download Language-Tuned Models",
-                   command=self._show_tuned_models_dialog).pack(fill="x", pady=(0, 4))
+        self._tuned_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_tuned_models"),
+                   command=self._show_tuned_models_dialog)
+        self._tuned_btn.pack(fill="x", pady=(0, 4))
 
-        ttk.Button(settings_frame, text="⬇  Download Offline Translation Models",
-                   command=self._show_offline_translate_dialog).pack(fill="x", pady=(0, 4))
+        self._offline_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_offline_models"),
+                   command=self._show_offline_translate_dialog)
+        self._offline_btn.pack(fill="x", pady=(0, 4))
 
-        ttk.Button(settings_frame, text="🗑  Delete Installed Models",
-                   command=self._show_model_manager_dialog).pack(fill="x", pady=(0, 0))
+        self._delete_btn = ttk.Button(self._settings_frame, text=_t("launcher.delete_installed_models"),
+                   command=self._show_model_manager_dialog)
+        self._delete_btn.pack(fill="x", pady=(0, 0))
 
         # ── Log Area ──
-        log_frame = ttk.LabelFrame(main, text="  Server Log  ", padding=(8, 6))
-        log_frame.pack(fill="both", expand=True, pady=(0, 8))
+        self._log_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_log_frame") + "  ", padding=(8, 6))
+        self._log_frame.pack(fill="both", expand=True, pady=(0, 8))
 
-        log_scroll = ttk.Scrollbar(log_frame, orient="vertical")
-        self.log_text = tk.Text(log_frame, height=8, wrap="word",
+        log_scroll = ttk.Scrollbar(self._log_frame, orient="vertical")
+        self.log_text = tk.Text(self._log_frame, height=8, wrap="word",
                                  bg="#0a0a1a", fg="#7fdbca", insertbackground="#7fdbca",
                                  font=("Consolas" if IS_WIN else "Menlo", 10),
                                  relief="flat", padx=8, pady=6,
@@ -504,20 +545,21 @@ class LinguaTaxiApp(tk.Tk):
         footer = ttk.Frame(main)
         footer.pack(fill="x")
 
-        self.open_tdir_btn = ttk.Button(footer, text="📂 Open Transcripts",
+        self.open_tdir_btn = ttk.Button(footer, text=_t("launcher.open_transcripts"),
                                          command=self._open_transcripts_dir)
         self.open_tdir_btn.pack(side="left")
 
-        ttk.Button(footer, text="ℹ About",
-                   command=self._show_about).pack(side="left", padx=(6, 0))
+        self._about_btn = ttk.Button(footer, text=_t("launcher.about"),
+                   command=self._show_about)
+        self._about_btn.pack(side="left", padx=(6, 0))
 
         ttk.Label(footer, text=f"v{VERSION}", style="Subtitle.TLabel").pack(side="right")
 
         # Welcome message
-        self._log_system(f"LinguaTaxi v{VERSION}")
-        self._log_system(f"App directory: {APP_DIR}")
-        self._log_system(f"Transcripts: {self.tdir_var.get()}")
-        self._log_system("Ready — click 'Start Server' to begin.")
+        self._log_system(_t("launcher.log_welcome_version", version=VERSION))
+        self._log_system(_t("launcher.log_app_directory", path=APP_DIR))
+        self._log_system(_t("launcher.log_transcripts", path=self.tdir_var.get()))
+        self._log_system(_t("launcher.log_ready"))
 
     # ── Drawing ──
 
@@ -535,10 +577,10 @@ class LinguaTaxiApp(tk.Tk):
         row.pack(fill="x", pady=1)
 
         num = len(self._source_frames) + 1
-        lbl = ttk.Label(row, text=f"Source {num}:", width=9)
+        lbl = ttk.Label(row, text=_t("launcher.source_label", num=num), width=9)
         lbl.pack(side="left")
 
-        var = tk.StringVar(value="System Default")
+        var = tk.StringVar(value=_t("launcher.system_default"))
         combo = ttk.Combobox(row, textvariable=var, state="readonly",
                               font=("Segoe UI", 10))
         combo.pack(side="left", fill="x", expand=True, padx=(4, 4))
@@ -571,7 +613,7 @@ class LinguaTaxiApp(tk.Tk):
         for i, (r, c, v) in enumerate(self._source_frames):
             for child in r.winfo_children():
                 if isinstance(child, ttk.Label):
-                    child.configure(text=f"Source {i + 1}:")
+                    child.configure(text=_t("launcher.source_label", num=i + 1))
                     break
         self._update_add_button()
 
@@ -591,14 +633,14 @@ class LinguaTaxiApp(tk.Tk):
         self._mic_devices = mics
         physical = [f"[{i}] {n}" for i, n, lb in mics if not lb]
         loopback = [f"[{i}] {n}" for i, n, lb in mics if lb]
-        values = ["System Default"]
+        values = [_t("launcher.system_default")]
         if physical:
             values.extend(physical)
         if loopback:
-            values.append("── System Audio ──")
+            values.append(_t("launcher.system_audio_separator"))
             values.extend(loopback)
         elif IS_WIN:
-            values.append("── No system audio found (enable Stereo Mix) ──")
+            values.append(_t("launcher.no_system_audio"))
         combo["values"] = values
 
     def _get_source_indices(self):
@@ -606,7 +648,7 @@ class LinguaTaxiApp(tk.Tk):
         indices = []
         for _, combo, var in self._source_frames:
             text = var.get()
-            if text == "System Default" or combo.current() <= 0:
+            if text == _t("launcher.system_default") or combo.current() <= 0:
                 indices.append(-1)
             else:
                 for i, name, _ in self._mic_devices:
@@ -661,7 +703,7 @@ class LinguaTaxiApp(tk.Tk):
     def _download_models(self):
         """Show a progress dialog while downloading speech models."""
         dlg = tk.Toplevel(self)
-        dlg.title("First-Time Setup")
+        dlg.title(_t("launcher.dialog_first_time_title"))
         dlg.geometry("480x220")
         dlg.resizable(False, False)
         dlg.configure(bg=self.BG)
@@ -677,11 +719,11 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=24)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="Downloading Speech Recognition Model",
+        ttk.Label(f, text=_t("launcher.dialog_downloading_model"),
                   font=("Segoe UI", 12, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 8))
 
-        status_var = tk.StringVar(value="Preparing download...")
+        status_var = tk.StringVar(value=_t("launcher.dialog_preparing_download"))
         status_lbl = ttk.Label(f, textvariable=status_var,
                                style="Subtitle.TLabel", wraplength=420)
         status_lbl.pack(pady=(0, 12))
@@ -691,7 +733,7 @@ class LinguaTaxiApp(tk.Tk):
         progress.start(15)
 
         hint = ttk.Label(f,
-                         text="This only happens once. The model enables offline speech recognition.",
+                         text=_t("launcher.dialog_first_time_hint"),
                          style="Subtitle.TLabel", wraplength=420)
         hint.pack()
 
@@ -703,7 +745,7 @@ class LinguaTaxiApp(tk.Tk):
                 dl_script = APP_DIR / "download_models.py"
 
                 if not dl_script.exists():
-                    status_var.set("Model will download on first server start.")
+                    status_var.set(_t("launcher.dialog_model_download_fallback"))
                     download_done[0] = True
                     return
 
@@ -730,7 +772,7 @@ class LinguaTaxiApp(tk.Tk):
                 proc.wait()
 
             except Exception as e:
-                status_var.set(f"Model will download on first server start.")
+                status_var.set(_t("launcher.dialog_model_download_fallback"))
 
             finally:
                 download_done[0] = True
@@ -770,14 +812,13 @@ class LinguaTaxiApp(tk.Tk):
         """Show dialog for downloading language-tuned Whisper models."""
         # Check tuned_models.py exists
         if not (APP_DIR / "tuned_models.py").exists():
-            messagebox.showinfo("Not Available",
-                "tuned_models.py not found.\n"
-                "This feature requires the Full edition.",
+            messagebox.showinfo(_t("launcher.dialog_tuned_not_available_title"),
+                _t("launcher.dialog_tuned_not_available"),
                 parent=self)
             return
 
         dlg = tk.Toplevel(self)
-        dlg.title("Download Language-Tuned Models")
+        dlg.title(_t("launcher.dialog_tuned_title"))
         dlg.geometry("520x480")
         dlg.minsize(400, 300)
         dlg.resizable(True, True)
@@ -794,13 +835,11 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=20)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="Download Language-Tuned Models",
+        ttk.Label(f, text=_t("launcher.dialog_tuned_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        ttk.Label(f, text="Fine-tuned Whisper models with better accuracy for\n"
-                  "specific languages. Used automatically when you select\n"
-                  "the matching input language in the operator panel.",
+        ttk.Label(f, text=_t("launcher.dialog_tuned_description"),
                   style="Subtitle.TLabel", justify="center",
                   wraplength=460).pack(pady=(0, 12))
 
@@ -859,7 +898,7 @@ class LinguaTaxiApp(tk.Tk):
                 tk.Label(row, text=f"{name} \u2014 ~{size} GB  ",
                          fg=self.FG, bg=self.BG,
                          font=("Segoe UI", 9)).pack(side="left")
-                tk.Label(row, text="Installed", fg="#66BB6A", bg=self.BG,
+                tk.Label(row, text=_t("launcher.dialog_tuned_installed"), fg="#66BB6A", bg=self.BG,
                          font=("Segoe UI", 9, "bold")).pack(side="left")
                 cb_widgets[lang] = None
             else:
@@ -872,12 +911,12 @@ class LinguaTaxiApp(tk.Tk):
         btn_frame = ttk.Frame(f)
         btn_frame.pack(fill="x", pady=(0, 8))
 
-        dl_btn = ttk.Button(btn_frame, text="Download Selected",
+        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
                             style="Start.TButton",
                             command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
-        close_btn = ttk.Button(btn_frame, text="Close",
+        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
                                command=dlg.destroy)
         close_btn.pack(side="right")
 
@@ -888,14 +927,13 @@ class LinguaTaxiApp(tk.Tk):
         progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
         progress_bar.pack_forget()
 
-        status_var = tk.StringVar(value="Select languages and click Download.")
+        status_var = tk.StringVar(value=_t("launcher.dialog_tuned_select_prompt"))
         status_label = ttk.Label(prog_frame, textvariable=status_var,
                                  style="Subtitle.TLabel", wraplength=460)
         status_label.pack(fill="x")
 
         hint_label = ttk.Label(prog_frame,
-                               text="Requires transformers and torch packages in the venv.\n"
-                               "Included in Full installer. Each model takes 5-30 minutes.",
+                               text=_t("launcher.dialog_tuned_hint"),
                                style="Subtitle.TLabel", wraplength=460)
         hint_label.pack(fill="x", pady=(8, 0))
 
@@ -905,8 +943,8 @@ class LinguaTaxiApp(tk.Tk):
             selected = [lang for lang, var in check_vars.items()
                         if var.get() and not model_info.get(lang, {}).get("available")]
             if not selected:
-                messagebox.showinfo("No Selection",
-                    "Please select at least one language to download.",
+                messagebox.showinfo(_t("launcher.dialog_tuned_no_selection_title"),
+                    _t("launcher.dialog_tuned_no_selection"),
                     parent=dlg)
                 return
 
@@ -917,7 +955,7 @@ class LinguaTaxiApp(tk.Tk):
                     cb.configure(state="disabled")
             progress_bar.pack(fill="x", pady=(0, 4))
             progress_bar["value"] = 0
-            status_var.set("Starting download...")
+            status_var.set(_t("launcher.dialog_tuned_starting"))
 
             python = self._find_python()
             models_dir = APP_DIR / "models"
@@ -981,13 +1019,13 @@ class LinguaTaxiApp(tk.Tk):
                 proc.wait()
                 if completed == 0 and proc.returncode != 0:
                     err_msg = last_output[-1] if last_output else f"Process exited with code {proc.returncode}"
-                    dl_queue.put(("finished_err", 0, f"Download failed: {err_msg}"))
+                    dl_queue.put(("finished_err", 0, _t("launcher.dialog_tuned_download_failed", error=err_msg)))
                 elif failed > 0 and succeeded == 0:
-                    summary = f"Download failed: {errors[0]}" if errors else "Download failed."
+                    summary = _t("launcher.dialog_tuned_download_failed", error=errors[0]) if errors else _t("launcher.dialog_tuned_download_failed", error="unknown")
                     dl_queue.put(("finished_err", 0, summary))
                 elif failed > 0:
                     dl_queue.put(("finished_partial", succeeded,
-                                  f"{succeeded} downloaded, {failed} failed"))
+                                  _t("launcher.dialog_tuned_partial", succeeded=succeeded, failed=failed)))
                 else:
                     dl_queue.put(("finished", 0, ""))
 
@@ -1014,7 +1052,7 @@ class LinguaTaxiApp(tk.Tk):
                         elif msg_type in ("finished", "finished_err", "finished_partial"):
                             if msg_type == "finished":
                                 progress_bar["value"] = 100
-                                status_var.set("Download complete!")
+                                status_var.set(_t("launcher.dialog_tuned_download_complete"))
                             elif msg_type == "finished_err":
                                 progress_bar["value"] = 0
                                 status_var.set(msg)
@@ -1059,13 +1097,13 @@ class LinguaTaxiApp(tk.Tk):
     def _show_offline_translate_dialog(self):
         """Show dialog for downloading offline translation models."""
         if not (APP_DIR / "offline_translate.py").exists():
-            messagebox.showinfo("Not Available",
-                "offline_translate.py not found.",
+            messagebox.showinfo(_t("launcher.dialog_tuned_not_available_title"),
+                _t("launcher.dialog_offline_not_available"),
                 parent=self)
             return
 
         dlg = tk.Toplevel(self)
-        dlg.title("Download Offline Translation Models")
+        dlg.title(_t("launcher.dialog_offline_title"))
         dlg.geometry("560x580")
         dlg.minsize(440, 350)
         dlg.resizable(True, True)
@@ -1081,13 +1119,11 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=20)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="Download Offline Translation Models",
+        ttk.Label(f, text=_t("launcher.dialog_offline_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        ttk.Label(f, text="Translate without internet or DeepL credits.\n"
-                  "OPUS-MT: fast, best for European languages (~310 MB download each)\n"
-                  "M2M-100: covers 100 languages (~4.8 GB download, slower)",
+        ttk.Label(f, text=_t("launcher.dialog_offline_description"),
                   style="Subtitle.TLabel", justify="center",
                   wraplength=500).pack(pady=(0, 12))
 
@@ -1131,7 +1167,7 @@ class LinguaTaxiApp(tk.Tk):
         dlg.bind("<Destroy>", lambda e: ol_canvas.unbind_all("<MouseWheel>") if e.widget == dlg else None)
 
         # OPUS-MT section
-        ttk.Label(ol_inner, text="OPUS-MT (per-language, fast):",
+        ttk.Label(ol_inner, text=_t("launcher.dialog_offline_opus_section"),
                   style="Section.TLabel").pack(anchor="w", pady=(4, 2))
 
         opus_frame = ttk.Frame(ol_inner)
@@ -1158,7 +1194,7 @@ class LinguaTaxiApp(tk.Tk):
                 tk.Label(row, text=f"{name} ({lang}) \u2014 ~{size} MB download  ",
                          fg=self.FG, bg=self.BG,
                          font=("Segoe UI", 9)).pack(side="left")
-                tk.Label(row, text="Installed", fg="#66BB6A", bg=self.BG,
+                tk.Label(row, text=_t("launcher.dialog_offline_installed"), fg="#66BB6A", bg=self.BG,
                          font=("Segoe UI", 9, "bold")).pack(side="left")
                 opus_cbs[lang] = None
             else:
@@ -1168,7 +1204,7 @@ class LinguaTaxiApp(tk.Tk):
                 opus_cbs[lang] = cb
 
         # M2M-100 section
-        ttk.Label(ol_inner, text="M2M-100 (all languages, larger):",
+        ttk.Label(ol_inner, text=_t("launcher.dialog_offline_m2m_section"),
                   style="Section.TLabel").pack(anchor="w", pady=(8, 2))
 
         m2m_frame = ttk.Frame(ol_inner)
@@ -1188,7 +1224,7 @@ class LinguaTaxiApp(tk.Tk):
             tk.Label(row, text=f"{m2m_name} \u2014 ~{m2m_size_str}  ",
                      fg=self.FG, bg=self.BG,
                      font=("Segoe UI", 9)).pack(side="left")
-            tk.Label(row, text="Installed", fg="#66BB6A", bg=self.BG,
+            tk.Label(row, text=_t("launcher.dialog_offline_installed"), fg="#66BB6A", bg=self.BG,
                      font=("Segoe UI", 9, "bold")).pack(side="left")
         else:
             m2m_text = f"{m2m_name} \u2014 ~{m2m_size_str} download (covers Arabic, Japanese, Chinese, Korean, etc.)"
@@ -1199,12 +1235,12 @@ class LinguaTaxiApp(tk.Tk):
         btn_frame = ttk.Frame(f)
         btn_frame.pack(fill="x", pady=(8, 4))
 
-        dl_btn = ttk.Button(btn_frame, text="Download Selected",
+        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
                             style="Start.TButton",
                             command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
-        close_btn = ttk.Button(btn_frame, text="Close",
+        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
                                command=dlg.destroy)
         close_btn.pack(side="right")
 
@@ -1215,14 +1251,13 @@ class LinguaTaxiApp(tk.Tk):
         progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
         progress_bar.pack_forget()
 
-        status_var = tk.StringVar(value="Select models and click Download.")
+        status_var = tk.StringVar(value=_t("launcher.dialog_offline_select_prompt"))
         status_label = ttk.Label(prog_frame, textvariable=status_var,
                                  style="Subtitle.TLabel", wraplength=500)
         status_label.pack(fill="x")
 
         ttk.Label(prog_frame,
-                  text="Requires transformers, torch, and ctranslate2.\n"
-                  "Included in Full installer. OPUS-MT: ~5 min each, M2M-100: ~30-60 min.",
+                  text=_t("launcher.dialog_offline_hint"),
                   style="Subtitle.TLabel", wraplength=500).pack(fill="x", pady=(8, 0))
 
         dl_queue = queue.Queue()
@@ -1234,8 +1269,8 @@ class LinguaTaxiApp(tk.Tk):
             want_m2m = m2m_var.get() and not m2m_avail
 
             if not opus_selected and not want_m2m:
-                messagebox.showinfo("No Selection",
-                    "Please select at least one model to download.",
+                messagebox.showinfo(_t("launcher.dialog_offline_no_selection_title"),
+                    _t("launcher.dialog_offline_no_selection"),
                     parent=dlg)
                 return
 
@@ -1248,7 +1283,7 @@ class LinguaTaxiApp(tk.Tk):
                 m2m_cb.configure(state="disabled")
             progress_bar.pack(fill="x", pady=(0, 4))
             progress_bar["value"] = 0
-            status_var.set("Starting download...")
+            status_var.set(_t("launcher.dialog_offline_starting"))
 
             python = self._find_python()
             models_dir = APP_DIR / "models"
@@ -1334,13 +1369,13 @@ class LinguaTaxiApp(tk.Tk):
                 if completed == 0 and failed == 0:
                     # No DONE lines at all — subprocess likely crashed silently
                     err_msg = last_output[-1] if last_output else "Download process produced no output"
-                    dl_queue.put(("finished_err", 0, f"Download failed: {err_msg}"))
+                    dl_queue.put(("finished_err", 0, _t("launcher.dialog_offline_download_failed", error=err_msg)))
                 elif failed > 0 and succeeded == 0:
-                    summary = f"Download failed: {errors[0]}" if errors else "Download failed."
+                    summary = _t("launcher.dialog_offline_download_failed", error=errors[0]) if errors else _t("launcher.dialog_offline_download_failed", error="unknown")
                     dl_queue.put(("finished_err", 0, summary))
                 elif failed > 0:
                     dl_queue.put(("finished_partial", succeeded,
-                                  f"{succeeded} downloaded, {failed} failed"))
+                                  _t("launcher.dialog_offline_partial", succeeded=succeeded, failed=failed)))
                 else:
                     dl_queue.put(("finished", 0, ""))
 
@@ -1363,7 +1398,7 @@ class LinguaTaxiApp(tk.Tk):
                         elif msg_type in ("finished", "finished_err", "finished_partial"):
                             if msg_type == "finished":
                                 progress_bar["value"] = 100
-                                status_var.set("Download complete!")
+                                status_var.set(_t("launcher.dialog_offline_download_complete"))
                             elif msg_type == "finished_err":
                                 progress_bar["value"] = 0
                                 status_var.set(msg)
@@ -1402,7 +1437,7 @@ class LinguaTaxiApp(tk.Tk):
     def _show_model_manager_dialog(self):
         """Show dialog to view, update, and delete installed models."""
         dlg = tk.Toplevel(self)
-        dlg.title("Delete Installed Models")
+        dlg.title(_t("launcher.dialog_models_title"))
         dlg.geometry("680x620")
         dlg.minsize(500, 350)
         dlg.resizable(True, True)
@@ -1418,11 +1453,11 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=16)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="Delete Installed Models",
+        ttk.Label(f, text=_t("launcher.dialog_models_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        status_var = tk.StringVar(value="Loading model information...")
+        status_var = tk.StringVar(value=_t("launcher.dialog_models_loading"))
         status_lbl = ttk.Label(f, textvariable=status_var,
                                style="Subtitle.TLabel", wraplength=560)
         status_lbl.pack(fill="x", pady=(0, 8))
@@ -1459,9 +1494,9 @@ class LinguaTaxiApp(tk.Tk):
         ttk.Label(btn_frame, textvariable=total_var,
                   style="Subtitle.TLabel").pack(side="left")
 
-        ttk.Button(btn_frame, text="Refresh",
+        ttk.Button(btn_frame, text=_t("launcher.dialog_models_refresh"),
                    command=lambda: _populate()).pack(side="right", padx=(8, 0))
-        ttk.Button(btn_frame, text="Close",
+        ttk.Button(btn_frame, text=_t("launcher.close"),
                    command=dlg.destroy).pack(side="right")
 
         python = self._find_python()
@@ -1520,9 +1555,8 @@ class LinguaTaxiApp(tk.Tk):
 
         def _delete_model(model_type, key, name):
             """Delete a model and refresh the list."""
-            if not messagebox.askyesno("Delete Model",
-                    f"Delete {name}?\n\nThis cannot be undone. "
-                    f"You'll need to re-download to use it again.",
+            if not messagebox.askyesno(_t("launcher.dialog_models_delete_confirm_title"),
+                    _t("launcher.dialog_models_delete_confirm", name=name),
                     parent=dlg):
                 return
 
@@ -1536,27 +1570,27 @@ class LinguaTaxiApp(tk.Tk):
                     path = models_dir / key
                     if path.exists():
                         shutil.rmtree(path)
-                    status_var.set(f"Deleted {name}")
+                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
                 elif model_type == "tuned":
                     subprocess.run(
                         [python, str(APP_DIR / "tuned_models.py"),
                          "--delete", key, "--models-dir", str(models_dir)],
                         capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(f"Deleted {name}")
+                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
                 elif model_type == "opus":
                     subprocess.run(
                         [python, str(APP_DIR / "offline_translate.py"),
                          "--delete-opus", key, "--models-dir", str(models_dir)],
                         capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(f"Deleted {name}")
+                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
                 elif model_type == "m2m":
                     subprocess.run(
                         [python, str(APP_DIR / "offline_translate.py"),
                          "--delete-m2m", "--models-dir", str(models_dir)],
                         capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(f"Deleted {name}")
+                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
             except Exception as e:
-                status_var.set(f"Delete failed: {e}")
+                status_var.set(_t("launcher.error_delete_failed", error=e))
                 return
 
             _populate()
@@ -1586,7 +1620,7 @@ class LinguaTaxiApp(tk.Tk):
                                 font=("Segoe UI", 9))
             size_lbl.pack(side="left", padx=(8, 8))
 
-            del_btn = tk.Button(row, text="  Delete  ", fg="#fff", bg="#c62828",
+            del_btn = tk.Button(row, text="  " + _t("launcher.dialog_models_delete_btn") + "  ", fg="#fff", bg="#c62828",
                                 activeforeground="#fff", activebackground="#f44336",
                                 font=("Segoe UI", 8, "bold"), relief="raised",
                                 cursor="hand2", bd=1,
@@ -1603,7 +1637,7 @@ class LinguaTaxiApp(tk.Tk):
             total_bytes = 0
 
             # Speech models
-            _add_section_header(list_frame, "Speech Recognition Models")
+            _add_section_header(list_frame, _t("launcher.dialog_models_speech_section"))
             speech = _get_speech_models()
             if speech:
                 for m in speech:
@@ -1611,11 +1645,11 @@ class LinguaTaxiApp(tk.Tk):
                     _add_model_row(list_frame, m["name"], _fmt_size(m["size"]),
                                    "speech", m["key"])
             else:
-                tk.Label(list_frame, text="  No speech models installed",
+                tk.Label(list_frame, text="  " + _t("launcher.dialog_models_no_speech"),
                          fg="#666", bg=self.BG, font=("Segoe UI", 9, "italic")).pack(anchor="w")
 
             # Tuned models
-            _add_section_header(list_frame, "Language-Tuned Whisper Models")
+            _add_section_header(list_frame, _t("launcher.dialog_models_tuned_section"))
             tuned = _get_tuned_models()
             has_tuned = False
             for lang, info in sorted(tuned.items()):
@@ -1627,14 +1661,14 @@ class LinguaTaxiApp(tk.Tk):
                     total_bytes += size
                     _add_model_row(list_frame, name, _fmt_size(size), "tuned", lang)
             if not tuned:
-                tk.Label(list_frame, text="  tuned_models.py not found (Full edition only)",
+                tk.Label(list_frame, text="  " + _t("launcher.dialog_models_no_tuned_script"),
                          fg="#666", bg=self.BG, font=("Segoe UI", 9, "italic")).pack(anchor="w")
             elif not has_tuned:
-                tk.Label(list_frame, text="  No tuned models installed",
+                tk.Label(list_frame, text="  " + _t("launcher.dialog_models_no_tuned"),
                          fg="#666", bg=self.BG, font=("Segoe UI", 9, "italic")).pack(anchor="w")
 
             # Translation models
-            _add_section_header(list_frame, "Offline Translation Models")
+            _add_section_header(list_frame, _t("launcher.dialog_models_translate_section"))
             translate = _get_translate_models()
             opus = translate.get("opus", {})
             m2m = translate.get("m2m100", {})
@@ -1660,7 +1694,7 @@ class LinguaTaxiApp(tk.Tk):
                 _add_model_row(list_frame, m2m_name, _fmt_size(size), "m2m", "m2m100")
 
             if not translate or (not has_opus and not (m2m and m2m.get("available", False))):
-                tk.Label(list_frame, text="  No offline translation models installed",
+                tk.Label(list_frame, text="  " + _t("launcher.dialog_models_no_translate"),
                          fg="#666", bg=self.BG, font=("Segoe UI", 9, "italic")).pack(anchor="w")
 
             # Check for leftover HF cache
@@ -1669,14 +1703,15 @@ class LinguaTaxiApp(tk.Tk):
                 cache_size = sum(f.stat().st_size for f in hf_cache.rglob("*") if f.is_file())
                 if cache_size > 0:
                     total_bytes += cache_size
-                    _add_section_header(list_frame, "Temporary Cache")
-                    _add_model_row(list_frame, "HuggingFace download cache",
+                    _add_section_header(list_frame, _t("launcher.dialog_models_cache_section"))
+                    _add_model_row(list_frame, _t("launcher.dialog_models_hf_cache"),
                                    _fmt_size(cache_size), "speech", "translate/_hf_cache")
 
-            total_var.set(f"Total disk usage: {_fmt_size(total_bytes)}")
-            status_var.set(f"Found {len(speech)} speech, "
-                          f"{sum(1 for i in tuned.values() if i.get('available'))} tuned, "
-                          f"{sum(1 for i in opus.values() if i.get('available'))} translation models")
+            total_var.set(_t("launcher.dialog_models_total_disk", size=_fmt_size(total_bytes)))
+            status_var.set(_t("launcher.dialog_models_summary",
+                          speech=len(speech),
+                          tuned=sum(1 for i in tuned.values() if i.get('available')),
+                          translate=sum(1 for i in opus.values() if i.get('available'))))
             canvas.yview_moveto(0)
 
         # Run initial populate in a thread to avoid blocking UI
@@ -1703,9 +1738,9 @@ class LinguaTaxiApp(tk.Tk):
 
         # First-run: download speech model if needed
         if self._needs_model_download():
-            self._log_system("First run — downloading speech recognition model...")
+            self._log_system(_t("launcher.log_first_run_downloading"))
             self._download_models()
-            self._log_system("Model setup complete.")
+            self._log_system(_t("launcher.log_model_setup_complete"))
 
         # Save settings
         self._save_current_settings()
@@ -1715,11 +1750,11 @@ class LinguaTaxiApp(tk.Tk):
         try:
             tdir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            messagebox.showerror("Error", f"Cannot create transcript directory:\n{e}")
+            messagebox.showerror("Error", _t("launcher.error_create_transcript_dir", error=e))
             return
 
         cmd = self._build_server_cmd()
-        self._log_system(f"Starting: {' '.join(cmd)}")
+        self._log_system(_t("launcher.log_starting", command=' '.join(cmd)))
 
         try:
             # Use CREATE_NO_WINDOW on Windows to avoid console flash
@@ -1751,15 +1786,15 @@ class LinguaTaxiApp(tk.Tk):
             threading.Thread(target=self._check_server_readiness, daemon=True).start()
 
         except FileNotFoundError:
-            self._log_error("Python not found. Please install Python 3.10+ or reinstall LinguaTaxi.")
+            self._log_error(_t("launcher.error_python_not_found"))
         except Exception as e:
-            self._log_error(f"Failed to start server: {e}")
+            self._log_error(_t("launcher.error_start_server", error=e))
 
     def _stop_server(self):
         if not self._server_running or not self.server_proc:
             return
 
-        self._log_system("Stopping server...")
+        self._log_system(_t("launcher.log_stopping_server"))
 
         try:
             if IS_WIN:
@@ -1775,7 +1810,7 @@ class LinguaTaxiApp(tk.Tk):
                 self.server_proc.kill()
                 self.server_proc.wait(timeout=3)
         except Exception as e:
-            self._log_error(f"Error stopping server: {e}")
+            self._log_error(_t("launcher.error_stop_server", error=e))
             try:
                 self.server_proc.kill()
             except Exception:
@@ -1785,7 +1820,7 @@ class LinguaTaxiApp(tk.Tk):
         self._server_ready = False
         self.server_proc = None
         self._update_ui_state(running=False)
-        self._log_system("Server stopped.")
+        self._log_system(_t("launcher.log_server_stopped"))
 
     def _read_server_output(self):
         """Read server stdout in a background thread."""
@@ -1839,15 +1874,15 @@ class LinguaTaxiApp(tk.Tk):
                     if not self._server_ready:
                         self._server_ready = True
                         self._draw_dot(self.GREEN)
-                        self.status_label.configure(text="Running", foreground=self.GREEN)
-                        self._log_system("Server is ready!")
+                        self.status_label.configure(text=_t("launcher.status_running"), foreground=self.GREEN)
+                        self._log_system(_t("launcher.log_server_ready"))
 
                 elif msg_type == "stopped":
                     self._server_running = False
                     self._server_ready = False
                     self.server_proc = None
                     self._update_ui_state(running=False)
-                    self._log_system("Server process ended.")
+                    self._log_system(_t("launcher.log_server_ended"))
 
         except queue.Empty:
             pass
@@ -1866,8 +1901,8 @@ class LinguaTaxiApp(tk.Tk):
             self.ext_btn.configure(state="normal")
             self.dict_btn.configure(state="normal")
             self._draw_dot(self.ORANGE)
-            self.status_label.configure(text="Starting...", foreground=self.ORANGE)
-            self.backend_label.configure(text="detecting...")
+            self.status_label.configure(text=_t("launcher.status_starting"), foreground=self.ORANGE)
+            self.backend_label.configure(text=_t("launcher.status_detecting"))
         else:
             self.start_btn.configure(state="normal")
             self.stop_btn.configure(state="disabled")
@@ -1876,7 +1911,7 @@ class LinguaTaxiApp(tk.Tk):
             self.ext_btn.configure(state="disabled")
             self.dict_btn.configure(state="disabled")
             self._draw_dot("#666")
-            self.status_label.configure(text="Stopped", foreground=self.FG2)
+            self.status_label.configure(text=_t("launcher.status_stopped"), foreground=self.FG2)
             self.backend_label.configure(text="")
 
     # ── Server Readiness ──
@@ -1900,8 +1935,8 @@ class LinguaTaxiApp(tk.Tk):
         import urllib.request
 
         if not self._server_running:
-            messagebox.showwarning("Server Not Running",
-                "The server is not running.\nClick 'Start Server' first.",
+            messagebox.showwarning(_t("launcher.dialog_server_not_running_title"),
+                _t("launcher.dialog_server_not_running"),
                 parent=self)
             return
 
@@ -1913,8 +1948,8 @@ class LinguaTaxiApp(tk.Tk):
             return
 
         # Server starting but not ready — notify user and wait in background
-        messagebox.showinfo("Server Starting",
-            "The server is starting. Your window will open upon server start.",
+        messagebox.showinfo(_t("launcher.dialog_server_starting_title"),
+            _t("launcher.dialog_server_starting"),
             parent=self)
 
         def _wait_and_open():
@@ -1930,9 +1965,8 @@ class LinguaTaxiApp(tk.Tk):
                 except Exception:
                     time.sleep(1)
             # Timeout — server never responded
-            self.after(0, lambda: messagebox.showwarning("Server Not Responding",
-                "The server does not seem to be responding.\n"
-                "Try stopping the server and starting it again.",
+            self.after(0, lambda: messagebox.showwarning(_t("launcher.dialog_server_not_responding_title"),
+                _t("launcher.dialog_server_not_responding"),
                 parent=self))
 
         threading.Thread(target=_wait_and_open, daemon=True).start()
@@ -1966,11 +2000,11 @@ class LinguaTaxiApp(tk.Tk):
     def _browse_tdir(self):
         current = self.tdir_var.get().strip()
         d = filedialog.askdirectory(initialdir=current if Path(current).exists() else str(Path.home()),
-                                     title="Select Transcript Save Location")
+                                     title=_t("launcher.dialog_select_transcript_location"))
         if d:
             self.tdir_var.set(d)
             self._save_current_settings()
-            self._log_system(f"Transcripts directory: {d}")
+            self._log_system(_t("launcher.log_transcripts_directory", path=d))
 
     def _save_current_settings(self):
         self.settings["transcripts_dir"] = self.tdir_var.get().strip()
@@ -1978,6 +2012,7 @@ class LinguaTaxiApp(tk.Tk):
         self.settings["backend"] = self._backend_from_label.get(self.backend_var.get(), self.backend_var.get())
         self.settings["window_geometry"] = self.geometry()
         self.settings["check_for_updates"] = self.update_check_var.get()
+        self.settings["language"] = self._current_lang
         save_settings(self.settings)
 
     # ── Logging ──
@@ -2003,7 +2038,7 @@ class LinguaTaxiApp(tk.Tk):
 
     def _show_about(self):
         about = tk.Toplevel(self)
-        about.title("About LinguaTaxi")
+        about.title(_t("launcher.dialog_about_title"))
         about.geometry("400x320")
         about.resizable(False, False)
         about.configure(bg=self.BG)
@@ -2013,23 +2048,16 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(about, padding=24)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text="🚕  LinguaTaxi", style="Title.TLabel").pack(pady=(0, 4))
-        ttk.Label(f, text="Live Caption & Translation",
+        ttk.Label(f, text=_t("launcher.dialog_about_heading"), style="Title.TLabel").pack(pady=(0, 4))
+        ttk.Label(f, text=_t("app.subtitle"),
                   style="Subtitle.TLabel").pack()
         ttk.Label(f, text=f"Version {VERSION}",
                   style="Subtitle.TLabel").pack(pady=(8, 16))
 
-        info = (
-            "Real-time speech captioning with up to 5\n"
-            "simultaneous translations via DeepL.\n\n"
-            "Supports NVIDIA CUDA (Windows/Linux),\n"
-            "Apple Metal (macOS), and CPU fallback.\n\n"
-            "Backends: faster-whisper • mlx-whisper • Vosk"
-        )
-        ttk.Label(f, text=info, justify="center",
+        ttk.Label(f, text=_t("launcher.dialog_about_description"), justify="center",
                   style="Subtitle.TLabel").pack()
 
-        ttk.Button(f, text="Close", command=about.destroy).pack(pady=(16, 0))
+        ttk.Button(f, text=_t("launcher.close"), command=about.destroy).pack(pady=(16, 0))
 
     # ── Update Checking ──
 
@@ -2081,15 +2109,14 @@ class LinguaTaxiApp(tk.Tk):
 
         threading.Thread(target=_worker, daemon=True).start()
         if manual:
-            self._log_system("Checking for updates...")
+            self._log_system(_t("launcher.log_checking_updates"))
 
     def _handle_update_result(self, result, manual):
         """Process update check result on the main thread."""
         if result is None:
             if manual:
-                messagebox.showinfo("Check for Updates",
-                    "Could not reach GitHub. Check your internet connection\n"
-                    "or try again later (rate limit: 60 requests/hour).",
+                messagebox.showinfo(_t("launcher.dialog_update_check_title"),
+                    _t("launcher.dialog_update_no_internet"),
                     parent=self)
             return
 
@@ -2099,15 +2126,15 @@ class LinguaTaxiApp(tk.Tk):
 
         if remote_ver is None or local_ver is None:
             if manual:
-                messagebox.showinfo("Check for Updates",
-                    f"Could not parse version: remote={tag}, local={VERSION}",
+                messagebox.showinfo(_t("launcher.dialog_update_check_title"),
+                    _t("launcher.dialog_update_parse_error", remote=tag, local=VERSION),
                     parent=self)
             return
 
         if remote_ver <= local_ver:
             if manual:
-                messagebox.showinfo("Check for Updates",
-                    f"You're up to date! (v{VERSION})", parent=self)
+                messagebox.showinfo(_t("launcher.dialog_update_check_title"),
+                    _t("launcher.dialog_update_up_to_date", version=VERSION), parent=self)
             return
 
         # New version available — check if dismissed
@@ -2121,7 +2148,7 @@ class LinguaTaxiApp(tk.Tk):
         version = tag.lstrip("v")
 
         dlg = tk.Toplevel(self)
-        dlg.title("Update Available")
+        dlg.title(_t("launcher.dialog_update_available_title"))
         dlg.geometry("440x200")
         dlg.resizable(False, False)
         dlg.configure(bg=self.BG)
@@ -2136,10 +2163,10 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=24)
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=f"LinguaTaxi v{version} is available!",
+        ttk.Label(f, text=_t("launcher.dialog_update_available_heading", version=version),
                   font=("Segoe UI", 12, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
-        ttk.Label(f, text=f"You have v{VERSION}.",
+        ttk.Label(f, text=_t("launcher.dialog_update_current_version", version=VERSION),
                   style="Subtitle.TLabel").pack(pady=(0, 16))
 
         btn_frame = ttk.Frame(f)
@@ -2157,11 +2184,11 @@ class LinguaTaxiApp(tk.Tk):
             save_settings(self.settings)
             dlg.destroy()
 
-        ttk.Button(btn_frame, text="Download Now", style="Start.TButton",
+        ttk.Button(btn_frame, text=_t("launcher.dialog_update_download_now"), style="Start.TButton",
                    command=_download_now).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_frame, text="Remind Me Later",
+        ttk.Button(btn_frame, text=_t("launcher.dialog_update_remind_later"),
                    command=_remind_later).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_frame, text="Don't Remind Me",
+        ttk.Button(btn_frame, text=_t("launcher.dialog_update_dont_remind"),
                    command=_dont_remind).pack(side="left")
 
         self.wait_window(dlg)
@@ -2173,10 +2200,10 @@ class LinguaTaxiApp(tk.Tk):
         if url is None:
             if EDITION == "Dev":
                 webbrowser.open(f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}")
-                self._log_system("Opened GitHub releases page in browser.")
+                self._log_system(_t("launcher.log_opened_github"))
                 return
-            messagebox.showerror("Download Error",
-                f"Could not find installer for {EDITION} edition in this release.",
+            messagebox.showerror(_t("launcher.dialog_download_no_installer_title"),
+                _t("launcher.dialog_download_no_installer", edition=EDITION),
                 parent=self)
             return
 
@@ -2186,7 +2213,7 @@ class LinguaTaxiApp(tk.Tk):
             parent=self,
             initialdir=str(downloads_dir),
             initialfile=filename,
-            title="Save Installer As",
+            title=_t("launcher.dialog_save_installer_title"),
             defaultextension=Path(filename).suffix,
             filetypes=[("Installer", f"*{Path(filename).suffix}"), ("All files", "*.*")],
         )
@@ -2199,7 +2226,7 @@ class LinguaTaxiApp(tk.Tk):
     def _show_download_progress(self, url, save_path):
         """Show progress dialog while downloading the installer."""
         dlg = tk.Toplevel(self)
-        dlg.title("Downloading Update")
+        dlg.title(_t("launcher.dialog_download_title"))
         dlg.geometry("460x160")
         dlg.resizable(False, False)
         dlg.configure(bg=self.BG)
@@ -2214,7 +2241,7 @@ class LinguaTaxiApp(tk.Tk):
         f = ttk.Frame(dlg, padding=20)
         f.pack(fill="both", expand=True)
 
-        status_var = tk.StringVar(value="Connecting...")
+        status_var = tk.StringVar(value=_t("launcher.dialog_download_connecting"))
         ttk.Label(f, textvariable=status_var, style="Subtitle.TLabel").pack(pady=(0, 8))
 
         progress = ttk.Progressbar(f, mode="determinate", length=400)
@@ -2225,7 +2252,7 @@ class LinguaTaxiApp(tk.Tk):
         def _cancel():
             cancelled[0] = True
 
-        cancel_btn = ttk.Button(f, text="Cancel", command=_cancel)
+        cancel_btn = ttk.Button(f, text=_t("launcher.dialog_download_cancel"), command=_cancel)
         cancel_btn.pack()
 
         def _worker():
@@ -2255,7 +2282,8 @@ class LinguaTaxiApp(tk.Tk):
                                 total_mb = total / (1024 * 1024)
                                 self.after(0, lambda p=pct, m=mb, t=total_mb: (
                                     progress.configure(value=p),
-                                    status_var.set(f"{m:.1f} / {t:.1f} MB ({p:.0f}%)")
+                                    status_var.set(_t("launcher.dialog_download_progress",
+                                        downloaded=f"{m:.1f}", total=f"{t:.1f}", percent=f"{p:.0f}"))
                                 ))
 
                 if cancelled[0]:
@@ -2273,12 +2301,12 @@ class LinguaTaxiApp(tk.Tk):
             except Exception as e:
                 partial.unlink(missing_ok=True)
                 def _show_error(err=e):
-                    status_var.set(f"Download failed: {err}")
-                    cancel_btn.configure(text="Close", command=dlg.destroy)
+                    status_var.set(_t("launcher.dialog_download_failed", error=err))
+                    cancel_btn.configure(text=_t("launcher.close"), command=dlg.destroy)
                 self.after(0, _show_error)
 
         def _download_complete(dlg, status_var, progress, cancel_btn):
-            status_var.set("Download complete!")
+            status_var.set(_t("launcher.dialog_download_complete"))
             progress.configure(value=100)
             cancel_btn.destroy()
 
@@ -2294,15 +2322,123 @@ class LinguaTaxiApp(tk.Tk):
                     subprocess.Popen(["xdg-open", str(save_path.parent)])
                 dlg.destroy()
 
-            ttk.Button(btn_frame, text="Open Folder", command=_open_folder).pack(side="left", padx=(0, 8))
-            ttk.Button(btn_frame, text="Close", command=dlg.destroy).pack(side="left")
+            ttk.Button(btn_frame, text=_t("launcher.dialog_download_open_folder"), command=_open_folder).pack(side="left", padx=(0, 8))
+            ttk.Button(btn_frame, text=_t("launcher.close"), command=dlg.destroy).pack(side="left")
 
             # Reminder
-            ttk.Label(f, text="Close LinguaTaxi before running the installer.",
+            ttk.Label(f, text=_t("launcher.dialog_download_close_reminder"),
                       style="Subtitle.TLabel").pack(pady=(8, 0))
 
         threading.Thread(target=_worker, daemon=True).start()
         self.wait_window(dlg)
+
+    # ── Language Switching ──
+
+    def _on_language_changed(self, event=None):
+        """Handle language selection change."""
+        idx = self._lang_combo.current()
+        if idx < 0:
+            return
+        lang = self._lang_codes[idx]
+        if lang == self._current_lang:
+            return
+        self._current_lang = lang
+        self.settings["language"] = lang
+        save_settings(self.settings)
+        _load_translations(lang)
+        self._refresh_ui()
+        # Notify running server
+        if self._server_running:
+            try:
+                port = self.settings.get("operator_port", 3001)
+                data = json.dumps({"ui_language": lang}).encode()
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/api/config",
+                    data=data, headers={"Content-Type": "application/json"}, method="POST")
+                urllib.request.urlopen(req, timeout=2)
+            except Exception:
+                pass
+
+    def _refresh_ui(self):
+        """Re-apply all translated strings to UI widgets."""
+        # Close any open dialogs first
+        for w in self.winfo_children():
+            if isinstance(w, tk.Toplevel):
+                w.destroy()
+
+        # Window title
+        self.title(_t("app.full_name"))
+
+        # Header
+        if EDITION != "Dev":
+            self._title_lbl.configure(text=_t("launcher.title_edition", edition=EDITION))
+        else:
+            self._title_lbl.configure(text=_t("launcher.title_dev"))
+        self._subtitle_lbl.configure(text=_t("app.subtitle"))
+
+        # Update controls
+        self._update_btn.configure(text=_t("launcher.check_for_updates"))
+        self._update_chk.configure(text=_t("launcher.check_on_startup"))
+
+        # Server frame
+        self._srv_frame.configure(text="  " + _t("launcher.server_frame") + "  ")
+        self.start_btn.configure(text=_t("launcher.start_server"))
+        self.stop_btn.configure(text=_t("launcher.stop_server"))
+
+        # Update status label based on current state
+        if self._server_ready:
+            self.status_label.configure(text=_t("launcher.status_running"))
+        elif self._server_running:
+            self.status_label.configure(text=_t("launcher.status_starting"))
+        else:
+            self.status_label.configure(text=_t("launcher.status_stopped"))
+
+        # Browser frame
+        self._browser_frame.configure(text="  " + _t("launcher.browser_frame") + "  ")
+        self.op_btn.configure(text=_t("launcher.operator_controls"))
+        self.main_btn.configure(text=_t("launcher.main_display"))
+        self.ext_btn.configure(text=_t("launcher.extended_display"))
+        self.dict_btn.configure(text=_t("launcher.dictation"))
+
+        # Settings frame
+        self._settings_frame.configure(text="  " + _t("launcher.settings_frame") + "  ")
+        self._tfiles_lbl.configure(text=_t("launcher.transcript_files"))
+        self._browse_btn.configure(text=_t("launcher.browse"))
+        self._audio_lbl.configure(text=_t("launcher.audio_sources"))
+        self._add_source_btn.configure(text=_t("launcher.add_source"))
+        self._backend_lbl.configure(text=_t("launcher.speech_backend"))
+
+        # Re-translate backend labels and combo
+        old_backend = self._backend_from_label.get(self.backend_var.get(), self.backend_var.get())
+        self._backend_labels = {"auto": _t("launcher.backend_auto"),
+                                 "whisper": _t("launcher.backend_whisper"),
+                                 "vosk": _t("launcher.backend_vosk"),
+                                 "mlx": _t("launcher.backend_mlx")}
+        self._backend_from_label = {v: k for k, v in self._backend_labels.items()}
+        backend_values = [_t("launcher.backend_auto"), _t("launcher.backend_whisper"),
+                          _t("launcher.backend_vosk")]
+        if IS_MAC:
+            backend_values.append(_t("launcher.backend_mlx"))
+        self._backend_combo.configure(values=backend_values)
+        self.backend_var.set(self._backend_labels.get(old_backend, old_backend))
+
+        # Source row labels
+        for i, (r, c, v) in enumerate(self._source_frames):
+            for child in r.winfo_children():
+                if isinstance(child, ttk.Label):
+                    child.configure(text=_t("launcher.source_label", num=i + 1))
+                    break
+
+        # Download/delete buttons
+        self._tuned_btn.configure(text=_t("launcher.download_tuned_models"))
+        self._offline_btn.configure(text=_t("launcher.download_offline_models"))
+        self._delete_btn.configure(text=_t("launcher.delete_installed_models"))
+
+        # Log frame
+        self._log_frame.configure(text="  " + _t("launcher.server_log_frame") + "  ")
+
+        # Footer
+        self.open_tdir_btn.configure(text=_t("launcher.open_transcripts"))
+        self._about_btn.configure(text=_t("launcher.about"))
 
     # ── Cleanup ──
 
@@ -2311,8 +2447,8 @@ class LinguaTaxiApp(tk.Tk):
         self._save_current_settings()
 
         if self._server_running:
-            if messagebox.askyesno("Quit",
-                "The server is still running.\nStop it and quit?"):
+            if messagebox.askyesno(_t("launcher.dialog_quit_title"),
+                _t("launcher.dialog_quit_message")):
                 self._stop_server()
             else:
                 self._closing = False
