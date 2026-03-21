@@ -136,28 +136,28 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 <body>
 
 <div class="ctrl" id="ctrlPanel">
-  <div class="ptitle"><span class="dot" id="sDot"></span>Operator — <span id="sTxt">Connecting...</span></div>
-  <div class="warn" id="warn" style="display:none">No DeepL API key set. Translation disabled.</div>
+  <div class="ptitle"><span class="dot" id="sDot"></span><span data-i18n="operator.panel_title">Operator —</span> <span id="sTxt" data-i18n="operator.status_connecting">Connecting...</span></div>
+  <div class="warn" id="warn" style="display:none" data-i18n="operator.warn_no_api_key">No DeepL API key set. Translation disabled.</div>
 
   <!-- Session -->
   <div class="card">
-    <span class="clbl">Session</span>
+    <span class="clbl" data-i18n="operator.session_label">Session</span>
     <div class="row">
-      <input type="text" id="iTitle" placeholder="Session title...">
-      <button class="btn btn-p" onclick="saveAll()">Save</button>
+      <input type="text" id="iTitle" placeholder="Session title..." data-i18n="operator.session_title_placeholder" data-i18n-ph>
+      <button class="btn btn-p" onclick="saveAll()" data-i18n="operator.save_btn">Save</button>
     </div>
     <div class="row">
-      <input type="password" id="iKey" placeholder="DeepL API key">
-      <button class="btn btn-p" onclick="saveAll()">Save</button>
+      <input type="password" id="iKey" placeholder="DeepL API key" data-i18n="operator.deepl_key_placeholder" data-i18n-ph>
+      <button class="btn btn-p" onclick="saveAll()" data-i18n="operator.save_btn">Save</button>
     </div>
-    <span class="hint">Free key: <a href="https://www.deepl.com/pro-api" target="_blank" style="color:var(--ac)">deepl.com/pro-api</a></span>
+    <span class="hint"><span data-i18n="operator.deepl_hint">Free key:</span> <a href="https://www.deepl.com/pro-api" target="_blank" style="color:var(--ac)" data-i18n="operator.deepl_link_text">deepl.com/pro-api</a></span>
   </div>
 
   <!-- Language Config -->
   <div class="card">
-    <span class="clbl">Languages</span>
+    <span class="clbl" data-i18n="operator.languages_label">Languages</span>
     <div>
-      <span style="font-size:11px">Input Language (what speakers speak)</span>
+      <span style="font-size:11px" data-i18n="operator.input_language">Input Language (what speakers speak)</span>
       <select id="iInputLang" onchange="onInputLangChange()"></select>
     </div>
     <div id="tunedRow" style="display:none;margin-top:4px">
@@ -172,50 +172,50 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
             <div style="font-size:9px;color:rgba(255,255,255,.45);margin-top:2px" id="tunedProgressMsg"></div>
           </div>
         </div>
-        <button class="btn btn-g" id="tunedBtn" onclick="onTunedAction()" style="white-space:nowrap;font-size:10px">Download</button>
+        <button class="btn btn-g" id="tunedBtn" onclick="onTunedAction()" style="white-space:nowrap;font-size:10px" data-i18n="operator.tuned_btn_download">Download</button>
       </div>
     </div>
     <div>
-      <span style="font-size:11px">Number of Translations</span>
+      <span style="font-size:11px" data-i18n="operator.num_translations">Number of Translations</span>
       <select id="iTransCount" onchange="onTransCountChange()">
-        <option value="0">0 — Captioning only</option>
-        <option value="1">1 — Single translation</option>
-        <option value="2" selected>2 — Dual translation</option>
-        <option value="3">3 — Dual + extended window (1)</option>
-        <option value="4">4 — Dual + extended window (2)</option>
-        <option value="5">5 — Dual + extended window (3)</option>
+        <option value="0" data-i18n="operator.trans_count_0">0 — Captioning only</option>
+        <option value="1" data-i18n="operator.trans_count_1">1 — Single translation</option>
+        <option value="2" selected data-i18n="operator.trans_count_2">2 — Dual translation</option>
+        <option value="3" data-i18n="operator.trans_count_3">3 — Dual + extended window (1)</option>
+        <option value="4" data-i18n="operator.trans_count_4">4 — Dual + extended window (2)</option>
+        <option value="5" data-i18n="operator.trans_count_5">5 — Dual + extended window (3)</option>
       </select>
     </div>
     <div id="transSlots"></div>
-    <div id="extNote" class="hint" style="display:none">Translations 3+ appear on the Extended display (port 3002)</div>
+    <div id="extNote" class="hint" style="display:none" data-i18n="operator.ext_note">Translations 3+ appear on the Extended display (port 3002)</div>
   </div>
 
   <!-- Speakers -->
   <div class="card">
-    <div class="section-label" style="margin-top:12px">Audio Sources</div>
+    <div class="section-label" style="margin-top:12px" data-i18n="operator.audio_sources_label">Audio Sources</div>
     <div id="sourceList" class="source-list"></div>
-    <div class="section-label" style="margin-top:8px">Speakers</div>
-    <span class="clbl">Speakers (keys 1-9, 0=none, double-click to edit)</span>
+    <div class="section-label" style="margin-top:8px" data-i18n="operator.speakers_label">Speakers</div>
+    <span class="clbl" data-i18n="operator.speakers_hint">Speakers (keys 1-9, 0=none, double-click to edit)</span>
     <div class="spgrid" id="spGrid"></div>
     <div class="row">
-      <input type="text" id="iNewSp" placeholder="Add speaker..." onkeydown="if(event.key==='Enter')addSp()">
-      <button class="btn btn-g" onclick="addSp()">Add</button>
+      <input type="text" id="iNewSp" placeholder="Add speaker..." data-i18n="operator.speaker_add_placeholder" data-i18n-ph onkeydown="if(event.key==='Enter')addSp()">
+      <button class="btn btn-g" onclick="addSp()" data-i18n="operator.speaker_add_btn">Add</button>
     </div>
     <div id="resetContainer" style="margin-top:8px">
-      <button class="btn" onclick="resetSpeakers()">Reset Speakers</button>
+      <button class="btn" onclick="resetSpeakers()" data-i18n="operator.reset_speakers">Reset Speakers</button>
     </div>
   </div>
 
   <div class="card" style="border:2px solid rgba(76,175,80,.3);padding:10px">
-    <span class="clbl">Session Controls</span>
-    <button class="btn" id="liveBtn" onclick="toggleLive()" style="width:100%;padding:12px;font-size:14px;font-weight:800;background:#4CAF50;color:#fff;letter-spacing:.06em">▶ GO LIVE — Start Captioning</button>
-    <button class="btn" id="pauseBtn" onclick="togglePause()" style="width:100%;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);font-weight:800;border:1px solid rgba(255,255,255,.1)">▶ Resume Translation (uses API credits)</button>
-    <div class="hint" id="sessionHint">Both captioning and translation are paused. Configure your settings, then go live.</div>
+    <span class="clbl" data-i18n="operator.session_controls_label">Session Controls</span>
+    <button class="btn" id="liveBtn" onclick="toggleLive()" style="width:100%;padding:12px;font-size:14px;font-weight:800;background:#4CAF50;color:#fff;letter-spacing:.06em" data-i18n="operator.go_live">▶ GO LIVE — Start Captioning</button>
+    <button class="btn" id="pauseBtn" onclick="togglePause()" style="width:100%;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);font-weight:800;border:1px solid rgba(255,255,255,.1)" data-i18n="operator.resume_translation_credits">▶ Resume Translation (uses API credits)</button>
+    <div class="hint" id="sessionHint" data-i18n="operator.session_hint_both_paused">Both captioning and translation are paused. Configure your settings, then go live.</div>
   </div>
   <div class="card" style="flex-direction:row;align-items:center;justify-content:space-between;padding:10px 12px">
     <div>
-      <span style="font-size:11px;font-weight:700">Save Transcripts</span>
-      <div class="hint">One .txt file per language in /transcripts</div>
+      <span style="font-size:11px;font-weight:700" data-i18n="operator.save_transcripts">Save Transcripts</span>
+      <div class="hint" data-i18n="operator.save_transcripts_hint">One .txt file per language in /transcripts</div>
     </div>
     <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
       <input type="checkbox" id="iSaveTranscripts" checked onchange="toggleSaveTranscripts()" style="opacity:0;width:0;height:0">
@@ -223,46 +223,46 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
       <span id="saveToggleKnob" style="position:absolute;top:2px;left:22px;width:20px;height:20px;background:#4CAF50;border-radius:50%;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
     </label>
   </div>
-  <button class="btn btn-d" onclick="clearCaptions()" style="width:100%">Clear Captions (C)</button>
+  <button class="btn btn-d" onclick="clearCaptions()" style="width:100%" data-i18n="operator.clear_captions">Clear Captions (C)</button>
 
   <!-- Display Styling -->
   <div class="card">
-    <span class="clbl">Background</span>
+    <span class="clbl" data-i18n="operator.background_label">Background</span>
     <div class="bg-opts" id="bgOpts"></div>
     <div style="height:12px"></div>
 
-    <span class="clbl">Font</span>
+    <span class="clbl" data-i18n="operator.font_label">Font</span>
     <div class="font-opts" id="fontOpts"></div>
   </div>
 
   <div class="card">
-    <span class="clbl">Font Size: <span class="vd" id="vFs">42px</span></span>
+    <span class="clbl"><span data-i18n="operator.font_size_label">Font Size:</span> <span class="vd" id="vFs">42px</span></span>
     <input type="range" id="iFs" min="24" max="960" value="42" oninput="onFsChange(this.value)">
     <div style="display:flex;justify-content:space-between" class="hint"><span>24px</span><span>960px</span></div>
 
-    <span class="clbl">Visible Lines: <span class="vd" id="vLn">3</span></span>
+    <span class="clbl"><span data-i18n="operator.visible_lines_label">Visible Lines:</span> <span class="vd" id="vLn">3</span></span>
     <input type="range" id="iLn" min="1" max="8" value="3" oninput="onLnChange(this.value)">
     <div style="display:flex;justify-content:space-between" class="hint"><span>1</span><span>8</span></div>
 
-    <span class="clbl">Mic Sensitivity</span>
+    <span class="clbl" data-i18n="operator.mic_sensitivity_label">Mic Sensitivity</span>
     <input type="range" id="iMic" min="1" max="50" value="8" oninput="onMicChange(this.value)">
-    <div style="display:flex;justify-content:space-between" class="hint"><span>More sensitive</span><span>Less sensitive</span></div>
+    <div style="display:flex;justify-content:space-between" class="hint"><span data-i18n="operator.mic_more_sensitive">More sensitive</span><span data-i18n="operator.mic_less_sensitive">Less sensitive</span></div>
   </div>
 
   <!-- Text Colors -->
   <div class="card">
-    <span class="clbl">Caption Text Color</span>
+    <span class="clbl" data-i18n="operator.caption_text_color_label">Caption Text Color</span>
     <div class="swatch-row" id="captionColors"></div>
     <div id="transColors"></div>
   </div>
 
   <!-- Footer -->
   <div class="card">
-    <span class="clbl">Footer Image (optional)</span>
+    <span class="clbl" data-i18n="operator.footer_image_label">Footer Image (optional)</span>
     <input type="file" id="iFooter" accept="image/*" onchange="uploadFooter(this)" style="font-size:11px">
     <div id="footerPrev" style="display:none">
       <img id="footerPrevImg" style="max-height:40px;border-radius:3px">
-      <button class="btn btn-g" onclick="rmFooter()" style="margin-top:4px;font-size:10px">Remove</button>
+      <button class="btn btn-g" onclick="rmFooter()" style="margin-top:4px;font-size:10px" data-i18n="operator.footer_remove">Remove</button>
     </div>
   </div>
 
@@ -271,7 +271,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 
 <!-- Right: Preview -->
 <div class="preview">
-  <div class="prev-title">Live Preview (mirrors audience display) — right-click a line to correct</div>
+  <div class="prev-title" data-i18n="operator.preview_title">Live Preview (mirrors audience display) — right-click a line to correct</div>
   <div class="prev-box" id="prevBox">
     <div class="prev-session" id="pTitle">Live Captioning</div>
     <div class="prev-speaker" id="pSpeaker"></div>
@@ -294,6 +294,44 @@ let offlineStatus={}; // {opus:{...}, m2m100:{...}}
 let offlinePollTimers={}; // {key: timer}
 
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+
+// ── Internationalization ──
+let _i18n = {};
+let _i18nEn = {};
+let _currentUiLang = 'EN';
+
+function t(key, vars) {
+    let text = _i18n[key] || _i18nEn[key] || key;
+    if (vars) Object.entries(vars).forEach(([k, v]) => {
+        text = text.replaceAll('{' + k + '}', v);
+    });
+    return text;
+}
+
+async function loadTranslations(lang) {
+    try {
+        if (!Object.keys(_i18nEn).length) {
+            const r = await fetch('/api/locales/en');
+            if (r.ok) _i18nEn = await r.json();
+        }
+        const r2 = await fetch('/api/locales/' + lang.toLowerCase());
+        if (r2.ok) _i18n = await r2.json();
+        else _i18n = {..._i18nEn};
+    } catch(e) { _i18n = {..._i18nEn}; }
+    _currentUiLang = lang;
+    applyTranslations();
+}
+
+function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (el.hasAttribute('data-i18n-ph')) el.placeholder = t(key);
+        else if (el.hasAttribute('data-i18n-title')) el.title = t(key);
+        else el.textContent = t(key);
+    });
+    document.documentElement.lang = _currentUiLang.toLowerCase();
+    document.documentElement.dir = _currentUiLang === 'AR' ? 'rtl' : 'ltr';
+}
 
 // ── Load config ──
 let cfgRetries=0;
@@ -323,7 +361,8 @@ function loadCfg(){
     const anyDeepL=translations.some(t=>!t.mode||t.mode==='deepl');
     if(!c.has_api_key&&anyDeepL)document.getElementById('warn').style.display='block';
     else document.getElementById('warn').style.display='none';
-    if(c.backend)document.getElementById('badge').textContent='Engine: '+c.backend;
+    if(c.backend)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:c.backend});
+    if(c.ui_language) loadTranslations(c.ui_language);
     tunedModels=c.tuned_models||{};
     activeTunedLang=c.active_tuned_lang||'';
     isWhisper=!!c.is_whisper;
@@ -349,10 +388,10 @@ function loadCfg(){
     console.error('Config load failed:',e);
     if(cfgRetries<3){
       cfgRetries++;
-      document.getElementById('sTxt').textContent='Loading config (retry '+cfgRetries+')...';
+      document.getElementById('sTxt').textContent=t('operator.status_config_retry',{num:cfgRetries});
       setTimeout(loadCfg,1500);
     } else {
-      document.getElementById('sTxt').textContent='Config error — check server logs ('+e.message+')';
+      document.getElementById('sTxt').textContent=t('operator.status_config_error',{error:e.message});
     }
   });
 }
@@ -396,22 +435,22 @@ function updateTunedUI(){
   const progBar=document.getElementById('tunedProgressBar');
   const progMsg=document.getElementById('tunedProgressMsg');
 
-  label.textContent=info.name+' — Tuned Model';
+  label.textContent=t('operator.tuned_model_label',{name:info.name});
 
   if(info.available){
     progWrap.style.display='none';
     if(activeTunedLang===lang){
-      status.innerHTML='<span style="color:#4CAF50">Active</span> — using tuned model';
-      btn.textContent='Revert';
+      status.innerHTML='<span style="color:#4CAF50">'+t('operator.tuned_status_active')+'</span> — '+t('operator.tuned_status_active_desc');
+      btn.textContent=t('operator.tuned_btn_revert');
       btn.className='btn btn-g';
     } else {
-      status.innerHTML='<span style="color:#4FC3F7">Ready</span> — tuned model downloaded';
-      btn.textContent='Switch';
+      status.innerHTML='<span style="color:#4FC3F7">'+t('operator.tuned_status_ready')+'</span> — '+t('operator.tuned_status_ready_desc');
+      btn.textContent=t('operator.tuned_btn_switch');
       btn.className='btn btn-p';
     }
     if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
   } else if(info.download_status==='downloading'||info.download_status==='converting'||info.download_status==='starting'){
-    status.textContent='Processing...';
+    status.textContent=t('operator.tuned_status_processing');
     btn.textContent='...';
     btn.className='btn btn-g';
     btn.disabled=true;
@@ -420,15 +459,15 @@ function updateTunedUI(){
     progMsg.textContent=info.download_message||'';
     startTunedPoll(lang);
   } else if(info.download_status==='error'){
-    status.innerHTML='<span style="color:#f44336">Error</span>: '+esc(info.download_message||'unknown');
-    btn.textContent='Retry';
+    status.innerHTML='<span style="color:#f44336">'+t('operator.tuned_status_error')+'</span>: '+esc(info.download_message||'unknown');
+    btn.textContent=t('operator.tuned_btn_retry');
     btn.className='btn btn-p';
     btn.disabled=false;
     progWrap.style.display='none';
     if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
   } else {
-    status.textContent='Not downloaded (~'+info.size_gb+' GB)';
-    btn.textContent='Download';
+    status.textContent=t('operator.tuned_status_not_downloaded',{size:info.size_gb});
+    btn.textContent=t('operator.tuned_btn_download');
     btn.className='btn btn-p';
     btn.disabled=false;
     progWrap.style.display='none';
@@ -463,32 +502,32 @@ function onTunedAction(){
   if(info.available && activeTunedLang===lang){
     // Revert to default model
     document.getElementById('tunedBtn').disabled=true;
-    document.getElementById('tunedStatus').textContent='Reverting...';
+    document.getElementById('tunedStatus').textContent=t('operator.tuned_reverting');
     fetch('/api/tuned-models/revert',{method:'POST'}).then(r=>r.json()).then(r=>{
       if(r.status==='ok'){
         activeTunedLang='';
-        if(r.model) document.getElementById('badge').textContent='Engine: '+r.model;
+        if(r.model) document.getElementById('badge').textContent=t('operator.engine_badge',{engine:r.model});
       } else {
-        alert('Revert failed: '+(r.error||'unknown'));
+        alert(t('operator.tuned_revert_failed',{error:r.error||'unknown'}));
       }
       document.getElementById('tunedBtn').disabled=false;
       updateTunedUI();
-    }).catch(e=>{alert('Revert failed: '+e);document.getElementById('tunedBtn').disabled=false});
+    }).catch(e=>{alert(t('operator.tuned_revert_failed',{error:e}));document.getElementById('tunedBtn').disabled=false});
   } else if(info.available){
     // Switch to tuned model
     document.getElementById('tunedBtn').disabled=true;
-    document.getElementById('tunedStatus').textContent='Switching model (~3s)...';
+    document.getElementById('tunedStatus').textContent=t('operator.tuned_switching');
     const fd=new FormData();fd.append('lang',lang);
     fetch('/api/tuned-models/switch',{method:'POST',body:fd}).then(r=>r.json()).then(r=>{
       if(r.status==='ok'){
         activeTunedLang=lang;
-        if(r.model) document.getElementById('badge').textContent='Engine: '+r.model;
+        if(r.model) document.getElementById('badge').textContent=t('operator.engine_badge',{engine:r.model});
       } else {
-        alert('Switch failed: '+(r.error||'unknown'));
+        alert(t('operator.tuned_switch_failed',{error:r.error||'unknown'}));
       }
       document.getElementById('tunedBtn').disabled=false;
       updateTunedUI();
-    }).catch(e=>{alert('Switch failed: '+e);document.getElementById('tunedBtn').disabled=false});
+    }).catch(e=>{alert(t('operator.tuned_switch_failed',{error:e}));document.getElementById('tunedBtn').disabled=false});
   } else {
     // Download
     document.getElementById('tunedBtn').disabled=true;
@@ -497,7 +536,7 @@ function onTunedAction(){
       if(r.status==='started'||r.status==='already_in_progress'){
         tunedModels[lang].download_status='starting';
         tunedModels[lang].download_pct=0;
-        tunedModels[lang].download_message='Starting download...';
+        tunedModels[lang].download_message=t('operator.tuned_starting_download');
         startTunedPoll(lang);
       } else if(r.status==='already_available'){
         tunedModels[lang].available=true;
@@ -560,20 +599,20 @@ function buildTransSlots(){
   note.style.display=transCount>2?'block':'none';
 
   for(let i=0;i<transCount;i++){
-    const t=translations[i]||{lang:'ES',color:'#FFD54F',mode:'deepl'};
-    if(!t.mode) t.mode='deepl';
-    const dest=i<2?'Main display (3000)':'Extended display (3002)';
+    const tr=translations[i]||{lang:'ES',color:'#FFD54F',mode:'deepl'};
+    if(!tr.mode) tr.mode='deepl';
+    const dest=i<2?t('operator.translation_dest_main'):t('operator.translation_dest_ext');
     const slot=document.createElement('div');slot.className='tslot';
 
-    const curMode=t.mode||'deepl';
+    const curMode=tr.mode||'deepl';
     slot.innerHTML=`
-      <div class="tslot-hdr"><span class="tslot-num">Translation ${i+1}</span><span class="tslot-dest">${dest}</span></div>
+      <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
       <select onchange="onSlotLangChange(${i},this.value)" id="tslot_lang_${i}"></select>
       <select onchange="onSlotModeChange(${i},this.value)" id="tslot_mode_${i}" style="margin-top:4px">
-        <option value="deepl"${curMode==='deepl'?' selected':''}>DeepL (Online)</option>
-        <option value="offline-auto"${curMode==='offline-auto'?' selected':''}>Offline — Auto</option>
-        <option value="offline-opus"${curMode==='offline-opus'?' selected':''}>Offline — OPUS-MT (European)</option>
-        <option value="offline-m2m"${curMode==='offline-m2m'?' selected':''}>Offline — M2M-100 (All languages)</option>
+        <option value="deepl"${curMode==='deepl'?' selected':''}>${t('operator.mode_deepl')}</option>
+        <option value="offline-auto"${curMode==='offline-auto'?' selected':''}>${t('operator.mode_offline_auto')}</option>
+        <option value="offline-opus"${curMode==='offline-opus'?' selected':''}>${t('operator.mode_offline_opus')}</option>
+        <option value="offline-m2m"${curMode==='offline-m2m'?' selected':''}>${t('operator.mode_offline_m2m')}</option>
       </select>
       <div id="tslot_offline_${i}" style="display:none;margin-top:4px;font-size:10px;color:rgba(255,255,255,.55)"></div>`;
     el.appendChild(slot);
@@ -582,7 +621,7 @@ function buildTransSlots(){
     const sel=slot.querySelector(`#tslot_lang_${i}`);
     Object.entries(tgtLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
       const o=document.createElement('option');o.value=code;o.textContent=name+' ('+code+')';
-      if(code===t.lang)o.selected=true;
+      if(code===tr.lang)o.selected=true;
       sel.appendChild(o);
     });
 
@@ -598,14 +637,14 @@ function onSlotModeChange(idx,mode){
 }
 
 function updateSlotOfflineStatus(idx){
-  const t=translations[idx];
-  if(!t) return;
+  const tr=translations[idx];
+  if(!tr) return;
   const el=document.getElementById('tslot_offline_'+idx);
   if(!el) return;
-  const mode=t.mode||'deepl';
+  const mode=tr.mode||'deepl';
   if(mode==='deepl'){el.style.display='none';return}
   el.style.display='block';
-  const lang=t.lang;
+  const lang=tr.lang;
   const opus=offlineStatus.opus||{};
   const m2m=offlineStatus.m2m100||{};
   let html='';
@@ -613,19 +652,19 @@ function updateSlotOfflineStatus(idx){
   if(mode==='offline-opus'){
     const info=opus[lang];
     if(info&&info.available){
-      html='<span style="color:#4CAF50">&#10003;</span> OPUS-MT '+esc(info.name||lang)+' ready';
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_opus_ready',{name:esc(info.name||lang)});
     } else if(info){
       const opusSz=info.size_mb>=1000?(info.size_mb/1000).toFixed(1)+' GB':info.size_mb+' MB';
-      html='<span style="color:#FF9800">&#9888;</span> OPUS-MT not downloaded — <a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">Download (~'+opusSz+')</a>';
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_opus_not_downloaded')+' <a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">'+t('operator.offline_opus_download_link',{size:opusSz})+'</a>';
     } else {
-      html='<span style="color:#f44336">&#10007;</span> No OPUS-MT model for '+esc(lang);
+      html='<span style="color:#f44336">&#10007;</span> '+t('operator.offline_opus_no_model',{lang:esc(lang)});
     }
   } else if(mode==='offline-m2m'){
     if(m2m.available){
-      html='<span style="color:#4CAF50">&#10003;</span> M2M-100 ready (all languages)';
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_m2m_ready');
     } else {
       const m2mSz=m2m.size_mb>=1000?(m2m.size_mb/1000).toFixed(1)+' GB':m2m.size_mb+' MB';
-      html='<span style="color:#FF9800">&#9888;</span> M2M-100 not downloaded — <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">Download (~'+m2mSz+')</a>';
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_m2m_not_downloaded')+' <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">'+t('operator.offline_opus_download_link',{size:m2mSz})+'</a>';
     }
   } else {
     // Auto
@@ -636,13 +675,13 @@ function updateSlotOfflineStatus(idx){
       let parts=[];
       if(hasOpus) parts.push('OPUS-MT');
       if(hasM2m) parts.push('M2M-100');
-      html='<span style="color:#4CAF50">&#10003;</span> Ready ('+parts.join(' + ')+')';
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_auto_ready',{engines:parts.join(' + ')});
     } else {
-      html='<span style="color:#FF9800">&#9888;</span> No offline models — ';
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_auto_none')+' ';
       if(opusInfo){
-        html+='<a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">Download OPUS-MT</a>';
+        html+='<a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">'+t('operator.offline_download_opus')+'</a>';
       }
-      html+=' <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">Download M2M-100</a>';
+      html+=' <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">'+t('operator.offline_download_m2m')+'</a>';
     }
   }
   el.innerHTML=html;
@@ -678,17 +717,17 @@ const _downloadSlots={};
 function _showDownloadProgress(key, pct, msg){
   // Find all translation slots that would display this key and show progress
   for(let i=0;i<transCount;i++){
-    const t=translations[i]; if(!t) continue;
+    const tr=translations[i]; if(!tr) continue;
     const el=document.getElementById('tslot_offline_'+i);
     if(!el) continue;
-    const mode=t.mode||'deepl';
-    const lang=t.lang;
+    const mode=tr.mode||'deepl';
+    const lang=tr.lang;
     const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='auto');
     const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='auto');
     if(matchesOpus||matchesM2m){
       const label = key.startsWith('opus-') ? 'OPUS-MT' : 'M2M-100';
       const bar = pct>0 ? '<div style="background:#333;border-radius:3px;height:6px;margin-top:3px;width:100%"><div style="background:var(--ac);height:6px;border-radius:3px;width:'+pct+'%"></div></div>' : '';
-      el.innerHTML='<span style="color:var(--ac)">&#8635;</span> '+label+' downloading... '+pct+'%' + (msg?' — '+esc(msg):'') + bar;
+      el.innerHTML='<span style="color:var(--ac)">&#8635;</span> '+t('operator.offline_downloading',{engine:label,pct:pct}) + (msg?' — '+esc(msg):'') + bar;
       el.style.display='block';
     }
   }
@@ -720,11 +759,11 @@ function updateTranslationHint(){
   // Update the "uses API credits" hint on the pause button
   const btn=document.getElementById('pauseBtn');
   if(!btn||!translationPaused) return;
-  const allOffline=translations.slice(0,transCount).every(t=>(t.mode||'deepl').startsWith('offline'));
+  const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
   if(allOffline){
-    btn.textContent='\u25b6 Resume Translation (offline — no credits used)';
+    btn.textContent=t('operator.resume_translation_offline');
   } else {
-    btn.textContent='\u25b6 Resume Translation (uses API credits)';
+    btn.textContent=t('operator.resume_translation_credits');
   }
 }
 
@@ -749,12 +788,12 @@ function buildColorSwatches(){
   // Translation colors
   const tc=document.getElementById('transColors');tc.innerHTML='';
   for(let i=0;i<transCount;i++){
-    const t=translations[i]||{color:'#FFD54F'};
+    const tr=translations[i]||{color:'#FFD54F'};
     const wrap=document.createElement('div');wrap.style.marginTop='8px';
-    wrap.innerHTML=`<span class="clbl">Translation ${i+1} Color</span>`;
+    wrap.innerHTML=`<span class="clbl">${t('operator.translation_color_label',{num:i+1})}</span>`;
     const row=document.createElement('div');row.className='swatch-row';row.style.marginTop='4px';
     palette.forEach(c=>{
-      const s=document.createElement('div');s.className='swatch'+(c.hex===t.color?' active':'');
+      const s=document.createElement('div');s.className='swatch'+(c.hex===tr.color?' active':'');
       s.style.background=c.hex;s.title=c.name;
       s.onclick=()=>{row.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'));s.classList.add('active');translations[i].color=c.hex;saveAll()};
       row.appendChild(s);
@@ -773,7 +812,7 @@ function buildSourceList(){
         const col=s.color||getComputedStyle(document.body).color;
         h+=`<div class="source-row${focused}" onclick="focusSource(${s.id})">
             <span class="color-swatch" style="background:${esc(col)}"
-                  onclick="event.stopPropagation();openColorPicker(${s.id})" title="Change color"></span>
+                  onclick="event.stopPropagation();openColorPicker(${s.id})" title="${t('operator.change_color_title')}"></span>
             <input class="source-name" value="${esc(s.speaker||s.name)}"
                    onchange="renameSource(${s.id},this.value)"
                    onclick="event.stopPropagation()">
@@ -957,20 +996,20 @@ function hexToHSB(hex){
 function buildSpeakerBtns(){
   const el=document.getElementById('spGrid');
   if(!el)return;
-  let h=`<button class="spbtn spwide${activeSp===0?' act':''}" onclick="setSp(0)">No Label<span class="hk">0</span></button>`;
+  let h=`<button class="spbtn spwide${activeSp===0?' act':''}" onclick="setSp(0)">${t('operator.speaker_no_label')}<span class="hk">0</span></button>`;
   speakers.forEach((n,i)=>{
     const idx=i+1;
     const hk=idx<=9?`<span class="hk">${idx}</span>`:'';
     if(editingSpeakerIdx===idx){
       // Edit mode: inline form with name, key select, save, remove
-      const opts=speakers.map((_,j)=>`<option value="${j+1}"${j+1===idx?' selected':''}>Key ${j+1}</option>`).join('');
+      const opts=speakers.map((_,j)=>`<option value="${j+1}"${j+1===idx?' selected':''}>${t('operator.speaker_key_label',{num:j+1})}</option>`).join('');
       h+=`<div class="sp-edit">
-        <input type="text" value="${esc(n)}" id="spEditName" placeholder="Speaker name"
+        <input type="text" value="${esc(n)}" id="spEditName" placeholder="${t('operator.speaker_edit_placeholder')}"
           onkeydown="if(event.key==='Enter')saveSpEdit(${idx});if(event.key==='Escape')cancelSpEdit()">
         <select id="spEditKey">${opts}</select>
-        <button class="btn btn-p" onclick="saveSpEdit(${idx})" title="Save">&#10003;</button>
-        <button class="btn btn-d" onclick="removeSp(${idx})" title="Remove speaker">&#10005;</button>
-        <button class="btn btn-g" onclick="cancelSpEdit()" title="Cancel">Esc</button>
+        <button class="btn btn-p" onclick="saveSpEdit(${idx})" title="${t('operator.speaker_edit_save_title')}">&#10003;</button>
+        <button class="btn btn-d" onclick="removeSp(${idx})" title="${t('operator.speaker_edit_remove_title')}">&#10005;</button>
+        <button class="btn btn-g" onclick="cancelSpEdit()" title="${t('operator.speaker_edit_cancel_title')}">Esc</button>
       </div>`;
     } else {
       h+=`<button class="spbtn${activeSp===idx?' act':''}" onclick="setSp(${idx})" ondblclick="startSpEdit(event,${idx})">${esc(n)}${hk}</button>`;
@@ -1042,9 +1081,9 @@ function cancelSpEdit(){
 let resetTimeout=null;
 function resetSpeakers(){
     const c=document.getElementById('resetContainer');
-    c.innerHTML=`<span style="color:#FFD54F">Confirm reset? </span>
-        <button class="btn btn-r" onclick="confirmReset()">Yes</button>
-        <button class="btn" onclick="cancelReset()">No</button>`;
+    c.innerHTML=`<span style="color:#FFD54F">${t('operator.reset_confirm')} </span>
+        <button class="btn btn-r" onclick="confirmReset()">${t('operator.reset_yes')}</button>
+        <button class="btn" onclick="cancelReset()">${t('operator.reset_no')}</button>`;
     resetTimeout=setTimeout(cancelReset,10000);
 }
 function confirmReset(){
@@ -1060,7 +1099,7 @@ function confirmReset(){
 function cancelReset(){
     clearTimeout(resetTimeout);
     document.getElementById('resetContainer').innerHTML=
-        `<button class="btn" onclick="resetSpeakers()">Reset Speakers</button>`;
+        `<button class="btn" onclick="resetSpeakers()">${t('operator.reset_speakers')}</button>`;
 }
 
 let translationPaused = true;
@@ -1071,11 +1110,11 @@ function toggleLive(){
   captioningPaused = !captioningPaused;
   const btn = document.getElementById('liveBtn');
   if(captioningPaused){
-    btn.textContent = '▶ GO LIVE — Start Captioning';
+    btn.textContent = t('operator.go_live');
     btn.style.background = '#4CAF50';
     btn.style.color = '#fff';
   } else {
-    btn.textContent = '⏸ PAUSE CAPTIONING';
+    btn.textContent = t('operator.pause_captioning');
     btn.style.background = '#f44336';
     btn.style.color = '#fff';
   }
@@ -1087,13 +1126,13 @@ function togglePause(){
   translationPaused = !translationPaused;
   const btn = document.getElementById('pauseBtn');
   if(translationPaused){
-    const allOffline=translations.slice(0,transCount).every(t=>(t.mode||'deepl').startsWith('offline'));
-    btn.textContent = allOffline ? '\u25b6 Resume Translation (offline \u2014 no credits used)' : '\u25b6 Resume Translation (uses API credits)';
+    const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
+    btn.textContent = allOffline ? t('operator.resume_translation_offline') : t('operator.resume_translation_credits');
     btn.style.background = 'rgba(255,255,255,.08)';
     btn.style.color = 'rgba(255,255,255,.55)';
     btn.style.borderColor = 'rgba(255,255,255,.1)';
   } else {
-    btn.textContent = '\u23f8 Pause Translation';
+    btn.textContent = t('operator.pause_translation');
     btn.style.background = '#FF9800';
     btn.style.color = '#000';
     btn.style.borderColor = '#FF9800';
@@ -1104,10 +1143,10 @@ function togglePause(){
 
 function updateSessionHint(){
   const h = document.getElementById('sessionHint');
-  if(captioningPaused && translationPaused) h.textContent='Both captioning and translation are paused. Configure settings, then go live.';
-  else if(captioningPaused) h.textContent='Captioning is paused. Press GO LIVE when ready.';
-  else if(translationPaused) h.textContent='LIVE — Captioning active. Translation paused (no API usage).';
-  else h.textContent='LIVE — Captioning and translation both active.';
+  if(captioningPaused && translationPaused) h.textContent=t('operator.session_hint_both_paused');
+  else if(captioningPaused) h.textContent=t('operator.session_hint_captioning_paused');
+  else if(translationPaused) h.textContent=t('operator.session_hint_translation_paused');
+  else h.textContent=t('operator.session_hint_both_active');
 }
 
 function toggleSaveTranscripts(){
@@ -1177,7 +1216,7 @@ function saveAll(){
   if(ac)fd.append('caption_color',ac.style.background);
 
   fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
-    document.getElementById('pTitle').textContent=document.getElementById('iTitle').value||'Live Captioning';
+    document.getElementById('pTitle').textContent=document.getElementById('iTitle').value||t('operator.preview_default_title');
     const hasKey=!!document.getElementById('iKey').value;
     const anyDeepL=translations.some(t=>!t.mode||t.mode==='deepl');
     document.getElementById('warn').style.display=(!hasKey&&anyDeepL)?'block':'none';
@@ -1207,11 +1246,11 @@ function updatePreview(){
 
   // Translation sections
   for(let i=0;i<transCount;i++){
-    const t=translations[i]||{lang:'ES',color:'#FFD54F'};
-    const name=tgtLangs[t.lang]||t.lang;
+    const tr=translations[i]||{lang:'ES',color:'#FFD54F'};
+    const name=tgtLangs[tr.lang]||tr.lang;
     const dest=i<2?'':'(ext)';
     const dv=document.createElement('div');dv.className='prev-divider';el.appendChild(dv);
-    _addPrevSection(el, 'trans_'+i, name+(dest?' '+dest:''), t.color);
+    _addPrevSection(el, 'trans_'+i, name+(dest?' '+dest:''), tr.color);
   }
 }
 
@@ -1240,7 +1279,7 @@ function prevAddLine(slotId, text, speaker, lineId){
   // Right-click for captions only (slotId==='caption')
   if(slotId==='caption' && lineId!==undefined){
     line.oncontextmenu=e=>{e.preventDefault();openEditDialog(lineId, text, line)};
-    line.title='Right-click to correct';
+    line.title=t('operator.preview_right_click_hint');
   }
   s.el.insertBefore(line, s.interimEl);
   s.interimEl.style.display='none';
@@ -1302,12 +1341,12 @@ function openEditDialog(lineId, currentText, lineEl){
   dlg.style.left=Math.min(rect.left, window.innerWidth-440)+'px';
   dlg.style.top=Math.min(rect.bottom+4, window.innerHeight-200)+'px';
   dlg.innerHTML=`
-    <h4>Correct Caption</h4>
-    <div class="edit-original">Original: ${esc(currentText)}</div>
+    <h4>${t('operator.edit_dialog_title')}</h4>
+    <div class="edit-original">${t('operator.edit_dialog_original',{text:esc(currentText)})}</div>
     <textarea id="editText">${esc(currentText)}</textarea>
     <div class="edit-btns">
-      <button class="btn btn-g" onclick="closeEditDialog()">Cancel</button>
-      <button class="btn btn-p" onclick="submitCorrection(${lineId})">Save &amp; Re-translate</button>
+      <button class="btn btn-g" onclick="closeEditDialog()">${t('operator.edit_dialog_cancel')}</button>
+      <button class="btn btn-p" onclick="submitCorrection(${lineId})">${t('operator.edit_dialog_save')}</button>
     </div>`;
   overlay.appendChild(dlg);document.body.appendChild(overlay);
   const ta=document.getElementById('editText');
@@ -1337,13 +1376,13 @@ function submitCorrection(lineId){
 // ── WebSocket ──
 function connect(){
   ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
-  ws.onopen=()=>{recon=0;document.getElementById('sDot').className='dot conn';document.getElementById('sTxt').textContent='Connected'};
+  ws.onopen=()=>{recon=0;document.getElementById('sDot').className='dot conn';document.getElementById('sTxt').textContent=t('operator.status_connected')};
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     if(m.type==='status'){
-      if(m.model)document.getElementById('badge').textContent='Engine: '+m.model;
-      if(m.state==='speech')document.getElementById('sTxt').textContent='Speech detected...';
-      else if(m.state==='silence')document.getElementById('sTxt').textContent='Connected — listening';
+      if(m.model)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:m.model});
+      if(m.state==='speech')document.getElementById('sTxt').textContent=t('operator.status_speech_detected');
+      else if(m.state==='silence')document.getElementById('sTxt').textContent=t('operator.status_connected_listening');
     }
     else if(m.type==='interim'){
       prevSetInterim('caption', m.text||'', m.speaker||'');
@@ -1370,23 +1409,24 @@ function connect(){
         prevCorrectLine('trans_'+m.slot, m.line_id, m.translated);
     }
     else if(m.type==='config_update'){
-      document.getElementById('pTitle').textContent=m.session_title||'Live Captioning';
+      document.getElementById('pTitle').textContent=m.session_title||t('operator.preview_default_title');
+      if(m.ui_language) loadTranslations(m.ui_language);
     }
     else if(m.type==='translation_paused'){
       translationPaused=m.paused;
       const btn=document.getElementById('pauseBtn');
       if(translationPaused){
-        const allOffline=translations.slice(0,transCount).every(t=>(t.mode||'deepl').startsWith('offline'));
-        btn.textContent=allOffline?'\u25b6 Resume Translation (offline \u2014 no credits used)':'\u25b6 Resume Translation (uses API credits)';
+        const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
+        btn.textContent=allOffline?t('operator.resume_translation_offline'):t('operator.resume_translation_credits');
         btn.style.background='rgba(255,255,255,.08)';btn.style.color='rgba(255,255,255,.55)';btn.style.borderColor='rgba(255,255,255,.1)';
-      } else{btn.textContent='\u23f8 Pause Translation';btn.style.background='#FF9800';btn.style.color='#000';btn.style.borderColor='#FF9800'}
+      } else{btn.textContent=t('operator.pause_translation');btn.style.background='#FF9800';btn.style.color='#000';btn.style.borderColor='#FF9800'}
       updateSessionHint();
     }
     else if(m.type==='captioning_paused'){
       captioningPaused=m.paused;
       const btn=document.getElementById('liveBtn');
-      if(captioningPaused){btn.textContent='▶ GO LIVE — Start Captioning';btn.style.background='#4CAF50';btn.style.color='#fff'}
-      else{btn.textContent='⏸ PAUSE CAPTIONING';btn.style.background='#f44336';btn.style.color='#fff'}
+      if(captioningPaused){btn.textContent=t('operator.go_live');btn.style.background='#4CAF50';btn.style.color='#fff'}
+      else{btn.textContent=t('operator.pause_captioning');btn.style.background='#f44336';btn.style.color='#fff'}
       updateSessionHint();
     }
     else if(m.type==='save_transcripts'){
@@ -1425,7 +1465,7 @@ function connect(){
   };
   ws.onclose=()=>{
     document.getElementById('sDot').className='dot';
-    document.getElementById('sTxt').textContent='Reconnecting...';
+    document.getElementById('sTxt').textContent=t('operator.status_reconnecting');
     if(recon<50)setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
   };
 }
@@ -1454,8 +1494,8 @@ document.addEventListener('keydown',e=>{
       <span id="cpHex" class="cp-hex">#FFFFFF</span>
     </div>
     <div class="cp-btns">
-      <button class="btn" onclick="cpReset()">Reset</button>
-      <button class="btn btn-g" onclick="cpApply()">Done</button>
+      <button class="btn" onclick="cpReset()" data-i18n="operator.color_picker_reset">Reset</button>
+      <button class="btn btn-g" onclick="cpApply()" data-i18n="operator.color_picker_done">Done</button>
     </div>
   </div>
 </div>
