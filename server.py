@@ -229,7 +229,6 @@ extended_app = FastAPI()
 operator_app = FastAPI()
 dictation_app = FastAPI()
 stt_backend = None
-audio_queue = queue.Queue()  # LEGACY: still used by VoskBackend until Task 4
 display_clients = set()
 extended_clients = set()
 operator_clients = set()
@@ -243,9 +242,6 @@ captioning_paused = True
 dictation_active = False
 save_transcripts = True
 _session_stamp = time.strftime("%Y%m%d_%H%M%S")
-current_speaker = ""  # LEGACY: still used by VoskBackend until Task 4
-_speaker_change_pending = None  # LEGACY: still used by VoskBackend until Task 4
-_speaker_lock = threading.Lock()  # LEGACY: still used by VoskBackend until Task 4
 _line_id = 0               # monotonic counter for final lines
 _line_id_lock = threading.Lock()
 _recent_lines = []          # last N final lines: [{id, text, speaker, src_lang}]
@@ -547,13 +543,22 @@ class VoskBackend(SpeechBackend):
     def name(self): return f"vosk ({self._name})"
 
     def process_audio_loop(self, loop):
-        global current_speaker, _speaker_change_pending
+        """Start a Vosk processing loop for each audio source."""
+        with _sources_lock:
+            for src in _sources:
+                t = threading.Thread(target=self._vosk_source_loop,
+                                     args=(loop, src), daemon=True)
+                t.start()
+                src.buffer_thread = t
+
+    def _vosk_source_loop(self, loop, source):
+        """Per-source Vosk recognition loop. Each source gets its own KaldiRecognizer."""
         import vosk
         rec = vosk.KaldiRecognizer(self._model, SAMPLE_RATE)
         last_partial = ""; last_pt = 0; in_speech = False
-        while not shutdown_event.is_set():
+        while not shutdown_event.is_set() and source.active:
             try:
-                chunk = audio_queue.get(timeout=0.5)
+                chunk = source.queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
@@ -565,21 +570,21 @@ class VoskBackend(SpeechBackend):
                 continue
 
             # ── Speaker change: force-finalize current recognition ──
-            with _speaker_lock:
-                sc = _speaker_change_pending
+            with source.speaker_lock:
+                sc = source.speaker_change_pending
                 if sc:
-                    _speaker_change_pending = None
+                    source.speaker_change_pending = None
             if sc:
-                old_speaker = current_speaker
+                old_speaker = source.speaker
                 new_speaker = sc["name"]
-                log.info(f"Speaker: {old_speaker or '(none)'} -> {new_speaker or '(none)'}")
+                log.info(f"[src {source.id}] Speaker: {old_speaker or '(none)'} -> {new_speaker or '(none)'}")
                 # Force Vosk to finalize whatever it has buffered
                 result = json.loads(rec.FinalResult())
                 text = result.get("text", "").strip()
                 if text:
                     # Keep old speaker label for this segment
-                    _broadcast_final(text, loop)
-                current_speaker = new_speaker
+                    _broadcast_final(text, loop, source)
+                source.speaker = new_speaker
                 last_partial = ""; in_speech = False
 
             audio_bytes = (chunk.flatten()*32767).astype(np.int16).tobytes()
@@ -589,14 +594,15 @@ class VoskBackend(SpeechBackend):
             if rec.AcceptWaveform(audio_bytes):
                 text = json.loads(rec.Result()).get("text","").strip()
                 if text:
-                    _broadcast_final(text, loop)
+                    _broadcast_final(text, loop, source)
                 last_partial = ""; in_speech = False
                 _bc(loop, {"type":"status","state":"silence"})
             else:
                 pt = json.loads(rec.PartialResult()).get("partial","").strip()
                 if pt and pt != last_partial:
                     last_partial = pt
-                    _bc(loop, {"type":"interim","text":pt,"speaker":current_speaker})
+                    _bc(loop, {"type":"interim","text":pt,"speaker":source.speaker,
+                               "color":source.color,"source_id":source.id})
                     now = time.time()
                     if (now - last_pt) >= 2.0 and len(pt) > 20:
                         last_pt = now; _translate_all(pt, "interim_translation", loop, max_slots=2)
@@ -711,8 +717,8 @@ def _store_recent_line(lid, text, speaker, src_lang):
 def _broadcast_final(text, loop, source=None):
     """Broadcast final source text with speaker, save transcript, trigger translations.
     In dictation-only mode, only sends to dictation clients (no translations/transcripts).
-    source: AudioSource (if None, falls back to legacy global current_speaker)."""
-    speaker = source.speaker if source else current_speaker
+    source: AudioSource instance (required for speaker/color/source_id; defaults to empty strings if None)."""
+    speaker = source.speaker if source else ""
     color = source.color if source else ""
     source_id = source.id if source else 0
     lid = _next_line_id()
@@ -750,7 +756,7 @@ def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_overri
         mode = translations[slot].get("mode", "deepl")
     translated = translate_text(text, lang, mode=mode)
     if translated:
-        speaker = speaker_override if speaker_override is not None else current_speaker
+        speaker = speaker_override if speaker_override is not None else ""
         msg = {"type": msg_type, "translated": translated, "lang": lang, "slot": slot, "speaker": speaker}
         if line_id is not None:
             msg["line_id"] = line_id
@@ -1248,16 +1254,12 @@ async def o_ws(ws: WebSocket):
                 new_name = msg.get("speaker", "")
                 source_id = msg.get("source_id")  # None = all sources
                 change = {"name": new_name, "time": time.time()}
-                # Propagate to per-source state (Whisper/MLX buffer loops)
+                # Propagate speaker change to all matching sources (Whisper/MLX/Vosk)
                 with _sources_lock:
                     for src in _sources:
                         if source_id is None or src.id == source_id:
                             with src.speaker_lock:
                                 src.speaker_change_pending = dict(change)
-                # Also update legacy globals for Vosk
-                global _speaker_change_pending
-                with _speaker_lock:
-                    _speaker_change_pending = dict(change)
                 await broadcast_all({"type":"speaker_change","speaker":new_name})
             elif msg.get("type") == "clear_captions":
                 await broadcast_all({"type":"clear_captions"})
