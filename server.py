@@ -229,7 +229,7 @@ extended_app = FastAPI()
 operator_app = FastAPI()
 dictation_app = FastAPI()
 stt_backend = None
-audio_queue = queue.Queue()  # DEPRECATED: use AudioSource.queue — will be removed in Task 3
+audio_queue = queue.Queue()  # LEGACY: still used by VoskBackend until Task 4
 display_clients = set()
 extended_clients = set()
 operator_clients = set()
@@ -243,9 +243,9 @@ captioning_paused = True
 dictation_active = False
 save_transcripts = True
 _session_stamp = time.strftime("%Y%m%d_%H%M%S")
-current_speaker = ""  # DEPRECATED: use AudioSource.speaker — will be removed in Task 3
-_speaker_change_pending = None  # DEPRECATED: use AudioSource.speaker_change_pending
-_speaker_lock = threading.Lock()  # DEPRECATED: use AudioSource.speaker_lock
+current_speaker = ""  # LEGACY: still used by VoskBackend until Task 4
+_speaker_change_pending = None  # LEGACY: still used by VoskBackend until Task 4
+_speaker_lock = threading.Lock()  # LEGACY: still used by VoskBackend until Task 4
 _line_id = 0               # monotonic counter for final lines
 _line_id_lock = threading.Lock()
 _recent_lines = []          # last N final lines: [{id, text, speaker, src_lang}]
@@ -331,20 +331,20 @@ class SpeechBackend(ABC):
 
 # ── Shared buffer-based audio loop (Whisper + MLX) ──
 
-def _check_speaker_change(transcribe_fn, buf, seg_start, loop):
-    """Check for pending speaker change. Split buffer 0.5s before the button press.
+def _check_speaker_change(source, transcribe_fn, buf, seg_start, loop):
+    """Check for pending speaker change on a source. Split buffer 0.5s before the button press.
     Finalizes old speaker's portion, returns remaining buffer for new speaker."""
-    global current_speaker, _speaker_change_pending
-    with _speaker_lock:
-        sc = _speaker_change_pending
+    with source.speaker_lock:
+        sc = source.speaker_change_pending
         if sc:
-            _speaker_change_pending = None
+            source.speaker_change_pending = None
     if not sc:
         return buf, seg_start, False
 
-    old_speaker = current_speaker
+    old_speaker = source.speaker
     new_speaker = sc["name"]
-    log.info(f"Speaker: {old_speaker or '(none)'} -> {new_speaker or '(none)'}")
+    new_color = sc.get("color", source.color)
+    log.info(f"[{source.name}] Speaker: {old_speaker or '(none)'} -> {new_speaker or '(none)'}")
 
     # Finalize any buffered audio under the OLD speaker label
     if len(buf) > 0 and seg_start:
@@ -353,35 +353,54 @@ def _check_speaker_change(transcribe_fn, buf, seg_start, loop):
         if split_samples > int(MIN_SPEECH_DURATION * SAMPLE_RATE) and split_samples < len(buf):
             # Split: old speaker gets audio before the split point
             old_buf = buf[:split_samples]
-            current_speaker = old_speaker  # keep old label for this segment
+            source.speaker = old_speaker  # keep old label for this segment
             text = transcribe_fn(old_buf)
             if text:
-                _broadcast_final(text, loop)
-            current_speaker = new_speaker
+                _broadcast_final(text, loop, source)
+            source.speaker = new_speaker
+            source.color = new_color
             return buf[split_samples:], split_time, True
         elif split_samples >= len(buf):
             # All buffered audio belongs to old speaker
-            current_speaker = old_speaker
+            source.speaker = old_speaker
             text = transcribe_fn(buf)
             if text:
-                _broadcast_final(text, loop)
-            current_speaker = new_speaker
+                _broadcast_final(text, loop, source)
+            source.speaker = new_speaker
+            source.color = new_color
             return np.empty((0,1), dtype=np.float32), sc["time"], True
         # split_samples <= 0: change was before segment start, just relabel
 
-    current_speaker = new_speaker
+    source.speaker = new_speaker
+    source.color = new_color
     return buf, seg_start or sc["time"], True
 
 
-def _buffer_audio_loop(transcribe_fn, loop):
-    """Shared audio processing loop for buffer-based backends (Whisper, MLX).
-    Handles speaker changes with 0.5s retroactive buffer splitting."""
-    global current_speaker
-    buf = np.empty((0,1), dtype=np.float32)
-    is_speech = False; silence_start = None; seg_start = None; last_interim = 0
+def _transcription_worker(transcribe_fn, loop):
+    """Single worker that processes transcription requests from all sources."""
     while not shutdown_event.is_set():
         try:
-            chunk = audio_queue.get(timeout=0.5)
+            source, buf = _transcription_queue.get(timeout=0.5)
+            if not source.active:
+                continue
+            text = transcribe_fn(buf)
+            if text and text.strip():
+                _broadcast_final(text.strip(), loop, source)
+        except queue.Empty:
+            continue
+        except Exception as e:
+            log.error(f"Transcription error: {e}")
+
+
+def _buffer_audio_loop(transcribe_fn, loop, source):
+    """Per-source audio processing loop for buffer-based backends (Whisper, MLX).
+    Handles speaker changes with 0.5s retroactive buffer splitting.
+    Submits completed segments to the shared _transcription_queue."""
+    buf = np.empty((0,1), dtype=np.float32)
+    is_speech = False; silence_start = None; seg_start = None; last_interim = 0
+    while not shutdown_event.is_set() and source.active:
+        try:
+            chunk = source.queue.get(timeout=0.5)
         except queue.Empty:
             continue
 
@@ -392,7 +411,7 @@ def _buffer_audio_loop(transcribe_fn, loop):
             continue
 
         # ── Check for pending speaker change ──
-        buf, seg_start, changed = _check_speaker_change(transcribe_fn, buf, seg_start, loop)
+        buf, seg_start, changed = _check_speaker_change(source, transcribe_fn, buf, seg_start, loop)
         if changed:
             last_interim = 0
             if len(buf) == 0:
@@ -411,7 +430,8 @@ def _buffer_audio_loop(transcribe_fn, loop):
                 last_interim = now
                 text = transcribe_fn(buf)
                 if text:
-                    _bc(loop, {"type":"interim","text":text,"speaker":current_speaker})
+                    _bc(loop, {"type":"interim","text":text,"speaker":source.speaker,
+                               "color":source.color,"source_id":source.id})
                     _translate_all(text, "interim_translation", loop, max_slots=2)
         else:
             if is_speech:
@@ -419,16 +439,18 @@ def _buffer_audio_loop(transcribe_fn, loop):
                     silence_start = now
                 elif (now - silence_start) >= SILENCE_DURATION:
                     if len(buf) / SAMPLE_RATE >= MIN_SPEECH_DURATION:
-                        text = transcribe_fn(buf)
-                        if text:
-                            _broadcast_final(text, loop)
+                        try:
+                            _transcription_queue.put_nowait((source, buf.copy()))
+                        except queue.Full:
+                            log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
                     buf = np.empty((0,1), dtype=np.float32)
                     is_speech = False; silence_start = None; seg_start = None; last_interim = 0
                     _bc(loop, {"type":"status","state":"silence"})
         if is_speech and seg_start and (now - seg_start) >= MAX_SEGMENT_DURATION:
-            text = transcribe_fn(buf)
-            if text:
-                _broadcast_final(text, loop)
+            try:
+                _transcription_queue.put_nowait((source, buf.copy()))
+            except queue.Full:
+                log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
             buf = np.empty((0,1), dtype=np.float32)
             is_speech = False; silence_start = None; seg_start = now; last_interim = 0
 
@@ -462,7 +484,16 @@ class WhisperBackend(SpeechBackend):
             log.error(f"Whisper error: {e}"); return ""
 
     def process_audio_loop(self, loop):
-        _buffer_audio_loop(self._transcribe, loop)
+        # Start shared transcription worker
+        threading.Thread(target=_transcription_worker,
+                         args=(self._transcribe, loop), daemon=True).start()
+        # Start buffer loops for all registered sources
+        with _sources_lock:
+            for src in _sources:
+                t = threading.Thread(target=_buffer_audio_loop,
+                                     args=(self._transcribe, loop, src), daemon=True)
+                t.start()
+                src.buffer_thread = t
 
 
 class VoskBackend(SpeechBackend):
@@ -611,7 +642,16 @@ class MLXWhisperBackend(SpeechBackend):
             log.error(f"MLX Whisper error: {e}"); return ""
 
     def process_audio_loop(self, loop):
-        _buffer_audio_loop(self._transcribe, loop)
+        # Start shared transcription worker
+        threading.Thread(target=_transcription_worker,
+                         args=(self._transcribe, loop), daemon=True).start()
+        # Start buffer loops for all registered sources
+        with _sources_lock:
+            for src in _sources:
+                t = threading.Thread(target=_buffer_audio_loop,
+                                     args=(self._transcribe, loop, src), daemon=True)
+                t.start()
+                src.buffer_thread = t
 
 
 # ── Broadcasting ──
@@ -668,18 +708,23 @@ def _store_recent_line(lid, text, speaker, src_lang):
         while len(_recent_lines) > _RECENT_LINES_MAX:
             _recent_lines.pop(0)
 
-def _broadcast_final(text, loop):
+def _broadcast_final(text, loop, source=None):
     """Broadcast final source text with speaker, save transcript, trigger translations.
-    In dictation-only mode, only sends to dictation clients (no translations/transcripts)."""
-    speaker = current_speaker
+    In dictation-only mode, only sends to dictation clients (no translations/transcripts).
+    source: AudioSource (if None, falls back to legacy global current_speaker)."""
+    speaker = source.speaker if source else current_speaker
+    color = source.color if source else ""
+    source_id = source.id if source else 0
     lid = _next_line_id()
     if captioning_paused and dictation_active:
         # Dictation-only mode: just send final text to dictation clients
         asyncio.run_coroutine_threadsafe(
-            broadcast_dictation({"type":"final","text":text,"speaker":speaker,"line_id":lid}), loop)
+            broadcast_dictation({"type":"final","text":text,"speaker":speaker,
+                                 "color":color,"source_id":source_id,"line_id":lid}), loop)
         log.info(f"   DICTATION: {text}")
         return
-    _bc(loop, {"type":"final","text":text,"speaker":speaker,"line_id":lid})
+    _bc(loop, {"type":"final","text":text,"speaker":speaker,"color":color,
+               "source_id":source_id,"line_id":lid})
     prefix = f"{speaker}: " if speaker else ""
     log.info(f"   IN: {prefix}{text}")
     src = config.get("input_lang", "EN")
@@ -1201,9 +1246,18 @@ async def o_ws(ws: WebSocket):
                 silence_threshold = float(msg.get("value", SILENCE_THRESHOLD))
             elif msg.get("type") == "set_speaker":
                 new_name = msg.get("speaker", "")
+                source_id = msg.get("source_id")  # None = all sources
+                change = {"name": new_name, "time": time.time()}
+                # Propagate to per-source state (Whisper/MLX buffer loops)
+                with _sources_lock:
+                    for src in _sources:
+                        if source_id is None or src.id == source_id:
+                            with src.speaker_lock:
+                                src.speaker_change_pending = dict(change)
+                # Also update legacy globals for Vosk
                 global _speaker_change_pending
                 with _speaker_lock:
-                    _speaker_change_pending = {"name": new_name, "time": time.time()}
+                    _speaker_change_pending = dict(change)
                 await broadcast_all({"type":"speaker_change","speaker":new_name})
             elif msg.get("type") == "clear_captions":
                 await broadcast_all({"type":"clear_captions"})
