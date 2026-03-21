@@ -5,7 +5,7 @@ Detects which speech backend is installed and downloads the appropriate model
 so the user doesn't wait on first launch.
 """
 
-import importlib, os, sys, time
+import importlib.util, os, sys, time
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
