@@ -229,7 +229,7 @@ extended_app = FastAPI()
 operator_app = FastAPI()
 dictation_app = FastAPI()
 stt_backend = None
-audio_queue = queue.Queue()
+audio_queue = queue.Queue()  # DEPRECATED: use AudioSource.queue — will be removed in Task 3
 display_clients = set()
 extended_clients = set()
 operator_clients = set()
@@ -243,14 +243,78 @@ captioning_paused = True
 dictation_active = False
 save_transcripts = True
 _session_stamp = time.strftime("%Y%m%d_%H%M%S")
-current_speaker = ""
-_speaker_change_pending = None  # {"name": str, "time": float} or None
-_speaker_lock = threading.Lock()
+current_speaker = ""  # DEPRECATED: use AudioSource.speaker — will be removed in Task 3
+_speaker_change_pending = None  # DEPRECATED: use AudioSource.speaker_change_pending
+_speaker_lock = threading.Lock()  # DEPRECATED: use AudioSource.speaker_lock
 _line_id = 0               # monotonic counter for final lines
 _line_id_lock = threading.Lock()
 _recent_lines = []          # last N final lines: [{id, text, speaker, src_lang}]
 _RECENT_LINES_MAX = 50
 
+
+# ── Multi-Source Audio ──
+
+class AudioSource:
+    """Represents one audio input source with its own capture stream and speaker state."""
+    _next_id = 0
+
+    def __init__(self, device_index=None, name=None):
+        self.id = AudioSource._next_id
+        AudioSource._next_id += 1
+        self.device_index = device_index
+        self.name = name or f"Source {self.id + 1}"
+        self.speaker = ""
+        self.color = ""  # empty = use default text color
+        self.speaker_change_pending = None  # {"name": str, "time": float}
+        self.speaker_lock = threading.Lock()
+        self.queue = queue.Queue()
+        self.stream = None  # sd.InputStream
+        self.capture_thread = None
+        self.buffer_thread = None
+        self.active = True
+        self.restart_event = threading.Event()
+
+# Thread-safe source registry
+_sources = []  # List[AudioSource]
+_sources_lock = threading.Lock()
+_transcription_queue = queue.Queue(maxsize=16)  # shared for Whisper/MLX
+
+
+def get_source(source_id):
+    """Get an AudioSource by ID."""
+    with _sources_lock:
+        for s in _sources:
+            if s.id == source_id:
+                return s
+    return None
+
+
+def add_source(device_index=None, name=None):
+    """Create and register a new AudioSource."""
+    if len(_sources) >= 8:
+        return None
+    src = AudioSource(device_index, name)
+    with _sources_lock:
+        _sources.append(src)
+    return src
+
+
+def remove_source(source_id):
+    """Stop and remove an AudioSource."""
+    src = get_source(source_id)
+    if not src:
+        return False
+    src.active = False
+    src.restart_event.set()
+    if src.stream:
+        try:
+            src.stream.stop()
+            src.stream.close()
+        except Exception:
+            pass
+    with _sources_lock:
+        _sources[:] = [s for s in _sources if s.id != source_id]
+    return True
 
 
 # ══════════════════════════════════════════════
