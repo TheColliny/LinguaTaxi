@@ -133,29 +133,23 @@ Name: "{group}\Uninstall {#MyAppShortName}"; Filename: "{uninstallexe}"; IconFil
 Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Tasks: desktopicon
 
 [Run]
-#if EDITION == "Full"
-; ── Download NVIDIA CUDA libraries from GitHub (~1.2 GB total) ──
-Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA CUDA Runtime (3.6 MB)..."; Flags: runhidden
-Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA cuBLAS (553 MB)..."; Flags: runhidden
-Filename: "{app}\venv\Scripts\pip.exe"; Parameters: "install --no-deps ""https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"""; WorkingDir: "{app}"; StatusMsg: "Downloading NVIDIA cuDNN (644 MB)..."; Flags: runhidden
-#endif
 ; Optional: check for updated speech models (unchecked by default — bundled models work out of the box)
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"""; WorkingDir: "{app}"; Tasks: updatemodels; StatusMsg: "Checking for updated voice recognition models..."
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"""; WorkingDir: "{app}"; Tasks: updatemodels; StatusMsg: "Checking for updated voice recognition models..."; Flags: runhidden
 #if EDITION == "Full"
 ; Download language-tuned models (each runs only if its task is selected)
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\es; StatusMsg: "Downloading & converting Spanish tuned model (~1.6 GB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\fr; StatusMsg: "Downloading & converting French tuned model (~3.1 GB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\de; StatusMsg: "Downloading & converting German tuned model (~3.1 GB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download AR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ar; StatusMsg: "Downloading & converting Arabic tuned model (~3.1 GB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download JA --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ja; StatusMsg: "Downloading & converting Japanese tuned model (~1.5 GB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ZH --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\zh; StatusMsg: "Downloading & converting Chinese tuned model (~3.1 GB)..."
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\es; StatusMsg: "Downloading & converting Spanish tuned model (~1.6 GB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\fr; StatusMsg: "Downloading & converting French tuned model (~3.1 GB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\de; StatusMsg: "Downloading & converting German tuned model (~3.1 GB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download AR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ar; StatusMsg: "Downloading & converting Arabic tuned model (~3.1 GB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download JA --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ja; StatusMsg: "Downloading & converting Japanese tuned model (~1.5 GB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ZH --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\zh; StatusMsg: "Downloading & converting Chinese tuned model (~3.1 GB)..."; Flags: runhidden
 ; Offline translation models
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_es; StatusMsg: "Downloading Spanish OPUS-MT translation model (~310 MB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_fr; StatusMsg: "Downloading French OPUS-MT translation model (~310 MB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_de; StatusMsg: "Downloading German OPUS-MT translation model (~310 MB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus IT --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_it; StatusMsg: "Downloading Italian OPUS-MT translation model (~310 MB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus RU --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_ru; StatusMsg: "Downloading Russian OPUS-MT translation model (~310 MB)..."
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-m2m --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\m2m100; StatusMsg: "Downloading M2M-100 multilingual model (~4.8 GB, this may take 30-60 minutes)..."
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_es; StatusMsg: "Downloading Spanish OPUS-MT translation model (~310 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_fr; StatusMsg: "Downloading French OPUS-MT translation model (~310 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_de; StatusMsg: "Downloading German OPUS-MT translation model (~310 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus IT --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_it; StatusMsg: "Downloading Italian OPUS-MT translation model (~310 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus RU --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_ru; StatusMsg: "Downloading Russian OPUS-MT translation model (~310 MB)..."; Flags: runhidden
+Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-m2m --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\m2m100; StatusMsg: "Downloading M2M-100 multilingual model (~4.8 GB, this may take 30-60 minutes)..."; Flags: runhidden
 #endif
 ; Launch after install
 Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; Description: "Launch {#MyAppShortName}"; Flags: nowait postinstall skipifsilent
@@ -198,10 +192,12 @@ var
   CfgPath: String;
   PythonHome: String;
   EditionPath: String;
+  PipPath: String;
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
-    // Fix venv paths
+    // Fix venv paths (must happen first — pip needs working venv)
     CfgPath := ExpandConstant('{app}\venv\pyvenv.cfg');
     PythonHome := ExpandConstant('{app}\python');
     SaveStringToFile(CfgPath,
@@ -210,12 +206,23 @@ begin
       'version = 3.11.9' + #13#10,
       False);
 
-    // Write edition.txt (ISPP #if is evaluated at compile time, not runtime)
+    // Write edition.txt
     EditionPath := ExpandConstant('{app}\edition.txt');
   #if EDITION == "Full"
     SaveStringToFile(EditionPath, 'GPU', False);
   #else
     SaveStringToFile(EditionPath, 'CPU', False);
+  #endif
+
+  #if EDITION == "Full"
+    // Launch CUDA downloads in background (run concurrently with [Run] model downloads)
+    PipPath := ExpandConstant('{app}\venv\Scripts\pip.exe');
+    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"',
+         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
+    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"',
+         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
+    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"',
+         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
   #endif
   end;
 end;
