@@ -14,23 +14,39 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 
 def download_whisper_model():
-    """Pre-download faster-whisper large-v3-turbo model."""
+    """Pre-download faster-whisper large-v3-turbo model to local models dir."""
     try:
-        from faster_whisper import WhisperModel
+        import faster_whisper  # noqa: F401 — verify package is installed
     except ImportError:
         return False
 
     model_name = "large-v3-turbo"
+    local_dir = MODELS_DIR / f"faster-whisper-{model_name}"
+
+    # Already downloaded locally?
+    if (local_dir / "model.bin").exists():
+        print(f"\n  [OK] Whisper model already present: {local_dir.name}")
+        return True
+
     print(f"\n  Downloading Whisper model: {model_name}")
     print(f"  This is ~1.5 GB and may take several minutes...\n")
 
-    # Always download using CPU mode — just caching the model files.
-    # GPU detection happens at runtime in server.py, not here.
     try:
-        model = WhisperModel(model_name, device="cpu", compute_type="int8")
-        del model
-        print(f"\n  [OK] Whisper model '{model_name}' ready!")
-        return True
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(
+            "Systran/faster-whisper-large-v3-turbo",
+            local_dir=str(local_dir),
+            allow_patterns=["*.bin", "*.json", "*.txt"],
+        )
+
+        if (local_dir / "model.bin").exists():
+            print(f"\n  [OK] Whisper model '{model_name}' ready!")
+            return True
+        else:
+            print(f"\n  [WARNING] Download completed but model.bin not found.")
+            return False
+
     except Exception as e:
         print(f"\n  [WARNING] Whisper model download failed: {e}")
         print(f"  The model will download automatically on first server start.")
