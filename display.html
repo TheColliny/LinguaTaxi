@@ -43,7 +43,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 <body>
 <div class="app">
   <div class="header">
-    <h1 id="title">Live Captioning</h1>
+    <h1 id="title" data-i18n="display.default_title">Live Captioning</h1>
     <div class="bar"></div>
   </div>
   <div class="sections" id="sections"></div>
@@ -53,6 +53,23 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 let ws=null, cfg={}, recon=0;
 const sectionsEl=document.getElementById('sections');
 const slots={}; // slot_id -> {scrollBox, inner, interimEl, dotEl, color, lines[], lastSpeaker}
+
+let _i18n={}, _i18nEn={};
+function t(key,vars){
+    let s=_i18n[key]||_i18nEn[key]||key;
+    if(vars)Object.entries(vars).forEach(([k,v])=>{s=s.replaceAll('{'+k+'}',v)});
+    return s;
+}
+async function loadTranslations(lang){
+    try{
+        if(!Object.keys(_i18nEn).length){const r=await fetch('/api/locales/en');if(r.ok)_i18nEn=await r.json()}
+        const r2=await fetch('/api/locales/'+lang.toLowerCase());
+        if(r2.ok)_i18n=await r2.json();else _i18n={..._i18nEn};
+    }catch(e){_i18n={..._i18nEn}}
+    document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.getAttribute('data-i18n'))});
+    document.documentElement.lang=lang.toLowerCase();
+    document.documentElement.dir=lang==='AR'?'rtl':'ltr';
+}
 
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 
@@ -66,7 +83,7 @@ function buildSections(c){
   (c.translations||[]).forEach(t=>{
     parts.push({id:'slot_'+t.slot, label:t.name, color:t.color, slot:t.slot});
   });
-  if(parts.length===0){sectionsEl.innerHTML='<div class="no-langs">No languages configured</div>';return}
+  if(parts.length===0){sectionsEl.innerHTML='<div class="no-langs" data-i18n="display.no_languages">No languages configured</div>';return}
   parts.forEach((p,i)=>{
     if(i>0){const dv=document.createElement('div');dv.className='divider';sectionsEl.appendChild(dv)}
     const sec=document.createElement('div');sec.className='lang-section';
@@ -216,6 +233,7 @@ function handleMsg(msg){
     case 'clear_captions': clearAll(); break;
     case 'config_update':
       applyStyle(msg);
+      if(msg.ui_language) loadTranslations(msg.ui_language);
       if(msg.all_translations!==undefined){
         fetch('/api/config').then(r=>r.json()).then(c=>{cfg=c;buildSections(c);applyStyle(c)});
       }
@@ -232,7 +250,7 @@ function connect(){
 }
 
 fetch('/api/config').then(r=>r.json()).then(c=>{
-  cfg=c; buildSections(c); applyStyle(c); connect();
+  cfg=c; buildSections(c); applyStyle(c); if(c.ui_language) loadTranslations(c.ui_language); connect();
 }).catch(()=>connect());
 </script>
 </body>

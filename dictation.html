@@ -50,36 +50,56 @@ body{display:flex;flex-direction:column}
 <body>
 
 <div class="toolbar">
-  <div class="title"><span class="dot" id="dot"></span> Dictation</div>
-  <button class="btn btn-go" id="goBtn" onclick="toggleTranscribing()">Start</button>
-  <span class="status" id="status">Connecting...</span>
-  <span class="wordcount" id="wordcount">0 words</span>
-  <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard">Copy</button>
-  <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file">Save</button>
-  <button class="btn btn-danger" onclick="clearAll()" title="Clear all text">Clear</button>
+  <div class="title"><span class="dot" id="dot"></span> <span data-i18n="dictation.toolbar_title">Dictation</span></div>
+  <button class="btn btn-go" id="goBtn" onclick="toggleTranscribing()" data-i18n="dictation.start_btn">Start</button>
+  <span class="status" id="status" data-i18n="dictation.status_connecting">Connecting...</span>
+  <span class="wordcount" id="wordcount" data-i18n="dictation.word_count" data-i18n-count="0">0 words</span>
+  <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard" data-i18n="dictation.copy_btn">Copy</button>
+  <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file" data-i18n="dictation.save_btn">Save</button>
+  <button class="btn btn-danger" onclick="clearAll()" title="Clear all text" data-i18n="dictation.clear_btn">Clear</button>
 </div>
 
 <div class="settings-row">
-  <label>Save to:</label>
-  <input type="text" id="saveDir" placeholder="Loading..." spellcheck="false" onkeydown="if(event.key==='Enter')updateDir()">
-  <button class="btn" onclick="updateDir()" style="padding:4px 10px;font-size:10px">Set</button>
+  <label data-i18n="dictation.save_to_label">Save to:</label>
+  <input type="text" id="saveDir" placeholder="Loading..." spellcheck="false" onkeydown="if(event.key==='Enter')updateDir()" data-i18n="dictation.save_to_placeholder" data-i18n-ph>
+  <button class="btn" onclick="updateDir()" style="padding:4px 10px;font-size:10px" data-i18n="dictation.set_btn">Set</button>
 </div>
 
 <div class="interim-bar" id="interimBar" style="display:none">
-  <span class="interim-label">Hearing:</span>
+  <span class="interim-label" data-i18n="dictation.hearing_label">Hearing:</span>
   <span class="interim-text" id="interimText"></span>
 </div>
 
 <div class="editor-wrap">
   <textarea class="editor" id="editor" spellcheck="true"
-    placeholder="Click Start then speak — text will appear here.&#10;&#10;You can click anywhere to position your cursor.&#10;New speech will be inserted at the cursor position.&#10;You can freely edit, select, and type in this area."></textarea>
-  <div class="insert-hint" id="insertHint" style="opacity:0">Insert at cursor</div>
+    placeholder="Click Start then speak — text will appear here.&#10;&#10;You can click anywhere to position your cursor.&#10;New speech will be inserted at the cursor position.&#10;You can freely edit, select, and type in this area." data-i18n="dictation.editor_placeholder" data-i18n-ph></textarea>
+  <div class="insert-hint" id="insertHint" style="opacity:0" data-i18n="dictation.insert_at_cursor">Insert at cursor</div>
 </div>
 
 <script>
 let ws = null, recon = 0;
 let interimText = '';
 let transcribing = false;
+
+let _i18n={}, _i18nEn={};
+function t(key,vars){
+    let s=_i18n[key]||_i18nEn[key]||key;
+    if(vars)Object.entries(vars).forEach(([k,v])=>{s=s.replaceAll('{'+k+'}',v)});
+    return s;
+}
+async function loadTranslations(lang){
+    try{
+        if(!Object.keys(_i18nEn).length){const r=await fetch('/api/locales/en');if(r.ok)_i18nEn=await r.json()}
+        const r2=await fetch('/api/locales/'+lang.toLowerCase());
+        if(r2.ok)_i18n=await r2.json();else _i18n={..._i18nEn};
+    }catch(e){_i18n={..._i18nEn}}
+    document.querySelectorAll('[data-i18n]').forEach(el=>{
+        if(el.hasAttribute('data-i18n-ph')) el.placeholder=t(el.getAttribute('data-i18n'));
+        else el.textContent=t(el.getAttribute('data-i18n'));
+    });
+    document.documentElement.lang=lang.toLowerCase();
+    document.documentElement.dir=lang==='AR'?'rtl':'ltr';
+}
 
 const editor = document.getElementById('editor');
 const interimBar = document.getElementById('interimBar');
@@ -99,7 +119,7 @@ function updateInsertHint() {
   if (editor.value.length > 0 && !isCursorAtEnd() &&
       document.activeElement === editor && transcribing) {
     insertHint.style.opacity = '1';
-    insertHint.textContent = 'Inserting at cursor (position ' + editor.selectionStart + ')';
+    insertHint.textContent = t('dictation.insert_at_cursor_position', {pos: editor.selectionStart});
   } else {
     insertHint.style.opacity = '0';
   }
@@ -156,7 +176,11 @@ function appendText(text) {
 function updateWordCount() {
   const text = editor.value.trim();
   const count = text ? text.split(/\s+/).length : 0;
-  wordcountEl.textContent = count + (count === 1 ? ' word' : ' words');
+  if (count === 1) {
+    wordcountEl.textContent = t('dictation.word_count_singular', {count: count});
+  } else {
+    wordcountEl.textContent = t('dictation.word_count', {count: count});
+  }
 }
 
 // Listen for manual edits too
@@ -166,8 +190,8 @@ function copyAll() {
   const text = editor.value.trim();
   if (!text) return;
   navigator.clipboard.writeText(text).then(() => {
-    statusEl.textContent = 'Copied!';
-    setTimeout(() => { statusEl.textContent = transcribing ? 'Listening...' : 'Stopped'; }, 1500);
+    statusEl.textContent = t('dictation.status_copied');
+    setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 1500);
   });
 }
 
@@ -180,13 +204,13 @@ function saveFile() {
     .then(r => r.json())
     .then(r => {
       if (r.path) {
-        statusEl.textContent = 'Saved!';
-        setTimeout(() => { statusEl.textContent = transcribing ? 'Listening...' : 'Stopped'; }, 2000);
+        statusEl.textContent = t('dictation.status_saved');
+        setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 2000);
       } else {
-        statusEl.textContent = 'Save error: ' + (r.error || 'unknown');
+        statusEl.textContent = t('dictation.status_save_error', {error: r.error || 'unknown'});
       }
     })
-    .catch(() => { statusEl.textContent = 'Save failed'; });
+    .catch(() => { statusEl.textContent = t('dictation.status_save_failed'); });
 }
 
 function loadDirConfig() {
@@ -204,11 +228,11 @@ function updateDir() {
     .then(r => r.json())
     .then(r => {
       if (r.error) {
-        statusEl.textContent = 'Invalid path: ' + r.error;
+        statusEl.textContent = t('dictation.status_invalid_path', {error: r.error});
       } else {
         document.getElementById('saveDir').value = r.dictation_dir;
-        statusEl.textContent = 'Directory updated';
-        setTimeout(() => { statusEl.textContent = transcribing ? 'Listening...' : 'Stopped'; }, 1500);
+        statusEl.textContent = t('dictation.status_directory_updated');
+        setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 1500);
       }
     });
 }
@@ -233,10 +257,10 @@ function toggleTranscribing() {
 function updateGoBtn() {
   const btn = document.getElementById('goBtn');
   if (transcribing) {
-    btn.textContent = 'Stop';
+    btn.textContent = t('dictation.stop_btn');
     btn.classList.add('active');
   } else {
-    btn.textContent = 'Start';
+    btn.textContent = t('dictation.start_btn');
     btn.classList.remove('active');
   }
 }
@@ -247,14 +271,14 @@ function handleMsg(msg) {
       if (msg.dictation_active !== undefined) {
         transcribing = msg.dictation_active;
         updateGoBtn();
-        if (!transcribing) { statusEl.textContent = 'Stopped'; break; }
+        if (!transcribing) { statusEl.textContent = t('dictation.status_stopped'); break; }
       }
       if (msg.state === 'speech') {
         dot.className = 'dot live';
-        statusEl.textContent = 'Listening...';
+        statusEl.textContent = t('dictation.status_listening');
       } else if (msg.state === 'silence') {
         dot.className = 'dot conn';
-        statusEl.textContent = transcribing ? 'Ready' : 'Stopped';
+        statusEl.textContent = transcribing ? t('dictation.status_ready') : t('dictation.status_stopped');
       }
       break;
     case 'interim':
@@ -282,14 +306,17 @@ function handleMsg(msg) {
       transcribing = msg.active;
       updateGoBtn();
       if (!msg.active) {
-        statusEl.textContent = 'Stopped';
+        statusEl.textContent = t('dictation.status_stopped');
         dot.className = 'dot';
         interimBar.style.display = 'none';
       } else {
-        statusEl.textContent = 'Listening...';
+        statusEl.textContent = t('dictation.status_listening');
         dot.className = 'dot conn';
       }
       updateInsertHint();
+      break;
+    case 'config_update':
+      if (msg.ui_language) loadTranslations(msg.ui_language);
       break;
     case 'captioning_paused':
     case 'clear_captions':
@@ -305,19 +332,25 @@ function connect() {
   ws.onopen = () => {
     recon = 0;
     dot.className = 'dot conn';
-    statusEl.textContent = 'Ready';
+    statusEl.textContent = t('dictation.status_ready');
   };
   ws.onmessage = e => handleMsg(JSON.parse(e.data));
   ws.onclose = () => {
     dot.className = 'dot';
-    statusEl.textContent = 'Reconnecting...';
+    statusEl.textContent = t('dictation.status_reconnecting');
     if (recon < 50) setTimeout(connect, Math.min(1000 * Math.pow(1.5, recon++), 10000));
   };
   ws.onerror = () => {};
 }
 
-connect();
-loadDirConfig();
+// Load initial config and translations
+fetch('/api/dictation-config').then(r=>r.json()).then(c=>{
+  document.getElementById('saveDir').value = c.dictation_dir || '';
+});
+fetch('/api/config').then(r=>r.json()).then(c=>{
+  if(c.ui_language) loadTranslations(c.ui_language);
+  connect();
+}).catch(()=>connect());
 </script>
 </body>
 </html>
