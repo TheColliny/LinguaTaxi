@@ -170,6 +170,30 @@ def save_config(cfg):
 
 config = load_config()
 
+def _save_speaker_config():
+    """Save speaker names, colors, assignments to config."""
+    with _sources_lock:
+        speaker_config = {}
+        for s in _sources:
+            key = str(s.device_index) if s.device_index is not None else "default"
+            speaker_config[key] = {
+                "name": s.name, "speaker": s.speaker, "color": s.color
+            }
+    config["speaker_config"] = speaker_config
+    save_config(config)
+
+
+def _load_speaker_config():
+    """Restore speaker names, colors from config after sources are created."""
+    sc = config.get("speaker_config", {})
+    with _sources_lock:
+        for s in _sources:
+            key = str(s.device_index) if s.device_index is not None else "default"
+            if key in sc:
+                s.name = sc[key].get("name", s.name)
+                s.speaker = sc[key].get("speaker", s.speaker)
+                s.color = sc[key].get("color", "")
+
 # ── DeepL ──
 def get_deepl_url(key):
     return "https://api-free.deepl.com/v2/translate" if key.strip().endswith(":fx") else "https://api.deepl.com/v2/translate"
@@ -1285,6 +1309,21 @@ async def api_remove_source(request: Request):
         return JSONResponse({"ok": True})
     return JSONResponse({"error": "Source not found"}, status_code=404)
 
+@operator_app.post("/api/speakers/reset")
+async def api_reset_speakers():
+    """Reset all speaker names and colors to defaults."""
+    with _sources_lock:
+        for s in _sources:
+            s.speaker = ""
+            s.color = ""
+    _save_speaker_config()
+    # Send updated source list to all clients
+    with _sources_lock:
+        source_list = [{"id": s.id, "name": s.name, "speaker": s.speaker,
+                        "color": s.color} for s in _sources]
+    await broadcast_all({"type": "source_list", "sources": source_list})
+    return JSONResponse({"ok": True})
+
 @operator_app.websocket("/ws")
 async def o_ws(ws: WebSocket):
     await ws.accept(); operator_clients.add(ws)
@@ -1312,6 +1351,7 @@ async def o_ws(ws: WebSocket):
                             with src.speaker_lock:
                                 src.speaker_change_pending = dict(change)
                 await broadcast_all({"type":"speaker_change","speaker":new_name})
+                _save_speaker_config()
             elif msg.get("type") == "clear_captions":
                 await broadcast_all({"type":"clear_captions"})
             elif msg.get("type") == "set_translation_paused":
@@ -1561,6 +1601,8 @@ def main():
         add_source(args.mic)
     else:
         add_source(None)  # system default
+
+    _load_speaker_config()
 
     print("\n  +-- Live Caption Server --+\n")
     bc = resolve_backend(args.backend)
