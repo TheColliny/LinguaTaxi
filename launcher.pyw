@@ -27,6 +27,12 @@ elif getattr(sys, "frozen", False):
 else:
     APP_DIR = Path(__file__).resolve().parent
 
+# Detect edition from edition.txt (written by installer/build system)
+_edition_file = APP_DIR / "edition.txt"
+EDITION = _edition_file.read_text().strip() if _edition_file.exists() else "Dev"
+
+GITHUB_REPO = "TheColliny/LinguaTaxi"
+
 SERVER_PY = APP_DIR / "server.py"
 
 # Settings directory
