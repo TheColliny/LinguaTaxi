@@ -84,7 +84,7 @@ function buildSections(c){
   });
 }
 
-function addFinalLine(slotId, text, speaker, lineId){
+function addFinalLine(slotId, text, speaker, lineId, color){
   const s=slots[slotId]; if(!s)return;
   const line=document.createElement('div');
   line.className='line';line.style.color=s.color;
@@ -94,7 +94,7 @@ function addFinalLine(slotId, text, speaker, lineId){
     const tag=document.createElement('span');
     tag.className='speaker-tag';
     tag.textContent=speaker+': ';
-    tag.style.color=s.color;
+    tag.style.color = color || s.color;
     line.appendChild(tag);
     s.lastSpeaker=speaker;
   } else if(!speaker && s.lastSpeaker){
@@ -129,7 +129,7 @@ function correctLine(slotId, lineId, newText){
   }
 }
 
-function setInterim(slotId, text, speaker){
+function setInterim(slotId, text, speaker, color){
   const s=slots[slotId]; if(!s)return;
   if(text){
     s.interimEl.innerHTML='';
@@ -139,6 +139,7 @@ function setInterim(slotId, text, speaker){
       const tag=document.createElement('span');
       tag.className='speaker-tag';
       tag.textContent=speaker+': ';
+      tag.style.color = color || '';
       s.interimEl.appendChild(tag);
     }
     s.interimEl.appendChild(document.createTextNode(text));
@@ -180,17 +181,17 @@ function handleMsg(msg){
       else if(msg.state==='silence') Object.values(slots).forEach(s=>s.dotEl.className='dot conn');
       break;
     case 'interim':
-      setInterim('caption', msg.text||'', msg.speaker||'');
+      setInterim('caption', msg.text||'', msg.speaker||'', msg.color);
       if(slots['caption'])slots['caption'].dotEl.className='dot live';
       break;
     case 'final':
       setInterim('caption','');
-      if(msg.text) addFinalLine('caption', msg.text, msg.speaker||'', msg.line_id);
+      if(msg.text) addFinalLine('caption', msg.text, msg.speaker||'', msg.line_id, msg.color);
       break;
     case 'interim_translation':
       if(msg.slot!==undefined){
         const k=slotKey(msg.slot);
-        setInterim(k, msg.translated||'', msg.speaker||'');
+        setInterim(k, msg.translated||'', msg.speaker||'', msg.color);
         if(slots[k])slots[k].dotEl.className='dot live';
       }
       break;
@@ -198,7 +199,7 @@ function handleMsg(msg){
       if(msg.slot!==undefined){
         const k=slotKey(msg.slot);
         setInterim(k,'');
-        if(msg.translated)addFinalLine(k, msg.translated, msg.speaker||'', msg.line_id);
+        if(msg.translated)addFinalLine(k, msg.translated, msg.speaker||'', msg.line_id, msg.color);
       }
       break;
     case 'correct_line':

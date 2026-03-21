@@ -294,6 +294,9 @@ function handleMsg(msg) {
     case 'captioning_paused':
     case 'clear_captions':
       break; // Ignore — dictation is independent
+    case 'interim_translation':
+    case 'final_translation':
+      break; // Ignore — dictation is independent
   }
 }
 
