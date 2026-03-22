@@ -184,7 +184,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
       <div id="bidirControls" style="display:none;margin-top:8px;">
         <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;">
           <select id="bidirLangA" onchange="onBidirLangChange()" style="flex:1;"></select>
-          <span style="color:#8899aa;font-size:14px;flex-shrink:0">&#8644;</span>
+          <button class="btn" onclick="swapBidirLangs()" title="Swap languages (Keyboard: X)" style="flex-shrink:0;padding:4px 10px;font-size:16px;min-width:0;line-height:1">&#8644;</button>
           <select id="bidirLangB" onchange="onBidirLangChange()" style="flex:1;"></select>
         </div>
         <label id="tunedSwapLabel" style="display:none;font-size:11px;color:rgba(255,255,255,.55);cursor:pointer;align-items:center;gap:6px">
@@ -679,6 +679,30 @@ function onBidirLangChange(){
   const langB=document.getElementById('bidirLangB').value;
   bidirLangs=[langA,langB];
   const fd=new FormData();
+  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
+  if(bidirEnabled){
+    fd.append('bidirectional_enabled','true');
+  }
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    if(bidirEnabled) loadCfg();
+  });
+}
+
+function swapBidirLangs(){
+  const selA=document.getElementById('bidirLangA');
+  const selB=document.getElementById('bidirLangB');
+  const tmp=selA.value;
+  selA.value=selB.value;
+  selB.value=tmp;
+  bidirLangs=[selA.value,selB.value];
+
+  // Update input language to match the new "A" language
+  const inputSel=document.getElementById('iInputLang');
+  if(inputSel)inputSel.value=selA.value;
+
+  // Send swap: input_lang + bidirectional_langs + re-trigger translation slots
+  const fd=new FormData();
+  fd.append('input_lang', selA.value);
   fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
   if(bidirEnabled){
     fd.append('bidirectional_enabled','true');
@@ -1624,6 +1648,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='c'||e.key==='C'){clearCaptions();return}
   if(e.key==='p'||e.key==='P'){togglePause();return}
   if(e.key==='l'||e.key==='L'){toggleLive();return}
+  if((e.key==='x'||e.key==='X')&&bidirEnabled){swapBidirLangs();return}
   if(e.key==='0'){setSp(0);return}
   const n=parseInt(e.key);
   if(n>=1&&n<=9&&n<=speakers.length)setSp(n);
