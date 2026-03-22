@@ -46,6 +46,8 @@
   "launcher.download_tuned_models": "\u2b07  Download Language-Tuned Models",
   "launcher.download_offline_models": "\u2b07  Download Offline Translation Models",
   "launcher.delete_installed_models": "\ud83d\uddd1  Delete Installed Models",
+  "launcher.download_vosk_models": "\u2b07  Download Vosk Language Models",
+  "launcher.bidirectional_display": "\ud83d\udcfa  Bi-directional Display",
 
   "launcher.server_log_frame": "Server Log",
   "launcher.open_transcripts": "\ud83d\udcc2 Open Transcripts",
@@ -108,6 +110,16 @@
   "launcher.dialog_offline_download_complete": "Download complete!",
   "launcher.dialog_offline_download_failed": "Download failed: {error}",
   "launcher.dialog_offline_partial": "{succeeded} downloaded, {failed} failed",
+
+  "launcher.dialog_vosk_title": "Download Vosk Language Models",
+  "launcher.dialog_vosk_heading": "Download Vosk Language Models",
+  "launcher.dialog_vosk_description": "Vosk models enable offline speech recognition on CPU.\nSelect a language model to download and install.",
+  "launcher.dialog_vosk_select_prompt": "Select languages and click Download.",
+  "launcher.dialog_vosk_hint": "Models are extracted to the models/ directory.\nEach model is 30-320 MB.",
+  "launcher.dialog_vosk_starting": "Starting download...",
+  "launcher.dialog_vosk_download_complete": "Download complete!",
+  "launcher.dialog_vosk_download_failed": "Download failed: {error}",
+  "launcher.dialog_vosk_partial": "{succeeded} downloaded, {failed} failed",
 
   "launcher.dialog_models_title": "Delete Installed Models",
   "launcher.dialog_models_heading": "Delete Installed Models",

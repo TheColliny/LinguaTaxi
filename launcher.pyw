@@ -328,9 +328,34 @@ class LinguaTaxiApp(tk.Tk):
     # ── Build UI ──
 
     def _build_ui(self):
-        # Main container with padding
-        main = ttk.Frame(self, padding=16)
-        main.pack(fill="both", expand=True)
+        # Scrollable main container
+        outer = ttk.Frame(self)
+        outer.pack(fill="both", expand=True)
+
+        self._canvas = tk.Canvas(outer, bg=self.BG, highlightthickness=0)
+        self._scrollbar = ttk.Scrollbar(outer, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+
+        self._scrollbar.pack(side="right", fill="y")
+        self._canvas.pack(side="left", fill="both", expand=True)
+
+        main = ttk.Frame(self._canvas, padding=16)
+        self._canvas.create_window((0, 0), window=main, anchor="nw", tags="main_frame")
+
+        def _on_main_configure(event):
+            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        main.bind("<Configure>", _on_main_configure)
+
+        def _on_canvas_configure(event):
+            self._canvas.itemconfig("main_frame", width=event.width)
+        self._canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(event):
+            # Only scroll if content exceeds visible area
+            if self._canvas.bbox("all") and self._canvas.bbox("all")[3] > self._canvas.winfo_height():
+                self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._main_mousewheel = _on_mousewheel
+        self._bind_main_mousewheel()
 
         # ── Language Selector ──
         lang_row = ttk.Frame(main)
@@ -450,6 +475,11 @@ class LinguaTaxiApp(tk.Tk):
                                     state="disabled")
         self.dict_btn.pack(fill="x", pady=(5, 0))
 
+        self.bidir_btn = ttk.Button(self._browser_frame, text=_t("launcher.bidirectional_display"),
+                                     style="Browser.TButton", command=self._open_bidirectional,
+                                     state="disabled")
+        self.bidir_btn.pack(fill="x", pady=(5, 0))
+
         # ── Settings ──
         self._settings_frame = ttk.LabelFrame(main, text="  " + _t("launcher.settings_frame") + "  ", padding=12)
         self._settings_frame.pack(fill="x", pady=(0, 10))
@@ -518,7 +548,11 @@ class LinguaTaxiApp(tk.Tk):
 
         self._delete_btn = ttk.Button(self._settings_frame, text=_t("launcher.delete_installed_models"),
                    command=self._show_model_manager_dialog)
-        self._delete_btn.pack(fill="x", pady=(0, 0))
+        self._delete_btn.pack(fill="x", pady=(0, 4))
+
+        self._vosk_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_vosk_models"),
+                   command=self._show_vosk_models_dialog)
+        self._vosk_btn.pack(fill="x", pady=(4, 0))
 
         # ── Log Area ──
         self._log_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_log_frame") + "  ", padding=(8, 6))
@@ -560,6 +594,10 @@ class LinguaTaxiApp(tk.Tk):
         self._log_system(_t("launcher.log_app_directory", path=APP_DIR))
         self._log_system(_t("launcher.log_transcripts", path=self.tdir_var.get()))
         self._log_system(_t("launcher.log_ready"))
+
+    def _bind_main_mousewheel(self):
+        """Bind mousewheel scrolling to the main canvas."""
+        self._canvas.bind_all("<MouseWheel>", self._main_mousewheel)
 
     # ── Drawing ──
 
@@ -882,7 +920,7 @@ class LinguaTaxiApp(tk.Tk):
         def _cb_mousewheel(event):
             cb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel)
-        dlg.bind("<Destroy>", lambda e: cb_canvas.unbind_all("<MouseWheel>") if e.widget == dlg else None)
+        dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         check_vars = {}
         cb_widgets = {}
@@ -1080,6 +1118,244 @@ class LinguaTaxiApp(tk.Tk):
 
             _poll()
 
+    # ── Vosk Language Models Dialog ──
+
+    def _show_vosk_models_dialog(self):
+        """Show dialog for downloading Vosk language models."""
+        VOSK_MODELS = {
+            "en": {"name": "English (US)", "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip", "dir": "vosk-model-small-en-us-0.15", "size": "40 MB"},
+            "de": {"name": "German", "url": "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip", "dir": "vosk-model-small-de-0.15", "size": "45 MB"},
+            "fr": {"name": "French", "url": "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip", "dir": "vosk-model-small-fr-0.22", "size": "41 MB"},
+            "es": {"name": "Spanish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip", "dir": "vosk-model-small-es-0.42", "size": "39 MB"},
+            "ru": {"name": "Russian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip", "dir": "vosk-model-small-ru-0.22", "size": "45 MB"},
+            "it": {"name": "Italian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip", "dir": "vosk-model-small-it-0.22", "size": "48 MB"},
+            "ja": {"name": "Japanese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip", "dir": "vosk-model-small-ja-0.22", "size": "48 MB"},
+            "zh": {"name": "Chinese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip", "dir": "vosk-model-small-cn-0.22", "size": "42 MB"},
+            "ar": {"name": "Arabic", "url": "https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip", "dir": "vosk-model-ar-mgb2-0.4", "size": "318 MB"},
+            "pt": {"name": "Portuguese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip", "dir": "vosk-model-small-pt-0.3", "size": "31 MB"},
+            "tr": {"name": "Turkish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-tr-0.3.zip", "dir": "vosk-model-small-tr-0.3", "size": "35 MB"},
+            "ko": {"name": "Korean", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ko-0.22.zip", "dir": "vosk-model-small-ko-0.22", "size": "82 MB"},
+        }
+
+        models_dir = APP_DIR / "models"
+
+        dlg = tk.Toplevel(self)
+        dlg.title(_t("launcher.dialog_vosk_title"))
+        dlg.geometry("520x500")
+        dlg.minsize(400, 320)
+        dlg.resizable(True, True)
+        dlg.configure(bg=self.BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Center on parent
+        dlg.update_idletasks()
+        px = self.winfo_x() + (self.winfo_width() - 520) // 2
+        py = self.winfo_y() + (self.winfo_height() - 500) // 2
+        dlg.geometry(f"+{px}+{py}")
+
+        f = ttk.Frame(dlg, padding=20)
+        f.pack(fill="both", expand=True)
+
+        ttk.Label(f, text=_t("launcher.dialog_vosk_heading"),
+                  font=("Segoe UI", 13, "bold"),
+                  foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
+
+        ttk.Label(f, text=_t("launcher.dialog_vosk_description"),
+                  style="Subtitle.TLabel", justify="center",
+                  wraplength=460).pack(pady=(0, 12))
+
+        # Scrollable checkbox area
+        cb_canvas = tk.Canvas(f, bg=self.BG, highlightthickness=0)
+        cb_scrollbar = ttk.Scrollbar(f, orient="vertical", command=cb_canvas.yview)
+        cb_frame = ttk.Frame(cb_canvas)
+        cb_frame.bind("<Configure>",
+                      lambda e: cb_canvas.configure(scrollregion=cb_canvas.bbox("all")))
+        cb_canvas.create_window((0, 0), window=cb_frame, anchor="nw", tags="inner")
+        cb_canvas.configure(yscrollcommand=cb_scrollbar.set)
+
+        def _resize_cb(event):
+            cb_canvas.itemconfig("inner", width=event.width)
+        cb_canvas.bind("<Configure>", _resize_cb)
+
+        cb_canvas.pack(side="top", fill="both", expand=True, pady=(0, 8))
+        cb_scrollbar.pack(in_=f, side="right", fill="y", before=cb_canvas)
+
+        def _cb_mousewheel(event):
+            cb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel)
+        dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
+
+        check_vars = {}
+        cb_widgets = {}
+        installed_status = {}
+
+        for lang, info in VOSK_MODELS.items():
+            installed = (models_dir / info["dir"]).exists()
+            installed_status[lang] = installed
+            var = tk.BooleanVar(value=False)
+            check_vars[lang] = var
+
+            if installed:
+                row = ttk.Frame(cb_frame)
+                row.pack(anchor="w", pady=2, fill="x")
+                tk.Label(row, text=" \u2713 ", fg="#66BB6A", bg=self.BG,
+                         font=("Segoe UI", 10, "bold")).pack(side="left")
+                tk.Label(row, text=f"{info['name']} \u2014 {info['size']}  ",
+                         fg=self.FG, bg=self.BG,
+                         font=("Segoe UI", 9)).pack(side="left")
+                tk.Label(row, text=_t("launcher.dialog_tuned_installed"), fg="#66BB6A", bg=self.BG,
+                         font=("Segoe UI", 9, "bold")).pack(side="left")
+                cb_widgets[lang] = None
+            else:
+                text = f"{info['name']} \u2014 {info['size']}"
+                cb = ttk.Checkbutton(cb_frame, text=text, variable=var)
+                cb.pack(anchor="w", pady=2)
+                cb_widgets[lang] = cb
+
+        # Buttons (fixed at bottom)
+        btn_frame = ttk.Frame(f)
+        btn_frame.pack(fill="x", pady=(0, 8))
+
+        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
+                            style="Start.TButton",
+                            command=lambda: _start_download())
+        dl_btn.pack(side="left", padx=(0, 8))
+
+        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
+                               command=dlg.destroy)
+        close_btn.pack(side="right")
+
+        # Progress area (fixed at bottom)
+        prog_frame = ttk.Frame(f)
+        prog_frame.pack(fill="x", pady=(8, 0))
+
+        progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
+        progress_bar.pack_forget()
+
+        status_var = tk.StringVar(value=_t("launcher.dialog_vosk_select_prompt"))
+        status_label = ttk.Label(prog_frame, textvariable=status_var,
+                                 style="Subtitle.TLabel", wraplength=460)
+        status_label.pack(fill="x")
+
+        hint_label = ttk.Label(prog_frame,
+                               text=_t("launcher.dialog_vosk_hint"),
+                               style="Subtitle.TLabel", wraplength=460)
+        hint_label.pack(fill="x", pady=(8, 0))
+
+        dl_queue = queue.Queue()
+
+        def _start_download():
+            selected = [lang for lang, var in check_vars.items()
+                        if var.get() and not installed_status.get(lang)]
+            if not selected:
+                messagebox.showinfo(_t("launcher.dialog_tuned_no_selection_title"),
+                    _t("launcher.dialog_tuned_no_selection"),
+                    parent=dlg)
+                return
+
+            dl_btn.configure(state="disabled")
+            close_btn.configure(state="disabled")
+            for cb in cb_widgets.values():
+                if cb:
+                    cb.configure(state="disabled")
+            progress_bar.pack(fill="x", pady=(0, 4))
+            progress_bar["value"] = 0
+            status_var.set(_t("launcher.dialog_vosk_starting"))
+
+            total = len(selected)
+            completed_count = [0]
+
+            def _download_all():
+                succeeded = 0
+                failed = 0
+                errors = []
+                for lang in selected:
+                    info = VOSK_MODELS[lang]
+                    url = info["url"]
+                    dest_dir = info["dir"]
+                    zip_path = models_dir / f"{dest_dir}.zip"
+                    try:
+                        models_dir.mkdir(parents=True, exist_ok=True)
+                        dl_queue.put(("status", 0, f"Downloading {info['name']}..."))
+
+                        def _report_hook(block_num, block_size, total_size, _lang=lang, _name=info["name"]):
+                            if total_size > 0:
+                                pct = min(100, int(block_num * block_size * 100 / total_size))
+                                overall = int((completed_count[0] * 100 + pct) / total)
+                                dl_queue.put(("progress", overall, f"[{_lang.upper()}] {_name}: {pct}%"))
+
+                        urllib.request.urlretrieve(url, str(zip_path), _report_hook)
+
+                        dl_queue.put(("status", 0, f"Extracting {info['name']}..."))
+                        import zipfile
+                        with zipfile.ZipFile(str(zip_path), "r") as zf:
+                            zf.extractall(str(models_dir))
+                        zip_path.unlink(missing_ok=True)
+
+                        installed_status[lang] = True
+                        completed_count[0] += 1
+                        succeeded += 1
+                        dl_queue.put(("done_ok", lang, info["name"]))
+                    except Exception as exc:
+                        zip_path.unlink(missing_ok=True) if zip_path.exists() else None
+                        completed_count[0] += 1
+                        failed += 1
+                        errors.append(str(exc))
+                        dl_queue.put(("done_err", lang, str(exc)))
+
+                if failed > 0 and succeeded == 0:
+                    dl_queue.put(("finished_err", 0,
+                                  _t("launcher.dialog_vosk_download_failed", error=errors[0]) if errors else _t("launcher.dialog_vosk_download_failed", error="unknown")))
+                elif failed > 0:
+                    dl_queue.put(("finished_partial", succeeded,
+                                  _t("launcher.dialog_vosk_partial", succeeded=succeeded, failed=failed)))
+                else:
+                    dl_queue.put(("finished", 0, ""))
+
+            t = threading.Thread(target=_download_all, daemon=True)
+            t.start()
+
+            def _poll():
+                try:
+                    while True:
+                        msg_type, val, msg = dl_queue.get_nowait()
+                        if msg_type == "progress":
+                            progress_bar["value"] = val
+                            status_var.set(msg)
+                        elif msg_type == "status":
+                            status_var.set(msg)
+                        elif msg_type == "done_ok":
+                            pass  # installed_status already updated in thread
+                        elif msg_type == "done_err":
+                            lang_code = val
+                            status_var.set(f"[{lang_code.upper()}] Error: {msg}")
+                        elif msg_type in ("finished", "finished_err", "finished_partial"):
+                            if msg_type == "finished":
+                                progress_bar["value"] = 100
+                                status_var.set(_t("launcher.dialog_vosk_download_complete"))
+                            elif msg_type == "finished_err":
+                                progress_bar["value"] = 0
+                                status_var.set(msg)
+                            else:
+                                progress_bar["value"] = 100
+                                status_var.set(msg)
+                            dl_btn.configure(state="normal")
+                            close_btn.configure(state="normal")
+                            # Refresh checkboxes for newly installed models
+                            for lang, cb in cb_widgets.items():
+                                if cb and installed_status.get(lang):
+                                    cb.configure(state="disabled")
+                                    check_vars[lang].set(False)
+                                elif cb:
+                                    cb.configure(state="normal")
+                            return
+                except queue.Empty:
+                    pass
+                dlg.after(200, _poll)
+
+            _poll()
+
     # ── Offline Translation Models Dialog ──
 
     def _get_offline_translate_info(self):
@@ -1168,7 +1444,7 @@ class LinguaTaxiApp(tk.Tk):
         def _ol_mousewheel(event):
             ol_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         ol_canvas.bind_all("<MouseWheel>", _ol_mousewheel)
-        dlg.bind("<Destroy>", lambda e: ol_canvas.unbind_all("<MouseWheel>") if e.widget == dlg else None)
+        dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # OPUS-MT section
         ttk.Label(ol_inner, text=_t("launcher.dialog_offline_opus_section"),
@@ -1488,7 +1764,7 @@ class LinguaTaxiApp(tk.Tk):
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        dlg.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>") if e.widget == dlg else None)
+        dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # Button frame
         btn_frame = ttk.Frame(f)
@@ -1904,6 +2180,7 @@ class LinguaTaxiApp(tk.Tk):
             self.main_btn.configure(state="normal")
             self.ext_btn.configure(state="normal")
             self.dict_btn.configure(state="normal")
+            self.bidir_btn.configure(state="normal")
             self._draw_dot(self.ORANGE)
             self.status_label.configure(text=_t("launcher.status_starting"), foreground=self.ORANGE)
             self.backend_label.configure(text=_t("launcher.status_detecting"))
@@ -1914,6 +2191,7 @@ class LinguaTaxiApp(tk.Tk):
             self.main_btn.configure(state="disabled")
             self.ext_btn.configure(state="disabled")
             self.dict_btn.configure(state="disabled")
+            self.bidir_btn.configure(state="disabled")
             self._draw_dot("#666")
             self.status_label.configure(text=_t("launcher.status_stopped"), foreground=self.FG2)
             self.backend_label.configure(text="")
@@ -1988,6 +2266,40 @@ class LinguaTaxiApp(tk.Tk):
 
     def _open_dictation(self):
         self._open_browser_when_ready(self.settings.get("dictation_port", 3005))
+
+    def _open_bidirectional(self):
+        port = self.settings.get("display_port", 3000)
+        if not self._server_running:
+            messagebox.showwarning(_t("launcher.dialog_server_not_running_title"),
+                _t("launcher.dialog_server_not_running"),
+                parent=self)
+            return
+        url = f"http://localhost:{port}/bidirectional?mode=split"
+        if self._server_ready:
+            webbrowser.open(url)
+            return
+        messagebox.showinfo(_t("launcher.dialog_server_starting_title"),
+            _t("launcher.dialog_server_starting"),
+            parent=self)
+
+        def _wait_and_open():
+            import urllib.request
+            for _ in range(30):
+                if not self._server_running:
+                    return
+                try:
+                    urllib.request.urlopen(f"http://localhost:{port}", timeout=2)
+                    self._server_ready = True
+                    self.log_queue.put(("ready", True))
+                    webbrowser.open(url)
+                    return
+                except Exception:
+                    time.sleep(1)
+            self.after(0, lambda: messagebox.showwarning(_t("launcher.dialog_server_not_responding_title"),
+                _t("launcher.dialog_server_not_responding"),
+                parent=self))
+
+        threading.Thread(target=_wait_and_open, daemon=True).start()
 
     def _open_transcripts_dir(self):
         tdir = Path(self.tdir_var.get().strip())
@@ -2402,6 +2714,7 @@ class LinguaTaxiApp(tk.Tk):
         self.main_btn.configure(text=_t("launcher.main_display"))
         self.ext_btn.configure(text=_t("launcher.extended_display"))
         self.dict_btn.configure(text=_t("launcher.dictation"))
+        self.bidir_btn.configure(text=_t("launcher.bidirectional_display"))
 
         # Settings frame
         self._settings_frame.configure(text="  " + _t("launcher.settings_frame") + "  ")
@@ -2436,6 +2749,7 @@ class LinguaTaxiApp(tk.Tk):
         self._tuned_btn.configure(text=_t("launcher.download_tuned_models"))
         self._offline_btn.configure(text=_t("launcher.download_offline_models"))
         self._delete_btn.configure(text=_t("launcher.delete_installed_models"))
+        self._vosk_btn.configure(text=_t("launcher.download_vosk_models"))
 
         # Log frame
         self._log_frame.configure(text="  " + _t("launcher.server_log_frame") + "  ")
