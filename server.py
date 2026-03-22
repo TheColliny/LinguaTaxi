@@ -102,6 +102,10 @@ DEEPL_TO_WHISPER = {
     "PT":"pt","RO":"ro","RU":"ru","SK":"sk","SL":"sl","SV":"sv","TR":"tr",
     "UK":"uk","ZH":"zh",
 }
+# DeepL source code → preferred DeepL target code (for languages with regional variants)
+DEEPL_TARGET_DEFAULTS = {
+    "EN": "EN-US", "PT": "PT-BR", "ZH": "ZH-HANS",
+}
 
 COLOR_PALETTE = [
     {"id":"white","hex":"#FFFFFF","name":"White"},
@@ -154,6 +158,9 @@ DEFAULT_CONFIG = {
     "caption_color": "#FFFFFF",
     "backend": "auto",
     "ui_language": "EN",
+    "bidirectional_enabled": False,
+    "bidirectional_langs": [],        # e.g., ["EN", "AR"]
+    "bidirectional_tuned_swap": False,
 }
 
 def load_config():
@@ -418,6 +425,62 @@ def _transcription_worker(transcribe_fn, loop):
             log.error(f"Transcription error: {e}")
 
 
+def _get_speaker_lang(source):
+    """Check if the current speaker has an assigned language override."""
+    if not source.speaker:
+        return None
+    speaker_langs = config.get("speaker_langs", {})
+    return speaker_langs.get(source.speaker)
+
+
+def _detect_segment_lang(source, buf):
+    """Detect the language of an audio segment for bi-directional mode.
+    Returns detected DeepL language code, or None if detection is disabled/unavailable."""
+    if not config.get("bidirectional_enabled"):
+        return None
+    bidir_langs = config.get("bidirectional_langs", [])
+    if len(bidir_langs) != 2:
+        return None
+
+    # Check speaker-level language override first
+    speaker_lang = _get_speaker_lang(source)
+    if speaker_lang:
+        return speaker_lang
+
+    detected_lang = None
+    try:
+        import lang_detect
+        candidates = [DEEPL_TO_WHISPER.get(l, l.lower()) for l in bidir_langs]
+        audio_for_detect = buf[:SAMPLE_RATE].flatten()
+        lang, conf = lang_detect.detect_language(audio_for_detect, candidates=candidates)
+        if conf >= 0.6:
+            whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
+            detected_lang = whisper_to_deepl.get(lang, lang.upper())
+        else:
+            detected_lang = source.current_lang
+    except ImportError:
+        if hasattr(stt_backend, '_model') and hasattr(stt_backend._model, 'detect_language'):
+            try:
+                audio_flat = buf[:SAMPLE_RATE].flatten().astype(np.float32)
+                _, lang_probs = stt_backend._model.detect_language(audio_flat)
+                if lang_probs:
+                    best = max(lang_probs, key=lambda x: x[1])
+                    whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
+                    detected_lang = whisper_to_deepl.get(best[0], best[0].upper())
+            except Exception:
+                detected_lang = source.current_lang
+        else:
+            log.warning("Language detection unavailable: install onnxruntime")
+            detected_lang = source.current_lang
+    except Exception as e:
+        log.warning(f"Language detection failed: {e}")
+        detected_lang = source.current_lang
+
+    if detected_lang:
+        source.current_lang = detected_lang
+    return detected_lang
+
+
 def _buffer_audio_loop(transcribe_fn, loop, source):
     """Per-source audio processing loop for buffer-based backends (Whisper, MLX).
     Handles speaker changes with 0.5s retroactive buffer splitting.
@@ -465,16 +528,18 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                     silence_start = now
                 elif (now - silence_start) >= SILENCE_DURATION:
                     if len(buf) / SAMPLE_RATE >= MIN_SPEECH_DURATION:
+                        detected_lang = _detect_segment_lang(source, buf)
                         try:
-                            _transcription_queue.put_nowait((source, buf.copy(), None))
+                            _transcription_queue.put_nowait((source, buf.copy(), detected_lang))
                         except queue.Full:
                             log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
                     buf = np.empty((0,1), dtype=np.float32)
                     is_speech = False; silence_start = None; seg_start = None; last_interim = 0
                     _bc(loop, {"type":"status","state":"silence"})
         if is_speech and seg_start and (now - seg_start) >= MAX_SEGMENT_DURATION:
+            detected_lang = _detect_segment_lang(source, buf)
             try:
-                _transcription_queue.put_nowait((source, buf.copy(), None))
+                _transcription_queue.put_nowait((source, buf.copy(), detected_lang))
             except queue.Full:
                 log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
             buf = np.empty((0,1), dtype=np.float32)
@@ -1033,6 +1098,10 @@ async def o_config():
             "tuned_models": tuned_info,
             "active_tuned_lang": active_tuned,
             "offline_translate": offline_info,
+            "bidirectional_enabled": config.get("bidirectional_enabled", False),
+            "bidirectional_langs": config.get("bidirectional_langs", []),
+            "bidirectional_tuned_swap": config.get("bidirectional_tuned_swap", False),
+            "speaker_langs": config.get("speaker_langs", {}),
         })
     except Exception as e:
         # Fallback: return at minimum the essential data so dropdowns populate
@@ -1053,6 +1122,10 @@ async def o_config():
             "tuned_models": {},
             "active_tuned_lang": "",
             "offline_translate": {"opus": {}, "m2m100": {}},
+            "bidirectional_enabled": config.get("bidirectional_enabled", False),
+            "bidirectional_langs": config.get("bidirectional_langs", []),
+            "bidirectional_tuned_swap": config.get("bidirectional_tuned_swap", False),
+            "speaker_langs": config.get("speaker_langs", {}),
         })
 
 @operator_app.get("/api/locales/{lang}")
@@ -1076,6 +1149,10 @@ async def o_update(
     font_size: int = Form(None), max_lines: int = Form(None),
     bg_color: str = Form(None), font_family: str = Form(None),
     caption_color: str = Form(None), ui_language: str = Form(None),
+    bidirectional_enabled: str = Form(None),
+    bidirectional_langs: str = Form(None),
+    bidirectional_tuned_swap: str = Form(None),
+    speaker_langs: str = Form(None),
 ):
     if session_title is not None: config["session_title"] = session_title
     if deepl_api_key is not None: config["deepl_api_key"] = deepl_api_key
@@ -1093,6 +1170,39 @@ async def o_update(
     if font_family is not None: config["font_family"] = font_family
     if caption_color is not None: config["caption_color"] = caption_color
     if ui_language is not None: config["ui_language"] = ui_language
+
+    # ── Bi-directional config ──
+    if speaker_langs is not None:
+        try: config["speaker_langs"] = json.loads(speaker_langs)
+        except: pass
+    if bidirectional_tuned_swap is not None:
+        config["bidirectional_tuned_swap"] = bidirectional_tuned_swap.lower() in ("true", "1", "yes")
+    if bidirectional_langs is not None:
+        try: config["bidirectional_langs"] = json.loads(bidirectional_langs)
+        except: pass
+    if bidirectional_enabled is not None:
+        new_enabled = bidirectional_enabled.lower() in ("true", "1", "yes")
+        was_enabled = config.get("bidirectional_enabled", False)
+        config["bidirectional_enabled"] = new_enabled
+
+        if new_enabled and not was_enabled:
+            # Toggled ON: auto-create 2 translation slots at positions 0-1
+            bidir_langs = config.get("bidirectional_langs", [])
+            if len(bidir_langs) == 2:
+                existing = config.get("translations", [])
+                auto_slots = []
+                for bl in bidir_langs:
+                    target = DEEPL_TARGET_DEFAULTS.get(bl, bl)
+                    auto_slots.append({"lang": target, "color": "#FFD54F", "auto_bidir": True})
+                config["translations"] = auto_slots + existing
+                config["translation_count"] = len(config["translations"])
+        elif was_enabled and not new_enabled:
+            # Toggled OFF: remove auto-managed slots 0-1, shift user slots back
+            existing = config.get("translations", [])
+            user_slots = [t for t in existing if not t.get("auto_bidir")]
+            config["translations"] = user_slots
+            config["translation_count"] = len(user_slots)
+
     save_config(config)
 
     update_msg = {
@@ -1103,7 +1213,8 @@ async def o_update(
         "ui_language": config.get("ui_language", "EN"),
     }
     # Only trigger section rebuild on display when translations actually changed
-    if translations_json is not None or translation_count is not None or input_lang is not None:
+    if (translations_json is not None or translation_count is not None
+            or input_lang is not None or bidirectional_enabled is not None):
         update_msg["all_translations"] = config.get("translations",[])
     await broadcast_all(update_msg)
     return JSONResponse({"status":"ok"})
@@ -1688,6 +1799,15 @@ def main():
         print(f"  Loading Vosk ({args.vosk_model})...")
         try: stt_backend = VoskBackend(args.vosk_model)
         except Exception as e: print(f"  Failed: {e}"); sys.exit(1)
+
+    # Initialize Silero language detection if available
+    try:
+        import lang_detect
+        lang_detect.set_models_dir(MODELS_DIR)
+        if not lang_detect.is_available():
+            log.info("Silero language detection model not found — will download on first use")
+    except ImportError:
+        log.info("onnxruntime not installed — Silero language detection unavailable")
 
     config["backend"] = bc; save_config(config)
     tc = config.get("translation_count", 1)
