@@ -423,6 +423,23 @@ def _transcription_worker(transcribe_fn, loop):
             source, buf, detected_lang = _transcription_queue.get(timeout=0.5)
             if not source.active:
                 continue
+            if (config.get("bidirectional_tuned_swap") and
+                    detected_lang and
+                    isinstance(stt_backend, WhisperBackend)):
+                current_model_lang = getattr(stt_backend, '_tuned_lang', None)
+                if current_model_lang != detected_lang:
+                    from tuned_models import TUNED_MODELS, get_model_path
+                    from faster_whisper import WhisperModel
+                    if detected_lang in TUNED_MODELS:
+                        model_path = get_model_path(detected_lang, MODELS_DIR)
+                        if model_path and model_path.exists():
+                            log.info(f"Swapping to tuned model for {detected_lang}")
+                            stt_backend._model = WhisperModel(
+                                str(model_path),
+                                device=stt_backend._device,
+                                compute_type=stt_backend._compute_type
+                            )
+                            stt_backend._tuned_lang = detected_lang
             text = transcribe_fn(buf, lang=detected_lang)
             if text and text.strip():
                 _broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
@@ -562,6 +579,7 @@ class WhisperBackend(SpeechBackend):
         self._model_name = model_name
         self._device = device
         self._compute_type = compute_type
+        self._tuned_lang = None  # tracks which language's tuned model is currently loaded
         # Check for bundled model first (e.g. models/faster-whisper-large-v3-turbo/)
         local_path = MODELS_DIR / f"faster-whisper-{model_name}"
         if local_path.exists() and (local_path / "model.bin").exists():
