@@ -835,7 +835,7 @@ def _broadcast_final(text, loop, source=None, detected_lang=None):
         log.info(f"   DICTATION: {text}")
         return
     _bc(loop, {"type":"final","text":text,"speaker":speaker,"color":color,
-               "source_id":source_id,"line_id":lid,"detected_lang":detected_lang})
+               "source_id":source_id,"line_id":lid,"detected_lang":detected_lang,"is_translation":False})
     prefix = f"{speaker}: " if speaker else ""
     log.info(f"   IN: {prefix}{text}")
     src = config.get("input_lang", "EN")
@@ -849,10 +849,23 @@ def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_ove
     if captioning_paused and dictation_active:
         return  # Dictation-only mode: no translations
     translations = config.get("translations", [])
+    bidir = config.get("bidirectional_enabled", False)
+    bidir_langs = config.get("bidirectional_langs", [])
+
     for i, t in enumerate(translations):
         if i >= max_slots: break
+
+        # Smart routing for auto-managed bi-directional slots (0 and 1)
+        if bidir and i < 2 and len(bidir_langs) == 2 and source_lang:
+            slot_target = bidir_langs[0] if i == 0 else bidir_langs[1]
+            src_base = source_lang.split("-")[0]
+            tgt_base = slot_target.split("-")[0]
+            if src_base == tgt_base:
+                continue  # skip — source already in this slot's target language
+
         threading.Thread(target=_do_translate,
-            args=(text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang), daemon=True).start()
+            args=(text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang),
+            daemon=True).start()
 
 def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None):
     translations = config.get("translations", [])
@@ -871,7 +884,7 @@ def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_overri
                         f"(mode={mode}) — check model availability")
         return
     speaker = speaker_override if speaker_override is not None else ""
-    msg = {"type": msg_type, "translated": translated, "lang": lang, "slot": slot, "speaker": speaker}
+    msg = {"type": msg_type, "translated": translated, "lang": lang, "slot": slot, "speaker": speaker, "is_translation": True}
     if line_id is not None:
         msg["line_id"] = line_id
     _bc(loop, msg)
