@@ -286,8 +286,16 @@ def download_opus_model(models_dir, lang_code, on_complete=None):
                 converter = OpusMTConverter(hf_local)
             except (ImportError, Exception):
                 from ctranslate2.converters import TransformersConverter
-                converter = TransformersConverter(hf_local)
+                converter = TransformersConverter(
+                    hf_local, copy_files=["source.spm", "target.spm"])
             converter.convert(str(output_path), quantization="int8", force=True)
+
+            # Ensure .spm tokenizer files are in output (some converters don't copy them)
+            for spm_name in ("source.spm", "target.spm"):
+                spm_src = Path(hf_local) / spm_name
+                spm_dst = output_path / spm_name
+                if spm_src.exists() and not spm_dst.exists():
+                    shutil.copy2(str(spm_src), str(spm_dst))
 
             if not (output_path / "model.bin").exists():
                 _set_progress(key, "error", 0, "Conversion produced no model.bin")
@@ -378,8 +386,15 @@ def download_m2m_model(models_dir, on_complete=None):
                 converter = M2M100Converter(hf_local)
             except ImportError:
                 from ctranslate2.converters import TransformersConverter
-                converter = TransformersConverter(hf_local)
+                converter = TransformersConverter(
+                    hf_local, copy_files=["sentencepiece.model"])
             converter.convert(str(output_path), quantization="int8", force=True)
+
+            # Ensure sentencepiece.model is in output (some converters don't copy it)
+            sp_src = Path(hf_local) / "sentencepiece.model"
+            sp_dst = output_path / "sentencepiece.model"
+            if sp_src.exists() and not sp_dst.exists():
+                shutil.copy2(str(sp_src), str(sp_dst))
 
             if not (output_path / "model.bin").exists():
                 _set_progress(key, "error", 0, "Conversion produced no model.bin")

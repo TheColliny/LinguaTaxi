@@ -16,13 +16,15 @@ log = logging.getLogger("lang_detect")
 _MODELS_DIR = Path(__file__).parent / "models"
 _MODEL_SUBDIR = "silero-lang-detect"
 
-# Silero lang_detector_95 ONNX model hosted on GitHub (snakers4/silero-vad releases)
+# Silero lang_detector_95 ONNX model — original URL is dead (removed from silero-vad repo).
+# The model can still be obtained from archived copies or manual placement.
 _MODEL_URL = "https://models.silero.ai/models/langs/lang_detector_95.onnx"
 _LANG_DICT_URL = "https://raw.githubusercontent.com/snakers4/silero-vad/master/files/lang_dict_95.json"
 
 _session = None  # ONNX InferenceSession (lazy loaded)
 _lang_dict = None  # {index: lang_code} mapping
 _load_lock = threading.Lock()
+_load_failed = False  # Set True after download/load failure to prevent retry spam
 
 
 def set_models_dir(path):
@@ -63,23 +65,41 @@ def download_model(models_dir=None):
 
 def _load():
     """Lazy-load the ONNX model and language dictionary."""
-    global _session, _lang_dict
+    global _session, _lang_dict, _load_failed
 
     if _session is not None:
         return
 
+    if _load_failed:
+        raise RuntimeError("Silero language detection model unavailable (previous load failed)")
+
     with _load_lock:
         if _session is not None:
             return  # another thread loaded while we waited
+        if _load_failed:
+            raise RuntimeError("Silero language detection model unavailable (previous load failed)")
 
         onnx_path = _model_dir() / "lang_detector_95.onnx"
         dict_path = _model_dir() / "lang_dict_95.json"
 
         if not onnx_path.exists():
-            download_model()
+            try:
+                download_model()
+            except Exception as e:
+                _load_failed = True
+                log.warning(f"Silero language detection model download failed: {e} "
+                            "— falling back to Whisper built-in detection. "
+                            "To use Silero, manually place lang_detector_95.onnx in "
+                            f"{_model_dir()}")
+                raise
 
-        import onnxruntime as ort
-        sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        try:
+            import onnxruntime as ort
+            sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        except Exception as e:
+            _load_failed = True
+            log.warning(f"Failed to load Silero ONNX model: {e}")
+            raise
 
         with open(dict_path, "r", encoding="utf-8") as f:
             raw = json.load(f)

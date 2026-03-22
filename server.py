@@ -431,15 +431,26 @@ def _transcription_worker(transcribe_fn, loop):
                     from tuned_models import TUNED_MODELS, get_model_path
                     from faster_whisper import WhisperModel
                     if detected_lang in TUNED_MODELS:
-                        model_path = get_model_path(detected_lang, MODELS_DIR)
+                        model_path = get_model_path(MODELS_DIR, detected_lang)
                         if model_path and model_path.exists():
                             log.info(f"Swapping to tuned model for {detected_lang}")
-                            stt_backend._model = WhisperModel(
-                                str(model_path),
-                                device=stt_backend._device,
-                                compute_type=stt_backend._compute_type
-                            )
-                            stt_backend._tuned_lang = detected_lang
+                            # Prevent HuggingFace from downloading tokenizers
+                            # during hot-swap (causes crashes on Windows)
+                            import os as _os
+                            _prev_hf = _os.environ.get("HF_HUB_OFFLINE")
+                            _os.environ["HF_HUB_OFFLINE"] = "1"
+                            try:
+                                stt_backend._model = WhisperModel(
+                                    str(model_path),
+                                    device=stt_backend._device,
+                                    compute_type=stt_backend._compute_type
+                                )
+                                stt_backend._tuned_lang = detected_lang
+                            finally:
+                                if _prev_hf is None:
+                                    _os.environ.pop("HF_HUB_OFFLINE", None)
+                                else:
+                                    _os.environ["HF_HUB_OFFLINE"] = _prev_hf
             text = transcribe_fn(buf, lang=detected_lang)
             if text and text.strip():
                 _broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
@@ -482,7 +493,9 @@ def _detect_segment_lang(source, buf):
             detected_lang = whisper_to_deepl.get(lang, lang.upper())
         else:
             detected_lang = source.current_lang
-    except ImportError:
+    except (ImportError, RuntimeError):
+        # Silero unavailable (missing onnxruntime or model download failed) —
+        # fall back to Whisper's built-in language detection
         if hasattr(stt_backend, '_model') and hasattr(stt_backend._model, 'detect_language'):
             try:
                 audio_flat = buf[:SAMPLE_RATE].flatten().astype(np.float32)
@@ -497,7 +510,7 @@ def _detect_segment_lang(source, buf):
             except Exception:
                 detected_lang = source.current_lang
         else:
-            log.warning("Language detection unavailable: install onnxruntime")
+            log.warning("Language detection unavailable: install onnxruntime or use Whisper backend")
             detected_lang = source.current_lang
     except Exception as e:
         log.warning(f"Language detection failed: {e}")
@@ -1118,6 +1131,9 @@ async def d_config():
     sc["translations"] = _translations_for_slots(0, 1)
     sc["show_caption"] = True
     sc["font_css"] = _font_css(config.get("font_family","atkinson"))
+    sc["bidirectional_enabled"] = config.get("bidirectional_enabled", False)
+    sc["bidirectional_langs"] = config.get("bidirectional_langs", [])
+    sc["bidirectional_tuned_swap"] = config.get("bidirectional_tuned_swap", False)
     return JSONResponse(sc)
 
 @display_app.get("/api/locales/{lang}")
@@ -1353,6 +1369,10 @@ async def o_update(
     if (translations_json is not None or translation_count is not None
             or input_lang is not None or bidirectional_enabled is not None):
         update_msg["all_translations"] = config.get("translations",[])
+    # Include bidirectional state so display pages can detect changes
+    if bidirectional_enabled is not None or bidirectional_langs is not None:
+        update_msg["bidirectional_enabled"] = config.get("bidirectional_enabled", False)
+        update_msg["bidirectional_langs"] = config.get("bidirectional_langs", [])
     await broadcast_all(update_msg)
     return JSONResponse({"status":"ok"})
 
@@ -1442,8 +1462,18 @@ async def o_tuned_switch(lang: str = Form(...)):
         old_device = stt_backend._device
         old_compute = stt_backend._compute_type
 
-        new_model = WhisperModel(str(model_path), device=old_device,
-                                 compute_type=old_compute)
+        # Prevent HuggingFace from downloading tokenizers during hot-swap
+        # (causes crashes on Windows due to symlink issues)
+        prev_hf = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        try:
+            new_model = WhisperModel(str(model_path), device=old_device,
+                                     compute_type=old_compute)
+        finally:
+            if prev_hf is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prev_hf
         stt_backend._model = new_model
         stt_backend._model_name = f"tuned-{lang.lower()}"
         log.info(f"Model swapped to tuned-{lang.lower()} ({old_compute}, {old_device})")
@@ -1486,8 +1516,20 @@ async def o_tuned_revert():
         old_compute = stt_backend._compute_type
         default_model = "large-v3-turbo"
 
-        new_model = WhisperModel(default_model, device=old_device,
-                                 compute_type=old_compute)
+        # Prefer bundled local model to avoid HuggingFace downloads
+        local_path = MODELS_DIR / f"faster-whisper-{default_model}"
+        model_id = str(local_path) if local_path.exists() else default_model
+
+        prev_hf = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        try:
+            new_model = WhisperModel(model_id, device=old_device,
+                                     compute_type=old_compute)
+        finally:
+            if prev_hf is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prev_hf
         stt_backend._model = new_model
         stt_backend._model_name = default_model
         log.info(f"Reverted to {default_model} ({old_compute}, {old_device})")
