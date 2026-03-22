@@ -462,11 +462,14 @@ def _detect_segment_lang(source, buf):
         if hasattr(stt_backend, '_model') and hasattr(stt_backend._model, 'detect_language'):
             try:
                 audio_flat = buf[:SAMPLE_RATE].flatten().astype(np.float32)
-                _, lang_probs = stt_backend._model.detect_language(audio_flat)
+                _, _, lang_probs = stt_backend._model.detect_language(audio_flat)
                 if lang_probs:
                     best = max(lang_probs, key=lambda x: x[1])
-                    whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
-                    detected_lang = whisper_to_deepl.get(best[0], best[0].upper())
+                    if best[1] >= 0.6:
+                        whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
+                        detected_lang = whisper_to_deepl.get(best[0], best[0].upper())
+                    else:
+                        detected_lang = source.current_lang
             except Exception:
                 detected_lang = source.current_lang
         else:
