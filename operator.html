@@ -691,29 +691,16 @@ function onBidirLangChange(){
 }
 
 function swapBidirLangs(){
-  const selA=document.getElementById('bidirLangA');
-  const selB=document.getElementById('bidirLangB');
-  const tmp=selA.value;
-  selA.value=selB.value;
-  selB.value=tmp;
-  bidirLangs=[selA.value,selB.value];
+  // Swap which language is being spoken. The 2 display slots stay fixed —
+  // slot 0 is always langA, slot 1 is always langB on screen.
+  // The server copies caption to the matching slot and translates the other.
+  const curInput=document.getElementById('iInputLang').value;
+  const other=(curInput===bidirLangs[0])?bidirLangs[1]:bidirLangs[0];
 
-  // Update input language to match the new "A" (spoken) language
-  const inputSel=document.getElementById('iInputLang');
-  if(inputSel)inputSel.value=selA.value;
-
-  // Update slot 0 to translate into the new "B" (other) language
-  // Find the DeepL target code for langB
-  const otherLang=selB.value;
-  const targetCode=tgtLangs[otherLang]?otherLang:Object.keys(tgtLangs).find(k=>k.startsWith(otherLang))||otherLang;
-  if(translations.length>0&&translations[0].auto_bidir){
-    translations[0].lang=targetCode;
-  }
+  document.getElementById('iInputLang').value=other;
 
   const fd=new FormData();
-  fd.append('input_lang', selA.value);
-  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
-  fd.append('translations_json', JSON.stringify(translations));
+  fd.append('input_lang', other);
   fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
     loadCfg();
   });

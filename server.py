@@ -987,10 +987,17 @@ def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_ove
     for i, t in enumerate(translations):
         if i >= max_slots: break
 
-        # Skip translating into the same language as the source
         tgt_base = t["lang"].split("-")[0]
         src_base = effective_src.split("-")[0]
         if src_base == tgt_base:
+            # Same language as source — copy caption text directly to this
+            # slot so it stays in its fixed screen position (no API call)
+            speaker = speaker_override if speaker_override is not None else ""
+            msg = {"type": msg_type, "translated": text, "lang": t["lang"],
+                   "slot": i, "speaker": speaker, "is_translation": True}
+            if line_id is not None:
+                msg["line_id"] = line_id
+            _bc(loop, msg)
             continue
 
         threading.Thread(target=_do_translate,
@@ -1346,17 +1353,22 @@ async def o_update(
         config["bidirectional_enabled"] = new_enabled
 
         if new_enabled and not was_enabled:
-            # Toggled ON: auto-create 1 translation slot for the "other" language
+            # Toggled ON: create 2 fixed-position slots (langA + langB)
+            # Both languages always occupy the same screen position.
+            # The slot matching the source language gets the caption copied
+            # to it (no API call); the other slot gets translated.
             bidir_langs = config.get("bidirectional_langs", [])
             if len(bidir_langs) == 2:
                 config["input_lang"] = bidir_langs[0]
-                other = bidir_langs[1]
-                target = DEEPL_TARGET_DEFAULTS.get(other, other)
                 existing = config.get("translations", [])
-                # Remove any previous auto_bidir slots
                 user_slots = [t for t in existing if not t.get("auto_bidir")]
-                auto_slot = {"lang": target, "color": "#FFD54F", "auto_bidir": True}
-                config["translations"] = [auto_slot] + user_slots
+                auto_slots = [
+                    {"lang": DEEPL_TARGET_DEFAULTS.get(bidir_langs[0], bidir_langs[0]),
+                     "color": "#FFD54F", "auto_bidir": True},
+                    {"lang": DEEPL_TARGET_DEFAULTS.get(bidir_langs[1], bidir_langs[1]),
+                     "color": "#FFD54F", "auto_bidir": True},
+                ]
+                config["translations"] = auto_slots + user_slots
                 config["translation_count"] = len(config["translations"])
         elif was_enabled and not new_enabled:
             # Toggled OFF: remove auto-managed slot, shift user slots back
