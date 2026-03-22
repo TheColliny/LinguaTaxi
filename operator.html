@@ -175,6 +175,29 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
         <button class="btn btn-g" id="tunedBtn" onclick="onTunedAction()" style="white-space:nowrap;font-size:10px" data-i18n="operator.tuned_btn_download">Download</button>
       </div>
     </div>
+    <!-- Bi-directional Mode -->
+    <div id="bidirSection" style="margin-bottom:4px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600">
+        <input type="checkbox" id="bidirToggle" onchange="toggleBidir()" style="accent-color:var(--ac);width:15px;height:15px;cursor:pointer">
+        <span data-i18n="operator.bidirectional_mode">Bi-directional Mode</span>
+      </label>
+      <div id="bidirControls" style="display:none;margin-top:8px;">
+        <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;">
+          <select id="bidirLangA" onchange="onBidirLangChange()" style="flex:1;"></select>
+          <span style="color:#8899aa;font-size:14px;flex-shrink:0">&#8644;</span>
+          <select id="bidirLangB" onchange="onBidirLangChange()" style="flex:1;"></select>
+        </div>
+        <label id="tunedSwapLabel" style="display:none;font-size:11px;color:rgba(255,255,255,.55);cursor:pointer;align-items:center;gap:6px">
+          <input type="checkbox" id="tunedSwapToggle" onchange="onTunedSwapChange()" style="accent-color:var(--ac);cursor:pointer">
+          <span data-i18n="operator.tuned_swap">Use tuned model when available (~1s swap delay)</span>
+        </label>
+        <div id="detectionIndicator" style="margin-top:6px;font-size:11px;color:rgba(255,255,255,.5)"></div>
+        <button class="btn btn-g" id="bidirDisplayBtn" onclick="window.open(location.protocol+'//'+location.hostname+':3000/bidirectional?mode=split','_blank')" style="margin-top:8px;width:100%;font-size:11px">
+          <span data-i18n="operator.bidirectional_display">Bi-directional Display</span>
+        </button>
+      </div>
+    </div>
+
     <div>
       <span style="font-size:11px" data-i18n="operator.num_translations">Number of Translations</span>
       <select id="iTransCount" onchange="onTransCountChange()">
@@ -292,6 +315,10 @@ let tunedModels={}, activeTunedLang='', isWhisper=false;
 let tunedPollTimer=null;
 let offlineStatus={}; // {opus:{...}, m2m100:{...}}
 let offlinePollTimers={}; // {key: timer}
+let bidirEnabled=false;
+let bidirLangs=[];  // [langA, langB]
+let bidirTunedSwap=false;
+let speakerLangs={}; // {speakerName: langCode}
 
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 
@@ -368,8 +395,16 @@ function loadCfg(){
     isWhisper=!!c.is_whisper;
     offlineStatus=c.offline_translate||{opus:{},m2m100:{}};
 
+    // Bi-directional state
+    bidirEnabled=!!c.bidirectional_enabled;
+    bidirLangs=c.bidirectional_langs||[];
+    bidirTunedSwap=!!c.bidirectional_tuned_swap;
+    speakerLangs=c.speaker_langs||{};
+
     buildInputLangSelect(c.input_lang||'EN');
     updateTunedUI();
+    populateBidirLangs();
+    restoreBidirState();
     buildBgOpts(c.bg_color||'#00004D');
     buildFontOpts(c.font_family||'atkinson');
     buildTransSlots();
@@ -593,6 +628,81 @@ function onTransCountChange(){
   saveAll();
 }
 
+// ── Bi-directional mode ──
+function populateBidirLangs(){
+  const selA=document.getElementById('bidirLangA');
+  const selB=document.getElementById('bidirLangB');
+  if(!selA||!selB) return;
+  selA.innerHTML='';selB.innerHTML='';
+  Object.entries(srcLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
+    const oA=document.createElement('option');oA.value=code;oA.textContent=name+' ('+code+')';
+    const oB=document.createElement('option');oB.value=code;oB.textContent=name+' ('+code+')';
+    if(bidirLangs.length>=1&&code===bidirLangs[0])oA.selected=true;
+    if(bidirLangs.length>=2&&code===bidirLangs[1])oB.selected=true;
+    selA.appendChild(oA);selB.appendChild(oB);
+  });
+  // Defaults if no stored langs
+  if(bidirLangs.length<2){
+    if(!bidirLangs[0])selA.value='EN';
+    if(!bidirLangs[1])selB.value='AR';
+  }
+}
+
+function restoreBidirState(){
+  const toggle=document.getElementById('bidirToggle');
+  const controls=document.getElementById('bidirControls');
+  toggle.checked=bidirEnabled;
+  controls.style.display=bidirEnabled?'block':'none';
+  document.getElementById('tunedSwapToggle').checked=bidirTunedSwap;
+  // Show/hide tuned swap label based on whisper backend
+  document.getElementById('tunedSwapLabel').style.display=isWhisper?'flex':'none';
+}
+
+function toggleBidir(){
+  bidirEnabled=document.getElementById('bidirToggle').checked;
+  document.getElementById('bidirControls').style.display=bidirEnabled?'block':'none';
+  const langA=document.getElementById('bidirLangA').value;
+  const langB=document.getElementById('bidirLangB').value;
+  bidirLangs=[langA,langB];
+
+  const fd=new FormData();
+  fd.append('bidirectional_enabled', bidirEnabled?'true':'false');
+  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    // Reload config to get updated translation slots from server
+    loadCfg();
+  });
+}
+
+function onBidirLangChange(){
+  const langA=document.getElementById('bidirLangA').value;
+  const langB=document.getElementById('bidirLangB').value;
+  bidirLangs=[langA,langB];
+  const fd=new FormData();
+  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
+  if(bidirEnabled){
+    fd.append('bidirectional_enabled','true');
+  }
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    if(bidirEnabled) loadCfg();
+  });
+}
+
+function onTunedSwapChange(){
+  bidirTunedSwap=document.getElementById('tunedSwapToggle').checked;
+  const fd=new FormData();
+  fd.append('bidirectional_tuned_swap', bidirTunedSwap?'true':'false');
+  fetch('/api/config',{method:'POST',body:fd});
+}
+
+function updateDetectionIndicator(sourceId, detectedLang){
+  const el=document.getElementById('detectionIndicator');
+  if(!el||!bidirEnabled) return;
+  const langName=srcLangs[detectedLang]||detectedLang;
+  const dot='<span style="color:#4CAF50">&#9679;</span>';
+  el.innerHTML=t('operator.detection')+': '+dot+' '+esc(langName)+' ('+esc(detectedLang)+')';
+}
+
 function buildTransSlots(){
   const el=document.getElementById('transSlots');el.innerHTML='';
   const note=document.getElementById('extNote');
@@ -601,31 +711,48 @@ function buildTransSlots(){
   for(let i=0;i<transCount;i++){
     const tr=translations[i]||{lang:'ES',color:'#FFD54F',mode:'deepl'};
     if(!tr.mode) tr.mode='deepl';
+    const isAutoSlot=bidirEnabled&&tr.auto_bidir;
     const dest=i<2?t('operator.translation_dest_main'):t('operator.translation_dest_ext');
     const slot=document.createElement('div');slot.className='tslot';
+    if(isAutoSlot) slot.style.opacity='0.6';
 
-    const curMode=tr.mode||'deepl';
-    slot.innerHTML=`
-      <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
-      <select onchange="onSlotLangChange(${i},this.value)" id="tslot_lang_${i}"></select>
-      <select onchange="onSlotModeChange(${i},this.value)" id="tslot_mode_${i}" style="margin-top:4px">
-        <option value="deepl"${curMode==='deepl'?' selected':''}>${t('operator.mode_deepl')}</option>
-        <option value="offline-auto"${curMode==='offline-auto'?' selected':''}>${t('operator.mode_offline_auto')}</option>
-        <option value="offline-opus"${curMode==='offline-opus'?' selected':''}>${t('operator.mode_offline_opus')}</option>
-        <option value="offline-m2m"${curMode==='offline-m2m'?' selected':''}>${t('operator.mode_offline_m2m')}</option>
-      </select>
-      <div id="tslot_offline_${i}" style="display:none;margin-top:4px;font-size:10px;color:rgba(255,255,255,.55)"></div>`;
+    if(isAutoSlot){
+      // Locked auto-managed bi-directional slot
+      const fromLang=bidirLangs.length>=2?(i===0?bidirLangs[1]:bidirLangs[0]):'?';
+      const toLang=bidirLangs.length>=2?(i===0?bidirLangs[0]:bidirLangs[1]):'?';
+      const fromName=srcLangs[fromLang]||fromLang;
+      const toName=srcLangs[toLang]||toLang;
+      const autoLabel=t('operator.auto_slot_label',{from:fromName,to:toName});
+      slot.innerHTML=`
+        <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
+        <div style="font-size:11px;font-weight:600;color:var(--ac);padding:6px 0">${esc(autoLabel)}</div>`;
+    } else {
+      const curMode=tr.mode||'deepl';
+      slot.innerHTML=`
+        <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
+        <select onchange="onSlotLangChange(${i},this.value)" id="tslot_lang_${i}"></select>
+        <select onchange="onSlotModeChange(${i},this.value)" id="tslot_mode_${i}" style="margin-top:4px">
+          <option value="deepl"${curMode==='deepl'?' selected':''}>${t('operator.mode_deepl')}</option>
+          <option value="offline-auto"${curMode==='offline-auto'?' selected':''}>${t('operator.mode_offline_auto')}</option>
+          <option value="offline-opus"${curMode==='offline-opus'?' selected':''}>${t('operator.mode_offline_opus')}</option>
+          <option value="offline-m2m"${curMode==='offline-m2m'?' selected':''}>${t('operator.mode_offline_m2m')}</option>
+        </select>
+        <div id="tslot_offline_${i}" style="display:none;margin-top:4px;font-size:10px;color:rgba(255,255,255,.55)"></div>`;
+    }
     el.appendChild(slot);
 
-    // Populate language dropdown
-    const sel=slot.querySelector(`#tslot_lang_${i}`);
-    Object.entries(tgtLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
-      const o=document.createElement('option');o.value=code;o.textContent=name+' ('+code+')';
-      if(code===tr.lang)o.selected=true;
-      sel.appendChild(o);
-    });
-
-    updateSlotOfflineStatus(i);
+    if(!isAutoSlot){
+      // Populate language dropdown for user-managed slots
+      const sel=slot.querySelector(`#tslot_lang_${i}`);
+      if(sel){
+        Object.entries(tgtLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
+          const o=document.createElement('option');o.value=code;o.textContent=name+' ('+code+')';
+          if(code===tr.lang)o.selected=true;
+          sel.appendChild(o);
+        });
+      }
+      updateSlotOfflineStatus(i);
+    }
   }
 }
 
@@ -1013,6 +1140,16 @@ function buildSpeakerBtns(){
       </div>`;
     } else {
       h+=`<button class="spbtn${activeSp===idx?' act':''}" onclick="setSp(${idx})" ondblclick="startSpEdit(event,${idx})">${esc(n)}${hk}</button>`;
+      if(bidirEnabled){
+        const spLang=speakerLangs[n]||'';
+        let langOpts=`<option value="">${t('operator.auto_detect')}</option>`;
+        bidirLangs.forEach(l=>{
+          const lName=srcLangs[l]||l;
+          langOpts+=`<option value="${esc(l)}"${spLang===l?' selected':''}>${esc(lName)}</option>`;
+        });
+        const safeName=esc(n).replace(/'/g,'&#39;');
+        h+=`<select class="sp-lang-select" onchange="setSpeakerLang('${safeName}',this.value)" onclick="event.stopPropagation()" style="grid-column:span 1;padding:3px 4px;border-radius:4px;border:1px solid var(--bdr);background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);font-size:9px;cursor:pointer">${langOpts}</select>`;
+      }
     }
   });
   // Show "+" slot if under 50
@@ -1033,6 +1170,13 @@ function setSp(idx){
   buildSpeakerBtns();
   if(ws&&ws.readyState===1)ws.send(JSON.stringify({
     type:'set_speaker',speaker:name,source_id:focusedSourceId
+  }));
+}
+function setSpeakerLang(speakerName, lang){
+  if(lang) speakerLangs[speakerName]=lang;
+  else delete speakerLangs[speakerName];
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({
+    type:'set_speaker_lang',speaker:speakerName,lang:lang||null
   }));
 }
 function addSp(){
@@ -1391,6 +1535,9 @@ function connect(){
       prevSetInterim('caption','');
       if(m.text) prevAddLine('caption', m.text, m.speaker||'', m.line_id);
       document.getElementById('pSpeaker').textContent=m.speaker||'';
+      if(m.detected_lang && m.source_id!==undefined){
+        updateDetectionIndicator(m.source_id, m.detected_lang);
+      }
     }
     else if(m.type==='interim_translation'){
       if(m.slot!==undefined) prevSetInterim('trans_'+m.slot, m.translated||'', m.speaker||'');

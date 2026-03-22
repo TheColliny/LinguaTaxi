@@ -288,6 +288,15 @@
   "operator.edit_dialog_cancel": "Cancel",
   "operator.edit_dialog_save": "Save & Re-translate",
 
+  "operator.bidirectional_mode": "Bi-directional Mode",
+  "operator.bidirectional_lang_a": "Input Language A",
+  "operator.bidirectional_lang_b": "Input Language B",
+  "operator.tuned_swap": "Use tuned model when available (~1s swap delay)",
+  "operator.auto_detect": "Auto-detect",
+  "operator.auto_slot_label": "{from} \u2192 {to} (auto)",
+  "operator.detection": "Detection",
+  "operator.bidirectional_display": "Bi-directional Display",
+
   "operator.engine_badge": "Engine: {engine}",
 
   "operator.color_picker_reset": "Reset",

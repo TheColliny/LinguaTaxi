@@ -1685,6 +1685,17 @@ async def o_ws(ws: WebSocket):
                 save_transcripts = bool(msg.get("enabled", True))
                 log.info(f"Transcript saving {'ON' if save_transcripts else 'OFF'}")
                 await broadcast_all({"type":"save_transcripts","enabled":save_transcripts})
+            elif msg.get("type") == "set_speaker_lang":
+                speaker = msg.get("speaker")
+                lang = msg.get("lang")
+                if speaker:
+                    speaker_langs = config.get("speaker_langs", {})
+                    if lang:
+                        speaker_langs[speaker] = lang
+                    else:
+                        speaker_langs.pop(speaker, None)
+                    config["speaker_langs"] = speaker_langs
+                    save_config(config)
             elif msg.get("type") == "correct_caption":
                 lid = msg.get("line_id")
                 new_text = msg.get("text", "").strip()
