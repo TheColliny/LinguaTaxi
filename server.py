@@ -298,6 +298,7 @@ class AudioSource:
         self.buffer_thread = None
         self.active = True
         self.restart_event = threading.Event()
+        self.current_lang = None  # detected language (set by lang detection in buffer loop)
 
 # Thread-safe source registry
 _sources = []  # List[AudioSource]
@@ -379,18 +380,18 @@ def _check_speaker_change(source, transcribe_fn, buf, seg_start, loop):
             # Split: old speaker gets audio before the split point
             old_buf = buf[:split_samples]
             source.speaker = old_speaker  # keep old label for this segment
-            text = transcribe_fn(old_buf)
+            text = transcribe_fn(old_buf, lang=source.current_lang)
             if text:
-                _broadcast_final(text, loop, source)
+                _broadcast_final(text, loop, source, detected_lang=source.current_lang)
             source.speaker = new_speaker
             source.color = new_color
             return buf[split_samples:], split_time, True
         elif split_samples >= len(buf):
             # All buffered audio belongs to old speaker
             source.speaker = old_speaker
-            text = transcribe_fn(buf)
+            text = transcribe_fn(buf, lang=source.current_lang)
             if text:
-                _broadcast_final(text, loop, source)
+                _broadcast_final(text, loop, source, detected_lang=source.current_lang)
             source.speaker = new_speaker
             source.color = new_color
             return np.empty((0,1), dtype=np.float32), sc["time"], True
@@ -405,12 +406,12 @@ def _transcription_worker(transcribe_fn, loop):
     """Single worker that processes transcription requests from all sources."""
     while not shutdown_event.is_set():
         try:
-            source, buf = _transcription_queue.get(timeout=0.5)
+            source, buf, detected_lang = _transcription_queue.get(timeout=0.5)
             if not source.active:
                 continue
-            text = transcribe_fn(buf)
+            text = transcribe_fn(buf, lang=detected_lang)
             if text and text.strip():
-                _broadcast_final(text.strip(), loop, source)
+                _broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
         except queue.Empty:
             continue
         except Exception as e:
@@ -453,11 +454,11 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
             dur = len(buf) / SAMPLE_RATE
             if (now - last_interim) >= INTERIM_INTERVAL and dur >= 1.0:
                 last_interim = now
-                text = transcribe_fn(buf)
+                text = transcribe_fn(buf, lang=source.current_lang)
                 if text:
                     _bc(loop, {"type":"interim","text":text,"speaker":source.speaker,
                                "color":source.color,"source_id":source.id})
-                    _translate_all(text, "interim_translation", loop, max_slots=2)
+                    _translate_all(text, "interim_translation", loop, max_slots=2, source_lang=source.current_lang)
         else:
             if is_speech:
                 if silence_start is None:
@@ -465,7 +466,7 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                 elif (now - silence_start) >= SILENCE_DURATION:
                     if len(buf) / SAMPLE_RATE >= MIN_SPEECH_DURATION:
                         try:
-                            _transcription_queue.put_nowait((source, buf.copy()))
+                            _transcription_queue.put_nowait((source, buf.copy(), None))
                         except queue.Full:
                             log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
                     buf = np.empty((0,1), dtype=np.float32)
@@ -473,7 +474,7 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                     _bc(loop, {"type":"status","state":"silence"})
         if is_speech and seg_start and (now - seg_start) >= MAX_SEGMENT_DURATION:
             try:
-                _transcription_queue.put_nowait((source, buf.copy()))
+                _transcription_queue.put_nowait((source, buf.copy(), None))
             except queue.Full:
                 log.warning(f"Transcription queue full, dropping segment from [{source.name}]")
             buf = np.empty((0,1), dtype=np.float32)
@@ -498,8 +499,11 @@ class WhisperBackend(SpeechBackend):
     def name(self):
         return f"whisper ({self._model_name}, {self._compute_type}, {self._device})"
 
-    def _transcribe(self, buf):
-        whisper_lang = DEEPL_TO_WHISPER.get(config.get("input_lang", "EN"), "en")
+    def _transcribe(self, buf, lang=None):
+        if lang:
+            whisper_lang = lang
+        else:
+            whisper_lang = DEEPL_TO_WHISPER.get(config.get("input_lang", "EN"), "en")
         try:
             segs, _ = self._model.transcribe(buf.flatten().astype(np.float32),
                 language=whisper_lang, beam_size=3, vad_filter=True,
@@ -662,9 +666,12 @@ class MLXWhisperBackend(SpeechBackend):
     def name(self):
         return f"mlx-whisper ({self._model_name}, Apple Metal)"
 
-    def _transcribe(self, buf):
+    def _transcribe(self, buf, lang=None):
         import mlx_whisper
-        whisper_lang = DEEPL_TO_WHISPER.get(config.get("input_lang", "EN"), "en")
+        if lang:
+            whisper_lang = lang
+        else:
+            whisper_lang = DEEPL_TO_WHISPER.get(config.get("input_lang", "EN"), "en")
         try:
             result = mlx_whisper.transcribe(
                 buf.flatten().astype(np.float32),
@@ -743,7 +750,7 @@ def _store_recent_line(lid, text, speaker, src_lang):
         while len(_recent_lines) > _RECENT_LINES_MAX:
             _recent_lines.pop(0)
 
-def _broadcast_final(text, loop, source=None):
+def _broadcast_final(text, loop, source=None, detected_lang=None):
     """Broadcast final source text with speaker, save transcript, trigger translations.
     In dictation-only mode, only sends to dictation clients (no translations/transcripts).
     source: AudioSource instance (required for speaker/color/source_id; defaults to empty strings if None)."""
@@ -755,19 +762,20 @@ def _broadcast_final(text, loop, source=None):
         # Dictation-only mode: just send final text to dictation clients
         asyncio.run_coroutine_threadsafe(
             broadcast_dictation({"type":"final","text":text,"speaker":speaker,
-                                 "color":color,"source_id":source_id,"line_id":lid}), loop)
+                                 "color":color,"source_id":source_id,"line_id":lid,
+                                 "detected_lang":detected_lang}), loop)
         log.info(f"   DICTATION: {text}")
         return
     _bc(loop, {"type":"final","text":text,"speaker":speaker,"color":color,
-               "source_id":source_id,"line_id":lid})
+               "source_id":source_id,"line_id":lid,"detected_lang":detected_lang})
     prefix = f"{speaker}: " if speaker else ""
     log.info(f"   IN: {prefix}{text}")
     src = config.get("input_lang", "EN")
     _save_line(src, f"{prefix}{text}")
     _store_recent_line(lid, text, speaker, src)
-    _translate_all(text, "final_translation", loop, line_id=lid)
+    _translate_all(text, "final_translation", loop, line_id=lid, source_lang=detected_lang)
 
-def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_override=None):
+def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_override=None, source_lang=None):
     if translation_paused:
         return
     if captioning_paused and dictation_active:
@@ -776,15 +784,15 @@ def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_ove
     for i, t in enumerate(translations):
         if i >= max_slots: break
         threading.Thread(target=_do_translate,
-            args=(text, t["lang"], i, msg_type, loop, line_id, speaker_override), daemon=True).start()
+            args=(text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang), daemon=True).start()
 
-def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None):
+def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None):
     translations = config.get("translations", [])
     mode = "deepl"
     if slot < len(translations):
         mode = translations[slot].get("mode", "deepl")
     try:
-        translated = translate_text(text, lang, mode=mode)
+        translated = translate_text(text, lang, source_lang=source_lang, mode=mode)
     except Exception as e:
         engine = "offline" if mode.startswith("offline") else "DeepL"
         log.error(f"   [{slot}] {lang} ({engine}) translation error: {e}")
@@ -1646,9 +1654,14 @@ def main():
 
     # Create audio sources from --sources or --mic
     if args.sources:
+        seen_devices = set()
         for idx_str in args.sources.split(","):
             idx = int(idx_str.strip())
             dev = None if idx == -1 else idx
+            if dev in seen_devices:
+                log.warning(f"Skipping duplicate audio device: {dev}")
+                continue
+            seen_devices.add(dev)
             add_source(dev)
     elif args.mic is not None:
         add_source(args.mic)
