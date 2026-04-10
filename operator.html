@@ -132,6 +132,8 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .cp-hex{color:#aaa;font-family:monospace;font-size:0.9em}
 .cp-btns{display:flex;gap:8px;justify-content:flex-end}
 </style>
+<link rel="stylesheet" href="/static/plugin_panel.css">
+<!-- PLUGIN_CSS -->
 </head>
 <body>
 
@@ -231,8 +233,8 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 
   <div class="card" style="border:2px solid rgba(76,175,80,.3);padding:10px">
     <span class="clbl" data-i18n="operator.session_controls_label">Session Controls</span>
-    <button class="btn" id="liveBtn" onclick="toggleLive()" style="width:100%;padding:12px;font-size:14px;font-weight:800;background:#4CAF50;color:#fff;letter-spacing:.06em" data-i18n="operator.go_live">▶ GO LIVE — Start Captioning</button>
-    <button class="btn" id="pauseBtn" onclick="togglePause()" style="width:100%;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);font-weight:800;border:1px solid rgba(255,255,255,.1)" data-i18n="operator.resume_translation_credits">▶ Resume Translation (uses API credits)</button>
+    <button class="btn" id="liveBtn" onclick="toggleLive()" style="width:100%;padding:12px;font-size:14px;font-weight:800;background:#4CAF50;color:#fff;letter-spacing:.06em" data-i18n="operator.go_live">&#9654; GO LIVE — Start Captioning</button>
+    <button class="btn" id="pauseBtn" onclick="togglePause()" style="width:100%;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);font-weight:800;border:1px solid rgba(255,255,255,.1)" data-i18n="operator.resume_translation_credits">&#9654; Resume Translation (uses API credits)</button>
     <div class="hint" id="sessionHint" data-i18n="operator.session_hint_both_paused">Both captioning and translation are paused. Configure your settings, then go live.</div>
   </div>
   <div class="card" style="flex-direction:row;align-items:center;justify-content:space-between;padding:10px 12px">
@@ -247,6 +249,8 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
     </label>
   </div>
   <button class="btn btn-d" onclick="clearCaptions()" style="width:100%" data-i18n="operator.clear_captions">Clear Captions (C)</button>
+
+  <!-- PLUGIN_PANELS -->
 
   <!-- Display Styling -->
   <div class="card">
@@ -320,7 +324,13 @@ let bidirLangs=[];  // [langA, langB]
 let bidirTunedSwap=false;
 let speakerLangs={}; // {speakerName: langCode}
 
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+// M24: esc() now also escapes double quotes
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML.replace(/"/g, '&quot;')}
+
+// M21-M22/M28: Debounce utility for slider handlers
+function debounce(fn, ms) { let tid; return function(...args) { clearTimeout(tid); tid = setTimeout(() => fn.apply(this, args), ms); }; }
+const debouncedSaveAll = debounce(saveAll, 300);
+const debouncedMicSend = debounce(function(v) { if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'set_threshold',value:v/1000})); }, 300);
 
 // ── Internationalization ──
 let _i18n = {};
@@ -384,8 +394,8 @@ function loadCfg(){
     translations=c.translations||[{lang:'ES',color:'#FFD54F'}];
     speakers=c.speakers||[];
 
-    // Show API key warning only if at least one slot uses DeepL
-    const anyDeepL=translations.some(t=>!t.mode||t.mode==='deepl');
+    // H13: renamed lambda param from t to tr to avoid shadowing i18n function
+    const anyDeepL=translations.some(tr=>!tr.mode||tr.mode==='deepl');
     if(!c.has_api_key&&anyDeepL)document.getElementById('warn').style.display='block';
     else document.getElementById('warn').style.display='none';
     if(c.backend)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:c.backend});
@@ -591,11 +601,12 @@ function onTunedAction(){
 }
 
 // ── BG options ──
+// H9: store hex in data-hex attribute for reliable persistence
 function buildBgOpts(cur){
   const el=document.getElementById('bgOpts');el.innerHTML='';
   bgOpts.forEach(b=>{
     const d=document.createElement('div');d.className='bg-opt'+(b.hex===cur?' active':'');
-    d.style.background=b.hex;d.title=b.name;
+    d.style.background=b.hex;d.dataset.hex=b.hex;d.title=b.name;
     d.onclick=()=>{document.querySelectorAll('.bg-opt').forEach(x=>x.classList.remove('active'));d.classList.add('active');saveAll()};
     const n=document.createElement('div');n.className='bg-name';n.textContent=b.name;d.appendChild(n);
     el.appendChild(d);
@@ -603,12 +614,16 @@ function buildBgOpts(cur){
 }
 
 // ── Font options ──
+// M23: Use DOM creation methods instead of innerHTML for font config
 function buildFontOpts(cur){
   const el=document.getElementById('fontOpts');el.innerHTML='';
   fontOpts.forEach(f=>{
     const d=document.createElement('div');d.className='font-opt'+(f.id===cur?' active':'');
     d.onclick=()=>{document.querySelectorAll('.font-opt').forEach(x=>x.classList.remove('active'));d.classList.add('active');saveAll()};
-    d.innerHTML=`<div><div class="fn" style="font-family:${f.css}">${f.name}</div><div class="fnote">${f.note}</div></div>`;
+    const wrap=document.createElement('div');
+    const nameEl=document.createElement('div');nameEl.className='fn';nameEl.style.fontFamily=f.css;nameEl.textContent=f.name;
+    const noteEl=document.createElement('div');noteEl.className='fnote';noteEl.textContent=f.note;
+    wrap.appendChild(nameEl);wrap.appendChild(noteEl);d.appendChild(wrap);
     d.dataset.id=f.id;
     el.appendChild(d);
   });
@@ -856,8 +871,7 @@ function downloadOfflineModel(type,lang){
   }
 }
 
-// Track which slots are showing download progress for a given key
-const _downloadSlots={};
+// L-OP3: removed unused _downloadSlots declaration
 
 function _showDownloadProgress(key, pct, msg){
   // Find all translation slots that would display this key and show progress
@@ -904,6 +918,7 @@ function updateTranslationHint(){
   // Update the "uses API credits" hint on the pause button
   const btn=document.getElementById('pauseBtn');
   if(!btn||!translationPaused) return;
+  // H13: renamed lambda param from t to tr
   const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
   if(allOffline){
     btn.textContent=t('operator.resume_translation_offline');
@@ -919,13 +934,14 @@ function onSlotLangChange(idx,lang){
 }
 
 // ── Color swatches ──
+// H9: store hex in data-hex for reliable persistence on caption color swatches
 function buildColorSwatches(){
   // Caption color
   const cc=document.getElementById('captionColors');cc.innerHTML='';
   const curCap=cfg.caption_color||'#FFFFFF';
   palette.forEach(c=>{
     const s=document.createElement('div');s.className='swatch'+(c.hex===curCap?' active':'');
-    s.style.background=c.hex;s.title=c.name;
+    s.style.background=c.hex;s.dataset.hex=c.hex;s.title=c.name;
     s.onclick=()=>{cc.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'));s.classList.add('active');saveAll()};
     cc.appendChild(s);
   });
@@ -997,7 +1013,7 @@ function openColorPicker(sourceId){
     renderPresets();
     drawHueBar();
     drawSBSquare();
-    updatePreview();
+    updateCpPreview();
 }
 
 function closeColorPicker(){
@@ -1007,8 +1023,9 @@ function closeColorPicker(){
 
 function renderPresets(){
     const el=document.getElementById('cpPresets');
-    const bg=getComputedStyle(document.querySelector('.preview-area')||document.body).backgroundColor||'#1a1a2e';
-    const presets=generatePresets(bg);
+    const bg=getComputedStyle(document.querySelector('.preview')||document.body).backgroundColor||'#1a1a2e';
+    // L-OP1: removed unused bgColor param from generatePresets
+    const presets=generatePresets();
     let h='';
     presets.forEach(c=>{
         h+=`<span style="background:${c}" onclick="cpSelectPreset('${c}')" title="${c}"></span>`;
@@ -1016,7 +1033,8 @@ function renderPresets(){
     el.innerHTML=h;
 }
 
-function generatePresets(bgColor){
+// L-OP1: removed unused bgColor parameter
+function generatePresets(){
     const presets=[];
     for(let i=0;i<32;i++){
         const hue=(i*360/32)%360;
@@ -1029,8 +1047,10 @@ function generatePresets(bgColor){
 function cpSelectPreset(hex){
     const hsb=hexToHSB(hex);
     cpHue=hsb.h; cpSat=hsb.s; cpBri=hsb.b;
+    // L-OP2: redraw hue bar on preset select
+    drawHueBar();
     drawSBSquare();
-    updatePreview();
+    updateCpPreview();
 }
 
 function drawHueBar(){
@@ -1045,13 +1065,15 @@ function drawHueBar(){
     ctx.beginPath();ctx.arc(x,c.height/2,8,0,Math.PI*2);
     ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
     c.onmousedown=e=>{cpDragging='hue';cpHueMove(e)};
+    // M26: touch support for hue bar
+    c.ontouchstart=e=>{e.preventDefault();cpDragging='hue';cpHueMove(e.touches[0])};
 }
 
 function cpHueMove(e){
     const c=document.getElementById('cpHue');
     const r=c.getBoundingClientRect();
     cpHue=Math.max(0,Math.min(360,(e.clientX-r.left)/r.width*360));
-    drawHueBar(); drawSBSquare(); updatePreview();
+    drawHueBar(); drawSBSquare(); updateCpPreview();
 }
 
 function drawSBSquare(){
@@ -1072,6 +1094,8 @@ function drawSBSquare(){
     ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);
     ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.stroke();
     c.onmousedown=e=>{cpDragging='sb';cpSBMove(e)};
+    // M26: touch support for SB square
+    c.ontouchstart=e=>{e.preventDefault();cpDragging='sb';cpSBMove(e.touches[0])};
 }
 
 function cpSBMove(e){
@@ -1079,7 +1103,7 @@ function cpSBMove(e){
     const r=c.getBoundingClientRect();
     cpSat=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));
     cpBri=Math.max(0,Math.min(100,(1-(e.clientY-r.top)/r.height)*100));
-    drawSBSquare(); updatePreview();
+    drawSBSquare(); updateCpPreview();
 }
 
 // Global mouse handlers for dragging
@@ -1088,8 +1112,14 @@ document.addEventListener('mousemove',e=>{
     else if(cpDragging==='sb')cpSBMove(e);
 });
 document.addEventListener('mouseup',()=>{cpDragging=null});
+// M26: Global touch handlers for dragging
+document.addEventListener('touchmove',e=>{
+    if(cpDragging){e.preventDefault();const touch=e.touches[0];if(cpDragging==='hue')cpHueMove(touch);else if(cpDragging==='sb')cpSBMove(touch)}
+},{passive:false});
+document.addEventListener('touchend',()=>{cpDragging=null});
 
-function updatePreview(){
+// C1: renamed from updatePreview to updateCpPreview to avoid collision with preview-rebuilding updatePreview
+function updateCpPreview(){
     const hex=hsbToHex(cpHue,cpSat,cpBri);
     document.getElementById('cpPreview').style.background=hex;
     document.getElementById('cpHex').textContent=hex;
@@ -1097,7 +1127,7 @@ function updatePreview(){
 
 function cpReset(){
     cpHue=0;cpSat=0;cpBri=100;
-    drawHueBar();drawSBSquare();updatePreview();
+    drawHueBar();drawSBSquare();updateCpPreview();
 }
 
 function cpApply(){
@@ -1248,15 +1278,23 @@ function resetSpeakers(){
         <button class="btn" onclick="cancelReset()">${t('operator.reset_no')}</button>`;
     resetTimeout=setTimeout(cancelReset,10000);
 }
+// M29: confirmReset now chains state clearing inside .then() and adds .catch()
 function confirmReset(){
     clearTimeout(resetTimeout);
-    fetch('/api/speakers/reset',{method:'POST'});
-    speakers=[];
-    activeSp=0;
-    buildSpeakerBtns();
-    sources.forEach(s=>{s.speaker='';s.color='';});
-    buildSourceList();
-    cancelReset();
+    fetch('/api/speakers/reset',{method:'POST'}).then(r=>{
+      if(!r.ok) throw new Error('Reset failed: '+r.status);
+      return r.json();
+    }).then(()=>{
+      speakers=[];
+      activeSp=0;
+      buildSpeakerBtns();
+      sources.forEach(s=>{s.speaker='';s.color='';});
+      buildSourceList();
+      cancelReset();
+    }).catch(e=>{
+      alert('Failed to reset speakers: '+e.message);
+      cancelReset();
+    });
 }
 function cancelReset(){
     clearTimeout(resetTimeout);
@@ -1288,6 +1326,7 @@ function togglePause(){
   translationPaused = !translationPaused;
   const btn = document.getElementById('pauseBtn');
   if(translationPaused){
+    // H13: renamed lambda param from t to tr
     const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
     btn.textContent = allOffline ? t('operator.resume_translation_offline') : t('operator.resume_translation_credits');
     btn.style.background = 'rgba(255,255,255,.08)';
@@ -1334,9 +1373,10 @@ function clearCaptions(){
 }
 
 // ── Sliders ──
-function onFsChange(v){document.getElementById('vFs').textContent=v+'px';saveAll()}
-function onLnChange(v){document.getElementById('vLn').textContent=v;saveAll()}
-function onMicChange(v){if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'set_threshold',value:v/1000}))}
+// M21-M22: Immediate UI update, debounced save/send
+function onFsChange(v){document.getElementById('vFs').textContent=v+'px';debouncedSaveAll()}
+function onLnChange(v){document.getElementById('vLn').textContent=v;debouncedSaveAll()}
+function onMicChange(v){debouncedMicSend(v)}
 
 // ── Footer ──
 function uploadFooter(inp){
@@ -1367,20 +1407,21 @@ function saveAll(){
   fd.append('speakers',JSON.stringify(speakers));
   fd.append('font_size',document.getElementById('iFs').value);
   fd.append('max_lines',document.getElementById('iLn').value);
-  // Get active BG
+  // H9: Get active BG hex from data-hex attribute, fallback to style.background
   const abg=document.querySelector('.bg-opt.active');
-  if(abg)fd.append('bg_color',abg.style.background);
+  if(abg)fd.append('bg_color',abg.dataset.hex||abg.style.background);
   // Get active font
   const af=document.querySelector('.font-opt.active');
   if(af)fd.append('font_family',af.dataset.id);
-  // Get caption color
+  // H9: Get caption color hex from data-hex attribute, fallback to style.background
   const ac=document.querySelector('#captionColors .swatch.active');
-  if(ac)fd.append('caption_color',ac.style.background);
+  if(ac)fd.append('caption_color',ac.dataset.hex||ac.style.background);
 
   fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
     document.getElementById('pTitle').textContent=document.getElementById('iTitle').value||t('operator.preview_default_title');
     const hasKey=!!document.getElementById('iKey').value;
-    const anyDeepL=translations.some(t=>!t.mode||t.mode==='deepl');
+    // H13: renamed lambda param from t to tr
+    const anyDeepL=translations.some(tr=>!tr.mode||tr.mode==='deepl');
     document.getElementById('warn').style.display=(!hasKey&&anyDeepL)?'block':'none';
     applyPreviewStyle();
     updatePreview();
@@ -1392,8 +1433,9 @@ const prevSlots={}; // slotId -> {el, lines[], interimEl, color, lastSpeaker}
 
 function applyPreviewStyle(){
   const box=document.getElementById('prevBox');
+  // H9: use data-hex for reliable background color
   const abg=document.querySelector('.bg-opt.active');
-  if(abg)box.style.background=abg.style.background;
+  if(abg)box.style.background=abg.dataset.hex||abg.style.background;
 }
 
 function updatePreview(){
@@ -1401,7 +1443,8 @@ function updatePreview(){
   Object.keys(prevSlots).forEach(k=>delete prevSlots[k]);
   const inputName=srcLangs[document.getElementById('iInputLang').value]||'English';
   const capColor=document.querySelector('#captionColors .swatch.active');
-  const cc=capColor?capColor.style.background:'#fff';
+  // H9: use data-hex for reliable caption color
+  const cc=capColor?(capColor.dataset.hex||capColor.style.background):'#fff';
 
   // Caption section
   _addPrevSection(el, 'caption', inputName+' Captioning', cc);
@@ -1502,10 +1545,11 @@ function openEditDialog(lineId, currentText, lineEl){
   const rect=lineEl.getBoundingClientRect();
   dlg.style.left=Math.min(rect.left, window.innerWidth-440)+'px';
   dlg.style.top=Math.min(rect.bottom+4, window.innerHeight-200)+'px';
+  // M30: use raw currentText in textarea (textareas treat content as raw text, no esc() needed)
   dlg.innerHTML=`
     <h4>${t('operator.edit_dialog_title')}</h4>
     <div class="edit-original">${t('operator.edit_dialog_original',{text:esc(currentText)})}</div>
-    <textarea id="editText">${esc(currentText)}</textarea>
+    <textarea id="editText">${currentText}</textarea>
     <div class="edit-btns">
       <button class="btn btn-g" onclick="closeEditDialog()">${t('operator.edit_dialog_cancel')}</button>
       <button class="btn btn-p" onclick="submitCorrection(${lineId})">${t('operator.edit_dialog_save')}</button>
@@ -1540,7 +1584,9 @@ function connect(){
   ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
   ws.onopen=()=>{recon=0;document.getElementById('sDot').className='dot conn';document.getElementById('sTxt').textContent=t('operator.status_connected')};
   ws.onmessage=e=>{
-    const m=JSON.parse(e.data);
+    // L-OP5: wrap JSON parse in try/catch
+    let m;
+    try { m=JSON.parse(e.data); } catch(err) { console.error('WS parse error:', err); return; }
     if(m.type==='status'){
       if(m.model)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:m.model});
       if(m.state==='speech')document.getElementById('sTxt').textContent=t('operator.status_speech_detected');
@@ -1548,10 +1594,14 @@ function connect(){
     }
     else if(m.type==='interim'){
       prevSetInterim('caption', m.text||'', m.speaker||'');
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_interim',{text:m.text||'',speaker:m.speaker||''});
     }
     else if(m.type==='final'){
       prevSetInterim('caption','');
-      if(m.text) prevAddLine('caption', m.text, m.speaker||'', m.line_id);
+      if(m.text){
+        prevAddLine('caption', m.text, m.speaker||'', m.line_id);
+        if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_final',{text:m.text,speaker:m.speaker||'',line_id:m.line_id,detected_lang:m.detected_lang});
+      }
       document.getElementById('pSpeaker').textContent=m.speaker||'';
       if(m.detected_lang && m.source_id!==undefined){
         updateDetectionIndicator(m.source_id, m.detected_lang);
@@ -1565,6 +1615,7 @@ function connect(){
         prevSetInterim('trans_'+m.slot,'');
         if(m.translated) prevAddLine('trans_'+m.slot, m.translated, m.speaker||'', m.line_id);
       }
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_translation',{translated:m.translated,lang:m.lang,slot:m.slot,speaker:m.speaker||'',line_id:m.line_id});
     }
     else if(m.type==='correct_line'){
       if(m.line_id!==undefined&&m.text) prevCorrectLine('caption', m.line_id, m.text);
@@ -1581,6 +1632,7 @@ function connect(){
       translationPaused=m.paused;
       const btn=document.getElementById('pauseBtn');
       if(translationPaused){
+        // H13: renamed lambda param from t to tr
         const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
         btn.textContent=allOffline?t('operator.resume_translation_offline'):t('operator.resume_translation_credits');
         btn.style.background='rgba(255,255,255,.08)';btn.style.color='rgba(255,255,255,.55)';btn.style.borderColor='rgba(255,255,255,.1)';
@@ -1593,6 +1645,7 @@ function connect(){
       if(captioningPaused){btn.textContent=t('operator.go_live');btn.style.background='#4CAF50';btn.style.color='#fff'}
       else{btn.textContent=t('operator.pause_captioning');btn.style.background='#f44336';btn.style.color='#fff'}
       updateSessionHint();
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire(m.paused?'on_session_stop':'on_session_start',{});
     }
     else if(m.type==='save_transcripts'){
       saveTranscriptsEnabled=m.enabled;
@@ -1603,7 +1656,8 @@ function connect(){
     }
     else if(m.type==='source_list'){
       sources=m.sources||[];
-      if(sources.length>0) focusedSourceId=sources[0].id;
+      // H10: only reset focusedSourceId if current one is not in the new list
+      if(sources.length>0 && !sources.find(s=>s.id===focusedSourceId)) focusedSourceId=sources[0].id;
       buildSourceList();
     }
     else if(m.type==='source_added'){
@@ -1612,8 +1666,11 @@ function connect(){
     }
     else if(m.type==='source_removed'){
       sources=sources.filter(s=>s.id!==m.source_id);
-      if(focusedSourceId===m.source_id&&sources.length>0)
-          focusedSourceId=sources[0].id;
+      if(focusedSourceId===m.source_id){
+        // L-OP4: set focusedSourceId to null when all sources removed
+        if(sources.length>0) focusedSourceId=sources[0].id;
+        else focusedSourceId=null;
+      }
       buildSourceList();
     }
     else if(m.type==='speaker_change'){
@@ -1631,8 +1688,15 @@ function connect(){
   ws.onclose=()=>{
     document.getElementById('sDot').className='dot';
     document.getElementById('sTxt').textContent=t('operator.status_reconnecting');
-    if(recon<50)setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
+    // H11: show feedback when reconnection stops after 50 attempts
+    if(recon<50){
+      setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
+    } else {
+      document.getElementById('sTxt').textContent='Connection lost. Please refresh the page.';
+    }
   };
+  // H12: add onerror handler so errors trigger onclose reconnection path
+  ws.onerror = () => { ws.close(); };
 }
 connect();
 
@@ -1665,5 +1729,7 @@ document.addEventListener('keydown',e=>{
     </div>
   </div>
 </div>
+<script src="/static/plugin_dispatcher.js"></script>
+<!-- PLUGIN_JS -->
 </body>
 </html>
