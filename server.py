@@ -46,16 +46,18 @@ for p in _cuda_lib_paths:
         if p not in os.environ.get("PATH", ""):
             os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
 
-import argparse, asyncio, json, logging, queue, shutil, subprocess, threading, time
+import argparse, asyncio, collections, concurrent.futures, json, logging, queue, shutil, subprocess, threading, time
 import urllib.request, zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 import numpy as np, requests, sounddevice as sd, uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.staticfiles import StaticFiles
 import tuned_models
 import offline_translate
+from plugin_loader import PluginDispatcher
 
 # ── Paths ──
 BASE_DIR = Path(__file__).parent
@@ -179,11 +181,19 @@ def load_config():
             pass
     return dict(DEFAULT_CONFIG)
 
+_config_lock = threading.Lock()
+
 def save_config(cfg):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    with _config_lock:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
 
 config = load_config()
+
+# ── Plugin System ──
+PLUGINS_DIR = BASE_DIR / "plugins"
+PLUGINS_DIR.mkdir(exist_ok=True)
+plugin_dispatcher = PluginDispatcher(PLUGINS_DIR, config)
 
 def _save_speaker_config():
     """Save speaker names, colors, assignments to config."""
@@ -287,8 +297,10 @@ save_transcripts = True
 _session_stamp = time.strftime("%Y%m%d_%H%M%S")
 _line_id = 0               # monotonic counter for final lines
 _line_id_lock = threading.Lock()
-_recent_lines = []          # last N final lines: [{id, text, speaker, src_lang}]
+_model_lock = threading.RLock()     # protects stt_backend._model hot-swap
+_recent_lines = collections.deque(maxlen=50)  # last N final lines
 _RECENT_LINES_MAX = 50
+_translate_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="translate")
 
 
 # ── Multi-Source Audio ──
@@ -331,10 +343,10 @@ def get_source(source_id):
 
 def add_source(device_index=None, name=None):
     """Create and register a new AudioSource."""
-    if len(_sources) >= 8:
-        return None
-    src = AudioSource(device_index, name)
     with _sources_lock:
+        if len(_sources) >= 8:
+            return None
+        src = AudioSource(device_index, name)
         _sources.append(src)
     return src
 
@@ -423,35 +435,34 @@ def _transcription_worker(transcribe_fn, loop):
             source, buf, detected_lang = _transcription_queue.get(timeout=0.5)
             if not source.active:
                 continue
-            if (config.get("bidirectional_tuned_swap") and
-                    detected_lang and
-                    isinstance(stt_backend, WhisperBackend)):
-                current_model_lang = getattr(stt_backend, '_tuned_lang', None)
-                if current_model_lang != detected_lang:
-                    from tuned_models import TUNED_MODELS, get_model_path
-                    from faster_whisper import WhisperModel
-                    if detected_lang in TUNED_MODELS:
-                        model_path = get_model_path(MODELS_DIR, detected_lang)
-                        if model_path and model_path.exists():
-                            log.info(f"Swapping to tuned model for {detected_lang}")
-                            # Prevent HuggingFace from downloading tokenizers
-                            # during hot-swap (causes crashes on Windows)
-                            import os as _os
-                            _prev_hf = _os.environ.get("HF_HUB_OFFLINE")
-                            _os.environ["HF_HUB_OFFLINE"] = "1"
-                            try:
-                                stt_backend._model = WhisperModel(
-                                    str(model_path),
-                                    device=stt_backend._device,
-                                    compute_type=stt_backend._compute_type
-                                )
-                                stt_backend._tuned_lang = detected_lang
-                            finally:
-                                if _prev_hf is None:
-                                    _os.environ.pop("HF_HUB_OFFLINE", None)
-                                else:
-                                    _os.environ["HF_HUB_OFFLINE"] = _prev_hf
-            text = transcribe_fn(buf, lang=detected_lang)
+            with _model_lock:
+                if (config.get("bidirectional_tuned_swap") and
+                        detected_lang and
+                        isinstance(stt_backend, WhisperBackend)):
+                    current_model_lang = getattr(stt_backend, '_tuned_lang', None)
+                    if current_model_lang != detected_lang:
+                        from tuned_models import TUNED_MODELS, get_model_path
+                        from faster_whisper import WhisperModel
+                        if detected_lang in TUNED_MODELS:
+                            model_path = get_model_path(MODELS_DIR, detected_lang)
+                            if model_path and model_path.exists():
+                                log.info(f"Swapping to tuned model for {detected_lang}")
+                                import os as _os
+                                _prev_hf = _os.environ.get("HF_HUB_OFFLINE")
+                                _os.environ["HF_HUB_OFFLINE"] = "1"
+                                try:
+                                    stt_backend._model = WhisperModel(
+                                        str(model_path),
+                                        device=stt_backend._device,
+                                        compute_type=stt_backend._compute_type
+                                    )
+                                    stt_backend._tuned_lang = detected_lang
+                                finally:
+                                    if _prev_hf is None:
+                                        _os.environ.pop("HF_HUB_OFFLINE", None)
+                                    else:
+                                        _os.environ["HF_HUB_OFFLINE"] = _prev_hf
+                text = transcribe_fn(buf, lang=detected_lang)
             if text and text.strip():
                 _broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
         except queue.Empty:
@@ -473,54 +484,6 @@ def _detect_segment_lang(source, buf):
     Returns detected DeepL language code, or None if detection is disabled/unavailable.
     NOTE: Auto-detection disabled — bi-directional uses manual operator swap only."""
     return None
-    if not config.get("bidirectional_enabled"):  # noqa: E702 — unreachable until auto-detect is re-enabled
-        return None
-    bidir_langs = config.get("bidirectional_langs", [])
-    if len(bidir_langs) != 2:
-        return None
-
-    # Check speaker-level language override first
-    speaker_lang = _get_speaker_lang(source)
-    if speaker_lang:
-        return speaker_lang
-
-    detected_lang = None
-    try:
-        import lang_detect
-        candidates = [DEEPL_TO_WHISPER.get(l, l.lower()) for l in bidir_langs]
-        audio_for_detect = buf[:SAMPLE_RATE].flatten()
-        lang, conf = lang_detect.detect_language(audio_for_detect, candidates=candidates)
-        if conf >= 0.6:
-            whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
-            detected_lang = whisper_to_deepl.get(lang, lang.upper())
-        else:
-            detected_lang = source.current_lang
-    except (ImportError, RuntimeError):
-        # Silero unavailable (missing onnxruntime or model download failed) —
-        # fall back to Whisper's built-in language detection
-        if hasattr(stt_backend, '_model') and hasattr(stt_backend._model, 'detect_language'):
-            try:
-                audio_flat = buf[:SAMPLE_RATE].flatten().astype(np.float32)
-                _, _, lang_probs = stt_backend._model.detect_language(audio_flat)
-                if lang_probs:
-                    best = max(lang_probs, key=lambda x: x[1])
-                    if best[1] >= 0.6:
-                        whisper_to_deepl = {v: k for k, v in DEEPL_TO_WHISPER.items()}
-                        detected_lang = whisper_to_deepl.get(best[0], best[0].upper())
-                    else:
-                        detected_lang = source.current_lang
-            except Exception:
-                detected_lang = source.current_lang
-        else:
-            log.warning("Language detection unavailable: install onnxruntime or use Whisper backend")
-            detected_lang = source.current_lang
-    except Exception as e:
-        log.warning(f"Language detection failed: {e}")
-        detected_lang = source.current_lang
-
-    if detected_lang:
-        source.current_lang = detected_lang
-    return detected_lang
 
 
 def _buffer_audio_loop(transcribe_fn, loop, source):
@@ -563,6 +526,9 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                 if text:
                     _bc(loop, {"type":"interim","text":text,"speaker":source.speaker,
                                "color":source.color,"source_id":source.id})
+                    plugin_dispatcher.fire("on_interim", {
+                        "text": text, "speaker": source.speaker, "source_id": source.id
+                    })
                     _translate_all(text, "interim_translation", loop, max_slots=2, source_lang=source.current_lang)
         else:
             if is_speech:
@@ -836,6 +802,9 @@ class VoskBackend(SpeechBackend):
                     last_partial = pt
                     _bc(loop, {"type":"interim","text":pt,"speaker":source.speaker,
                                "color":source.color,"source_id":source.id})
+                    plugin_dispatcher.fire("on_interim", {
+                        "text": pt, "speaker": source.speaker, "source_id": source.id
+                    })
                     now = time.time()
                     if (now - last_pt) >= 2.0 and len(pt) > 20:
                         last_pt = now; _translate_all(pt, "interim_translation", loop,
@@ -911,19 +880,19 @@ async def broadcast_all(msg):
     data = json.dumps(msg)
     for cs in [display_clients, extended_clients, operator_clients, dictation_clients]:
         dead = set()
-        for ws in cs:
+        for ws in list(cs):  # iterate over copy to avoid RuntimeError
             try: await ws.send_text(data)
-            except: dead.add(ws)
-        cs.difference_update(dead)
+            except Exception: dead.add(ws)
+        cs -= dead
 
 async def broadcast_dictation(msg):
     """Broadcast only to dictation clients."""
     data = json.dumps(msg)
     dead = set()
-    for ws in dictation_clients:
+    for ws in list(dictation_clients):  # iterate over copy
         try: await ws.send_text(data)
-        except: dead.add(ws)
-    dictation_clients.difference_update(dead)
+        except Exception: dead.add(ws)
+    dictation_clients -= dead
 
 def _save_line(lang_code, text):
     """Append a timestamped line to the transcript file for this language."""
@@ -948,8 +917,6 @@ def _next_line_id():
 def _store_recent_line(lid, text, speaker, src_lang):
     with _line_id_lock:
         _recent_lines.append({"id": lid, "text": text, "speaker": speaker, "src_lang": src_lang})
-        while len(_recent_lines) > _RECENT_LINES_MAX:
-            _recent_lines.pop(0)
 
 def _broadcast_final(text, loop, source=None, detected_lang=None):
     """Broadcast final source text with speaker, save transcript, trigger translations.
@@ -975,6 +942,10 @@ def _broadcast_final(text, loop, source=None, detected_lang=None):
     _save_line(src, f"{prefix}{text}")
     _store_recent_line(lid, text, speaker, src)
     _translate_all(text, "final_translation", loop, line_id=lid, source_lang=detected_lang)
+    plugin_dispatcher.fire("on_final", {
+        "text": text, "speaker": speaker, "color": color,
+        "source_id": source_id, "line_id": lid, "detected_lang": detected_lang
+    })
 
 def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_override=None, source_lang=None):
     if translation_paused:
@@ -1000,9 +971,8 @@ def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_ove
             _bc(loop, msg)
             continue
 
-        threading.Thread(target=_do_translate,
-            args=(text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang),
-            daemon=True).start()
+        _translate_pool.submit(_do_translate,
+            text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang)
 
 def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None):
     translations = config.get("translations", [])
@@ -1025,6 +995,10 @@ def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_overri
     if line_id is not None:
         msg["line_id"] = line_id
     _bc(loop, msg)
+    plugin_dispatcher.fire("on_translation", {
+        "translated": translated, "lang": lang, "slot": slot,
+        "speaker": speaker_override or "", "line_id": line_id, "source_lang": source_lang
+    })
     if msg_type == "final_translation":
         prefix = f"{speaker}: " if speaker else ""
         engine = "offline" if mode.startswith("offline") else "DeepL"
@@ -1136,7 +1110,9 @@ async def bidirectional_page(): return FileResponse(BASE_DIR / "bidirectional.ht
 
 @display_app.get("/uploads/{fn}")
 async def d_uploads(fn: str):
-    p = UPLOADS_DIR / fn
+    p = (UPLOADS_DIR / fn).resolve()
+    if not str(p).startswith(str(UPLOADS_DIR.resolve())):
+        return JSONResponse({"error": "invalid path"}, 400)
     return FileResponse(p) if p.exists() else JSONResponse({"error":"not found"}, 404)
 
 @display_app.get("/api/config")
@@ -1187,7 +1163,9 @@ async def e_index(): return FileResponse(BASE_DIR / "display.html")
 
 @extended_app.get("/uploads/{fn}")
 async def e_uploads(fn: str):
-    p = UPLOADS_DIR / fn
+    p = (UPLOADS_DIR / fn).resolve()
+    if not str(p).startswith(str(UPLOADS_DIR.resolve())):
+        return JSONResponse({"error": "invalid path"}, 400)
     return FileResponse(p) if p.exists() else JSONResponse({"error":"not found"}, 404)
 
 @extended_app.get("/api/config")
@@ -1217,12 +1195,88 @@ async def e_ws(ws: WebSocket):
 # OPERATOR APP (Port 3001)
 # ══════════════════════════════════════════════
 
+# ── Plugin System: discover and load ──
+plugin_dispatcher.discover()
+plugin_dispatcher.load_enabled(operator_app)
+
+# Serve core static files (plugin_dispatcher.js, plugin_panel.css)
+_static_dir = BASE_DIR / "static"
+if _static_dir.is_dir():
+    operator_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+# Serve each plugin's static files
+for _m in plugin_dispatcher.get_all_manifests():
+    _plugin_static = _m.path
+    if _plugin_static.is_dir():
+        operator_app.mount(f"/plugins/{_m.id}", StaticFiles(directory=str(_plugin_static)), name=f"plugin_{_m.id}")
+
 @operator_app.get("/")
-async def o_index(): return FileResponse(BASE_DIR / "operator.html")
+async def o_index():
+    html = (BASE_DIR / "operator.html").read_text(encoding="utf-8")
+    html = html.replace("<!-- PLUGIN_CSS -->", plugin_dispatcher.get_css_links())
+    html = html.replace("<!-- PLUGIN_PANELS -->", plugin_dispatcher.get_panel_html())
+    html = html.replace("<!-- PLUGIN_JS -->", plugin_dispatcher.get_js_scripts())
+    return HTMLResponse(html)
+
+# ── Plugin API Routes ──
+
+@operator_app.get("/api/plugins")
+async def api_plugins_list():
+    result = []
+    for m in plugin_dispatcher.get_all_manifests():
+        result.append({
+            "id": m.id, "name": m.name, "version": m.version,
+            "description": m.description, "author": m.author,
+            "enabled": plugin_dispatcher.is_enabled(m.id),
+            "has_panel": m.has_panel, "has_routes": m.has_routes,
+            "settings_schema": m.settings_schema,
+        })
+    return JSONResponse(result)
+
+@operator_app.get("/api/plugins/{plugin_id}/settings")
+async def api_plugin_settings_get(plugin_id: str):
+    manifests = {m.id: m for m in plugin_dispatcher.get_all_manifests()}
+    m = manifests.get(plugin_id)
+    if not m:
+        return JSONResponse({"error": "Plugin not found"}, 404)
+    return JSONResponse({
+        "schema": m.settings_schema,
+        "values": plugin_dispatcher.get_settings(plugin_id),
+    })
+
+@operator_app.post("/api/plugins/{plugin_id}/settings")
+async def api_plugin_settings_post(plugin_id: str, request: Request):
+    form = await request.form()
+    settings = dict(form)
+    manifests = {m.id: m for m in plugin_dispatcher.get_all_manifests()}
+    m = manifests.get(plugin_id)
+    if m:
+        for key, schema in m.settings_schema.items():
+            if schema.get("type") == "toggle" and key in settings:
+                settings[key] = settings[key] in ("true", "True", "1", "on")
+            elif schema.get("type") == "number" and key in settings:
+                try:
+                    settings[key] = float(settings[key])
+                except ValueError:
+                    pass
+    plugin_dispatcher.save_settings(plugin_id, settings)
+    save_config(config)
+    plugin_dispatcher.fire("on_config_change", {"plugin_id": plugin_id})
+    return JSONResponse({"ok": True})
+
+@operator_app.post("/api/plugins/{plugin_id}/enabled")
+async def api_plugin_enabled(plugin_id: str, request: Request):
+    form = await request.form()
+    enabled = form.get("enabled", "true") in ("true", "True", "1")
+    plugin_dispatcher.set_enabled(plugin_id, enabled)
+    save_config(config)
+    return JSONResponse({"ok": True, "enabled": enabled})
 
 @operator_app.get("/uploads/{fn}")
 async def o_uploads(fn: str):
-    p = UPLOADS_DIR / fn
+    p = (UPLOADS_DIR / fn).resolve()
+    if not str(p).startswith(str(UPLOADS_DIR.resolve())):
+        return JSONResponse({"error": "invalid path"}, 400)
     return FileResponse(p) if p.exists() else JSONResponse({"error":"not found"}, 404)
 
 @operator_app.get("/api/config")
@@ -1327,10 +1381,10 @@ async def o_update(
     if translation_count is not None: config["translation_count"] = translation_count
     if translations_json is not None:
         try: config["translations"] = json.loads(translations_json)
-        except: pass
+        except Exception: pass
     if speakers is not None:
         try: config["speakers"] = json.loads(speakers)
-        except: pass
+        except Exception: pass
     if font_size is not None: config["font_size"] = max(24, min(960, font_size))
     if max_lines is not None: config["max_lines"] = max(1, min(8, max_lines))
     if bg_color is not None: config["bg_color"] = bg_color
@@ -1341,12 +1395,15 @@ async def o_update(
     # ── Bi-directional config ──
     if speaker_langs is not None:
         try: config["speaker_langs"] = json.loads(speaker_langs)
-        except: pass
+        except Exception: pass
     if bidirectional_tuned_swap is not None:
         config["bidirectional_tuned_swap"] = bidirectional_tuned_swap.lower() in ("true", "1", "yes")
     if bidirectional_langs is not None:
-        try: config["bidirectional_langs"] = json.loads(bidirectional_langs)
-        except: pass
+        try:
+            parsed = json.loads(bidirectional_langs)
+            if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+                config["bidirectional_langs"] = parsed
+        except Exception: pass
     if bidirectional_enabled is not None:
         new_enabled = bidirectional_enabled.lower() in ("true", "1", "yes")
         was_enabled = config.get("bidirectional_enabled", False)
@@ -1395,6 +1452,7 @@ async def o_update(
         update_msg["bidirectional_enabled"] = config.get("bidirectional_enabled", False)
         update_msg["bidirectional_langs"] = config.get("bidirectional_langs", [])
     await broadcast_all(update_msg)
+    plugin_dispatcher.fire("on_config_change", {"config": config})
     return JSONResponse({"status":"ok"})
 
 @operator_app.post("/api/upload-footer")
@@ -1495,8 +1553,9 @@ async def o_tuned_switch(lang: str = Form(...)):
                 os.environ.pop("HF_HUB_OFFLINE", None)
             else:
                 os.environ["HF_HUB_OFFLINE"] = prev_hf
-        stt_backend._model = new_model
-        stt_backend._model_name = f"tuned-{lang.lower()}"
+        with _model_lock:
+            stt_backend._model = new_model
+            stt_backend._model_name = f"tuned-{lang.lower()}"
         log.info(f"Model swapped to tuned-{lang.lower()} ({old_compute}, {old_device})")
 
         # Step 3: Resume captioning
@@ -1551,8 +1610,9 @@ async def o_tuned_revert():
                 os.environ.pop("HF_HUB_OFFLINE", None)
             else:
                 os.environ["HF_HUB_OFFLINE"] = prev_hf
-        stt_backend._model = new_model
-        stt_backend._model_name = default_model
+        with _model_lock:
+            stt_backend._model = new_model
+            stt_backend._model_name = default_model
         log.info(f"Reverted to {default_model} ({old_compute}, {old_device})")
 
         if not was_paused:
@@ -1627,7 +1687,10 @@ async def o_set_mic(request: Request):
     global current_mic_index
     form = await request.form()
     raw = form.get("mic_index", "")
-    new_idx = int(raw) if raw not in ("", "null", "None") else None
+    try:
+        new_idx = int(raw) if raw not in ("", "null", "None") else None
+    except ValueError:
+        return JSONResponse({"error": f"Invalid mic_index: {raw}"}, 400)
     if new_idx == current_mic_index:
         return JSONResponse({"status": "ok", "changed": False,
                              "mic_index": current_mic_index})
@@ -1660,6 +1723,17 @@ async def api_add_source(request: Request):
     t = threading.Thread(target=start_source_capture, args=(src,), daemon=True)
     t.start()
     src.capture_thread = t
+    # Start buffer processing thread so audio actually gets transcribed
+    if stt_backend and hasattr(stt_backend, '_transcribe'):
+        bt = threading.Thread(target=_buffer_audio_loop,
+                              args=(stt_backend._transcribe, loop, src), daemon=True)
+        bt.start()
+        src.buffer_thread = bt
+    elif stt_backend and hasattr(stt_backend, '_vosk_source_loop'):
+        bt = threading.Thread(target=stt_backend._vosk_source_loop,
+                              args=(loop, src), daemon=True)
+        bt.start()
+        src.buffer_thread = bt
     await broadcast_all({"type": "source_added", "source": {
         "id": src.id, "name": src.name, "speaker": src.speaker, "color": src.color}})
     return JSONResponse({"id": src.id, "name": src.name})
@@ -1724,8 +1798,9 @@ async def o_ws(ws: WebSocket):
                 silence_threshold = float(msg.get("value", SILENCE_THRESHOLD))
             elif msg.get("type") == "set_speaker":
                 new_name = msg.get("speaker", "")
+                sp_color = msg.get("color", "")
                 source_id = msg.get("source_id")  # None = all sources
-                change = {"name": new_name, "time": time.time()}
+                change = {"name": new_name, "time": time.time(), "color": sp_color}
                 # Propagate speaker change to all matching sources (Whisper/MLX/Vosk)
                 with _sources_lock:
                     for src in _sources:
@@ -1746,6 +1821,13 @@ async def o_ws(ws: WebSocket):
                 captioning_paused = bool(msg.get("paused", False))
                 log.info(f"Captioning {'PAUSED' if captioning_paused else 'LIVE'}")
                 await broadcast_all({"type":"captioning_paused","paused":captioning_paused})
+                if captioning_paused:
+                    plugin_dispatcher.fire("on_session_stop", {"timestamp": time.time()})
+                else:
+                    plugin_dispatcher.fire("on_session_start", {
+                        "timestamp": time.time(),
+                        "backend": stt_backend.name if stt_backend else "unknown",
+                    })
             elif msg.get("type") == "set_save_transcripts":
                 global save_transcripts
                 save_transcripts = bool(msg.get("enabled", True))
@@ -1870,7 +1952,9 @@ def setup_events(app, role):
             # Start processing (creates per-source buffer threads + shared worker)
             threading.Thread(target=stt_backend.process_audio_loop, args=(loop,), daemon=True).start()
     @app.on_event("shutdown")
-    async def shutdown(): shutdown_event.set()
+    async def shutdown():
+        shutdown_event.set()
+        plugin_dispatcher.shutdown()
 
 setup_events(display_app, "display")
 setup_events(extended_app, "extended")
@@ -1887,7 +1971,7 @@ def detect_gpu():
         if out:
             parts = out.split(","); r["has_nvidia"]=True; r["gpu"]=parts[0].strip()
             if len(parts)>1: r["vram"]=int(parts[1].strip())
-    except: return r
+    except Exception: return r
     if sys.platform=="win32":
         for p in _cuda_lib_paths:
             if os.path.isdir(p):
@@ -1897,7 +1981,7 @@ def detect_gpu():
         try:
             if "libcublas" in subprocess.check_output(["ldconfig","-p"],
                 stderr=subprocess.DEVNULL, timeout=5).decode(): r["has_cuda"]=True
-        except: pass
+        except Exception: pass
     return r
 
 def detect_apple_silicon():
