@@ -53,7 +53,7 @@ body{display:flex;flex-direction:column}
   <div class="title"><span class="dot" id="dot"></span> <span data-i18n="dictation.toolbar_title">Dictation</span></div>
   <button class="btn btn-go" id="goBtn" onclick="toggleTranscribing()" data-i18n="dictation.start_btn">Start</button>
   <span class="status" id="status" data-i18n="dictation.status_connecting">Connecting...</span>
-  <span class="wordcount" id="wordcount" data-i18n="dictation.word_count" data-i18n-count="0">0 words</span>
+  <span class="wordcount" id="wordcount" data-i18n="dictation.word_count">0 words</span>
   <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard" data-i18n="dictation.copy_btn">Copy</button>
   <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file" data-i18n="dictation.save_btn">Save</button>
   <button class="btn btn-danger" onclick="clearAll()" title="Clear all text" data-i18n="dictation.clear_btn">Clear</button>
@@ -78,7 +78,7 @@ body{display:flex;flex-direction:column}
 
 <script>
 let ws = null, recon = 0;
-let interimText = '';
+let interimStr = '';
 let transcribing = false;
 
 let _i18n={}, _i18nEn={};
@@ -154,7 +154,10 @@ function insertTextAtCursor(text) {
   }
   const newPos = start + insert.length;
   editor.setSelectionRange(newPos, newPos);
-  editor.scrollTop = editor.scrollHeight;
+  // Scroll to cursor position, not document bottom
+  const lineHeight = parseInt(getComputedStyle(editor).lineHeight) || 20;
+  const lines = editor.value.substring(0, editor.selectionStart).split('\n').length;
+  editor.scrollTop = Math.max(0, (lines * lineHeight) - editor.clientHeight / 2);
   updateWordCount();
   updateInsertHint();
 }
@@ -165,11 +168,17 @@ function appendText(text) {
   if (val.length > 0 && !val.endsWith('\n') && !val.endsWith(' ')) {
     prefix = ' ';
   }
-  editor.value += prefix + text;
-  editor.scrollTop = editor.scrollHeight;
-  // Place cursor at end
+  // Move cursor to end and use insertTextAtCursor for undo support
+  editor.selectionStart = editor.selectionEnd = editor.value.length;
+  const fullText = prefix + text;
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+  if (!document.execCommand('insertText', false, fullText)) {
+    editor.value += fullText;
+  }
   const len = editor.value.length;
   editor.setSelectionRange(len, len);
+  editor.scrollTop = editor.scrollHeight;
   updateWordCount();
 }
 
@@ -188,7 +197,7 @@ editor.addEventListener('input', updateWordCount);
 
 function copyAll() {
   const text = editor.value.trim();
-  if (!text) return;
+  if (!text) { statusEl.textContent = t('dictation.status_nothing_to_copy') || 'Nothing to copy'; setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 1500); return; }
   navigator.clipboard.writeText(text).then(() => {
     statusEl.textContent = t('dictation.status_copied');
     setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 1500);
@@ -197,7 +206,7 @@ function copyAll() {
 
 function saveFile() {
   const text = editor.value.trim();
-  if (!text) return;
+  if (!text) { statusEl.textContent = t('dictation.status_nothing_to_save') || 'Nothing to save'; setTimeout(() => { statusEl.textContent = transcribing ? t('dictation.status_listening') : t('dictation.status_stopped'); }, 1500); return; }
   const fd = new FormData();
   fd.append('text', text);
   fetch('/api/dictation-save', { method: 'POST', body: fd })
@@ -211,12 +220,6 @@ function saveFile() {
       }
     })
     .catch(() => { statusEl.textContent = t('dictation.status_save_failed'); });
-}
-
-function loadDirConfig() {
-  fetch('/api/dictation-config').then(r => r.json()).then(c => {
-    document.getElementById('saveDir').value = c.dictation_dir || '';
-  });
 }
 
 function updateDir() {
@@ -239,19 +242,19 @@ function updateDir() {
 
 function clearAll() {
   editor.value = '';
-  interimText = '';
+  interimStr = '';
   interimBar.style.display = 'none';
   updateWordCount();
   updateInsertHint();
 }
 
 function toggleTranscribing() {
-  transcribing = !transcribing;
   if (ws && ws.readyState === 1) {
+    transcribing = !transcribing;
     ws.send(JSON.stringify({ type: 'set_dictation_active', active: transcribing }));
+    updateGoBtn();
+    updateInsertHint();
   }
-  updateGoBtn();
-  updateInsertHint();
 }
 
 function updateGoBtn() {
@@ -282,9 +285,9 @@ function handleMsg(msg) {
       }
       break;
     case 'interim':
-      interimText = msg.text || '';
-      if (interimText) {
-        interimTextEl.textContent = interimText;
+      interimStr = msg.text || '';
+      if (interimStr) {
+        interimTextEl.textContent = interimStr;
         interimBar.style.display = 'flex';
       } else {
         interimBar.style.display = 'none';
@@ -299,7 +302,7 @@ function handleMsg(msg) {
           appendText(msg.text);
         }
       }
-      interimText = '';
+      interimStr = '';
       interimBar.style.display = 'none';
       break;
     case 'dictation_active':
@@ -334,14 +337,16 @@ function connect() {
     dot.className = 'dot conn';
     statusEl.textContent = t('dictation.status_ready');
   };
-  ws.onmessage = e => handleMsg(JSON.parse(e.data));
+  ws.onmessage = e => { try { handleMsg(JSON.parse(e.data)); } catch(err) {} };
   ws.onclose = () => {
     dot.className = 'dot';
     statusEl.textContent = t('dictation.status_reconnecting');
     if (recon < 50) setTimeout(connect, Math.min(1000 * Math.pow(1.5, recon++), 10000));
+    else statusEl.textContent = 'Connection lost — please refresh the page';
   };
-  ws.onerror = () => {};
+  ws.onerror = () => { ws.close(); };
 }
+window.addEventListener('beforeunload', () => { if(ws) ws.close(); });
 
 // Load initial config and translations
 fetch('/api/dictation-config').then(r=>r.json()).then(c=>{

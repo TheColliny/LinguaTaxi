@@ -81,7 +81,7 @@ Name: "slovak"; MessagesFile: "compiler:Languages\Slovak.isl"
 Name: "slovenian"; MessagesFile: "compiler:Languages\Slovenian.isl"
 Name: "swedish"; MessagesFile: "compiler:Languages\Swedish.isl"
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
-Name: "ukrainian"; MessagesFile: "compiler:Languages\Ukrainian.isl"
+; L-BD3: Ukrainian removed — no uk.json locale file exists yet
 
 [CustomMessages]
 ; Task descriptions
@@ -168,11 +168,14 @@ Name: "vosk_lang\zh"; Description: "{cm:VoskZh}"; Flags: unchecked
 
 [Files]
 ; ── Core application ──
+; NOTE: Canonical package list lives in requirements.txt. Keep file list here
+; in sync with build/mac/build.sh when adding new files.
 Source: "..\..\server.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\launcher.pyw"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\download_models.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\tuned_models.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\offline_translate.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\plugin_loader.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\display.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\operator.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dictation.html"; DestDir: "{app}"; Flags: ignoreversion
@@ -188,6 +191,12 @@ Source: "..\..\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; ── Locale files ──
 Source: "..\..\locales\*"; DestDir: "{app}\locales"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; ── Static files (plugin dispatcher, panel styles) ──
+Source: "..\..\static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; ── Plugins ──
+Source: "..\..\plugins\*"; DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Assets ──
 Source: "..\..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -256,7 +265,9 @@ Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.
 Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; Description: "Launch {#MyAppShortName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{cmd}"; Parameters: "/C taskkill /F /IM pythonw.exe /FI ""WINDOWTITLE eq LinguaTaxi*"" 2>nul"; Flags: runhidden; RunOnceId: "KillLinguaTaxi"
+; M55: Use plain /IM filter — WINDOWTITLE filter does not match pythonw.exe windows.
+; Note: This may terminate other pythonw.exe processes running on this machine.
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM pythonw.exe"; Flags: runhidden skipifdoesntexist; RunOnceId: "KillLinguaTaxi"
 
 [Code]
 // ── Fix venv paths after file copy ──
@@ -301,6 +312,7 @@ begin
     // Fix venv paths (must happen first — pip needs working venv)
     CfgPath := ExpandConstant('{app}\venv\pyvenv.cfg');
     PythonHome := ExpandConstant('{app}\python');
+    // M56 IMPORTANT: Update version below when changing Python version in build.bat
     SaveStringToFile(CfgPath,
       'home = ' + PythonHome + #13#10 +
       'include-system-site-packages = false' + #13#10 +
@@ -316,14 +328,15 @@ begin
   #endif
 
   #if EDITION == "Full"
-    // Launch CUDA downloads in background (run concurrently with [Run] model downloads)
+    // H22: Install CUDA packages sequentially (ewWaitUntilTerminated) so each
+    // completes before the next starts, avoiding pip lock conflicts.
     PipPath := ExpandConstant('{app}\venv\Scripts\pip.exe');
     Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
+         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
+         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
+         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   #endif
   end;
 end;

@@ -2,9 +2,9 @@ name: Build Installers
 
 # Triggers:
 #   - Push a version tag (e.g., git tag v1.0.1 && git push origin v1.0.1)
-#     → builds all platforms and creates a GitHub Release
+#     -> builds all platforms and creates a GitHub Release
 #   - Manual trigger from Actions tab (workflow_dispatch)
-#     → builds all platforms, artifacts available for download
+#     -> builds all platforms, artifacts available for download
 
 on:
   push:
@@ -52,6 +52,19 @@ jobs:
         with:
           path: build/windows/models_prebuilt
           key: models-whisper-v3-turbo-vosk-small-silero-lang95
+
+      # M58-M59: Cache venvs to skip rebuilds when dependencies haven't changed
+      - name: Cache lite venv
+        uses: actions/cache@v4
+        with:
+          path: build/windows/venv_lite
+          key: venv-lite-${{ env.PYTHON_VER }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Cache full venv
+        uses: actions/cache@v4
+        with:
+          path: build/windows/venv_full
+          key: venv-full-${{ env.PYTHON_VER }}-${{ hashFiles('requirements.txt') }}
 
       - name: Download and install Python
         run: |
@@ -223,10 +236,13 @@ jobs:
 
   # ════════════════════════════════════════
   # Linux: tar.gz with install script
+  # C5: continue-on-error because build/linux/ is not yet production-ready.
+  # Remove continue-on-error once the Linux build is stable.
   # ════════════════════════════════════════
   build-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -245,9 +261,11 @@ jobs:
   # ════════════════════════════════════════
   # Release: attach all artifacts to GitHub Release
   # Only runs on tag pushes (v*)
+  # C5: build-linux removed from needs — its continue-on-error would
+  # still block release if it failed without this change.
   # ════════════════════════════════════════
   release:
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows, build-macos]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -261,7 +279,8 @@ jobs:
           path: release-assets
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        # L-BD2: Pinned to v2.2.1 commit SHA for supply-chain safety
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
         with:
           name: "LinguaTaxi ${{ github.ref_name }}"
           draft: false

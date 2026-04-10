@@ -12,6 +12,8 @@ SUPPORT_DIR="$HOME/Library/Application Support/LinguaTaxi"
 VENV="$SUPPORT_DIR/venv"
 LOG="$SUPPORT_DIR/install.log"
 PYTHON3=""
+# H20/M61: Single version constant used for setup marker comparison
+APP_VERSION="1.0.1"
 
 # ── Find Python 3 ──
 find_python() {
@@ -41,7 +43,8 @@ first_run_setup() {
         # Check/install Homebrew
         if ! command -v brew &>/dev/null; then
             echo "Installing Homebrew..." >> "$LOG"
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$LOG" 2>&1
+            # H24: Use NONINTERACTIVE=1 to prevent Homebrew installer from hanging on prompts
+            NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$LOG" 2>&1
 
             # Add to PATH for this session
             if [ -f /opt/homebrew/bin/brew ]; then
@@ -53,7 +56,9 @@ first_run_setup() {
 
         # Install Python + PortAudio
         echo "Installing Python and PortAudio..." >> "$LOG"
-        brew install python3 python-tk portaudio >> "$LOG" 2>&1
+        brew install python3 python-tk >> "$LOG" 2>&1
+        # M63: Don't let portaudio failure kill the launcher (set -e is active)
+        brew install portaudio >> "$LOG" 2>&1 || true
 
         if ! find_python; then
             osascript -e 'display dialog "Failed to install Python with tkinter. Please install manually from python.org and try again." buttons {"OK"} default button "OK" with title "LinguaTaxi" with icon stop'
@@ -65,7 +70,8 @@ first_run_setup() {
     if ! brew list portaudio &>/dev/null 2>&1; then
         if command -v brew &>/dev/null; then
             echo "Installing PortAudio..." >> "$LOG"
-            brew install portaudio >> "$LOG" 2>&1
+            # M63: Don't let portaudio failure kill the launcher
+            brew install portaudio >> "$LOG" 2>&1 || true
         fi
     fi
 
@@ -76,9 +82,12 @@ first_run_setup() {
     "$PYTHON3" -m venv "$VENV" >> "$LOG" 2>&1
 
     # Install dependencies
+    # NOTE: Canonical package list lives in requirements.txt at project root.
+    # Keep this list in sync with requirements.txt and build/windows/build.bat.
     echo "Installing packages..." >> "$LOG"
     "$VENV/bin/pip" install --upgrade pip >> "$LOG" 2>&1
-    "$VENV/bin/pip" install fastapi uvicorn websockets sounddevice numpy requests python-multipart >> "$LOG" 2>&1
+    # M62: Include all packages that the Windows build installs (onnxruntime, sentencepiece, etc.)
+    "$VENV/bin/pip" install fastapi uvicorn websockets sounddevice numpy requests python-multipart onnxruntime sentencepiece ctranslate2 huggingface_hub >> "$LOG" 2>&1
 
     # Detect Apple Silicon vs Intel
     ARCH=$(uname -m)
@@ -93,8 +102,8 @@ first_run_setup() {
         "$VENV/bin/pip" install vosk >> "$LOG" 2>&1
     fi
 
-    # Mark setup complete
-    echo "1.0.0" > "$SUPPORT_DIR/.setup_complete"
+    # M61: Write version into marker so upgrades re-run setup
+    echo "$APP_VERSION" > "$SUPPORT_DIR/.setup_complete"
 
     # Pre-download speech model
     echo "Downloading speech recognition model..." >> "$LOG"
@@ -107,8 +116,9 @@ first_run_setup() {
 
 mkdir -p "$SUPPORT_DIR"
 
-# Check if first run
-if [ ! -f "$SUPPORT_DIR/.setup_complete" ] || [ ! -d "$VENV" ]; then
+# M61: Check if first run OR version has changed (triggers re-setup on upgrade)
+SETUP_MARKER="$SUPPORT_DIR/.setup_complete"
+if [ ! -f "$SETUP_MARKER" ] || [ ! -d "$VENV" ] || [ "$(cat "$SETUP_MARKER" 2>/dev/null)" != "$APP_VERSION" ]; then
     # Show progress via a background AppleScript dialog
     osascript -e 'display notification "Setting up LinguaTaxi for first use..." with title "LinguaTaxi" subtitle "This may take a few minutes"' 2>/dev/null &
 

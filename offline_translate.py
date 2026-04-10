@@ -30,14 +30,15 @@ _cli_mode = False
 
 
 def _short_hf_cache():
-    """Return a short temp path for HuggingFace downloads.
-    Windows MAX_PATH (260 chars) breaks with long HF cache paths like
-    C:\\Users\\...\\Temp\\linguataxi_hf_XXXX\\models--Helsinki-NLP--opus-mt-en-es\\snapshots\\<hash>\\...
-    Using C:\\tmp\\lt_hf keeps total paths well under the limit."""
+    """Return a unique short temp path for HuggingFace downloads.
+    Windows MAX_PATH (260 chars) breaks with long HF cache paths.
+    Each call returns a unique directory to avoid race conditions
+    between concurrent downloads."""
     if sys.platform == "win32":
-        d = Path("C:/tmp/lt_hf")
-        d.mkdir(parents=True, exist_ok=True)
-        return str(d)
+        base = Path("C:/tmp")
+        base.mkdir(parents=True, exist_ok=True)
+        d = tempfile.mkdtemp(prefix="lt_hf_", dir=str(base))
+        return d
     return tempfile.mkdtemp(prefix="lt_hf_")
 
 # ── OPUS-MT Model Registry ──
@@ -68,6 +69,12 @@ OPUS_MODELS = {
     "EL":    {"hf_repo": "Helsinki-NLP/opus-mt-en-el", "name": "Greek",       "size_mb": 310},
     "TR":    {"hf_repo": "Helsinki-NLP/opus-mt-en-tr", "name": "Turkish",     "size_mb": 310},
     "UK":    {"hf_repo": "Helsinki-NLP/opus-mt-en-uk", "name": "Ukrainian",   "size_mb": 310},
+}
+
+# ROMANCE model target language prefixes (required for multi-target OPUS-MT models)
+OPUS_ROMANCE_PREFIX = {
+    "PT-BR": ">>pt<<", "PT-PT": ">>pt<<",
+    "ES": ">>es<<", "FR": ">>fr<<", "IT": ">>it<<", "RO": ">>ro<<",
 }
 
 # Only download files needed for CTranslate2 conversion
@@ -142,8 +149,11 @@ def get_translate_dir(models_dir):
 
 
 def _opus_dir_name(lang_code):
-    """Canonical directory name for an OPUS-MT model."""
-    # Normalize: PT-BR → pt-br, ES → es
+    """Canonical directory name for an OPUS-MT model.
+    ROMANCE targets (PT-BR, PT-PT) share a single model directory."""
+    info = OPUS_MODELS.get(lang_code.upper(), {})
+    if "ROMANCE" in info.get("hf_repo", ""):
+        return "opus-mt-en-romance"
     return f"opus-mt-en-{lang_code.lower()}"
 
 
@@ -322,6 +332,12 @@ def download_opus_model(models_dir, lang_code, on_complete=None):
                     shutil.rmtree(output_path)
                 except Exception:
                     pass
+            # Clean up HF cache on failure too
+            try:
+                if hf_cache:
+                    shutil.rmtree(hf_cache, ignore_errors=True)
+            except Exception:
+                pass
             error_msg = str(e)[:200]
             _set_progress(key, "error", 0, error_msg)
             log.error(f"OPUS-MT download failed for {lang_code}: {e}")
@@ -420,6 +436,12 @@ def download_m2m_model(models_dir, on_complete=None):
                     shutil.rmtree(output_path)
                 except Exception:
                     pass
+            # Clean up HF cache on failure too
+            try:
+                if hf_cache:
+                    shutil.rmtree(hf_cache, ignore_errors=True)
+            except Exception:
+                pass
             error_msg = str(e)[:200]
             _set_progress(key, "error", 0, error_msg)
             log.error(f"M2M-100 download failed: {e}")
@@ -451,23 +473,22 @@ def _load_opus_model(model_path):
         if model_path in _loaded_models:
             return _loaded_models[model_path]
 
-    translator = ctranslate2.Translator(model_path, device="cpu",
-                                         compute_type="int8")
-    sp_path = os.path.join(model_path, "source.spm")
-    sp = spm.SentencePieceProcessor()
-    sp.Load(sp_path)
+        translator = ctranslate2.Translator(model_path, device="cpu",
+                                             compute_type="int8")
+        sp_path = os.path.join(model_path, "source.spm")
+        sp = spm.SentencePieceProcessor()
+        sp.Load(sp_path)
 
-    # Target tokenizer (some OPUS-MT models have a separate target.spm)
-    tgt_sp_path = os.path.join(model_path, "target.spm")
-    tgt_sp = None
-    if os.path.exists(tgt_sp_path):
-        tgt_sp = spm.SentencePieceProcessor()
-        tgt_sp.Load(tgt_sp_path)
+        # Target tokenizer (some OPUS-MT models have a separate target.spm)
+        tgt_sp_path = os.path.join(model_path, "target.spm")
+        tgt_sp = None
+        if os.path.exists(tgt_sp_path):
+            tgt_sp = spm.SentencePieceProcessor()
+            tgt_sp.Load(tgt_sp_path)
 
-    entry = (translator, sp, tgt_sp)
-    with _models_lock:
+        entry = (translator, sp, tgt_sp)
         _loaded_models[model_path] = entry
-    return entry
+        return entry
 
 
 def _load_m2m_model(model_path):
@@ -480,21 +501,24 @@ def _load_m2m_model(model_path):
         if model_path in _loaded_models:
             return _loaded_models[model_path]
 
-    translator = ctranslate2.Translator(model_path, device="cpu",
-                                         compute_type="int8")
-    sp_path = os.path.join(model_path, "sentencepiece.model")
-    sp = spm.SentencePieceProcessor()
-    sp.Load(sp_path)
+        translator = ctranslate2.Translator(model_path, device="cpu",
+                                             compute_type="int8")
+        sp_path = os.path.join(model_path, "sentencepiece.model")
+        sp = spm.SentencePieceProcessor()
+        sp.Load(sp_path)
 
-    entry = (translator, sp)
-    with _models_lock:
+        entry = (translator, sp)
         _loaded_models[model_path] = entry
-    return entry
+        return entry
 
 
-def _translate_opus(text, model_path):
-    """Translate using an OPUS-MT model."""
+def _translate_opus(text, model_path, target_lang=None):
+    """Translate using an OPUS-MT model.
+    For multi-target models (ROMANCE), prepends the target language prefix."""
     translator, src_sp, tgt_sp = _load_opus_model(model_path)
+    # Prepend ROMANCE target prefix if needed
+    if target_lang and target_lang.upper() in OPUS_ROMANCE_PREFIX:
+        text = OPUS_ROMANCE_PREFIX[target_lang.upper()] + " " + text
     tokens = src_sp.Encode(text, out_type=str)
     results = translator.translate_batch([tokens])
     output_tokens = results[0].hypotheses[0]
@@ -547,9 +571,14 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
         # Decide which engine to use
         use_opus = False
         use_m2m = False
+        model_path = None
 
         if engine == "opus-mt":
-            use_opus = True
+            if source_upper != "EN":
+                log.warning(f"OPUS-MT only supports EN source, got {source_upper}; falling back")
+                use_m2m = is_m2m_available(models_dir)
+            else:
+                use_opus = True
         elif engine == "m2m100":
             use_m2m = True
         else:
@@ -576,8 +605,8 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
                 else:
                     return ""
 
-        if use_opus:
-            return _translate_opus(text, model_path)
+        if use_opus and model_path:
+            return _translate_opus(text, model_path, target_lang=target_upper)
         elif use_m2m:
             model_path = get_m2m_model_path(models_dir)
             if not (model_path / "model.bin").exists():
@@ -595,11 +624,14 @@ def delete_opus_model(models_dir, lang_code):
     """Delete a downloaded OPUS-MT model. Returns True if deleted."""
     mp = get_opus_model_path(models_dir, lang_code)
     if mp.exists():
-        # Unload if cached
         mp_str = str(mp)
         with _models_lock:
             _loaded_models.pop(mp_str, None)
-        shutil.rmtree(mp)
+            try:
+                shutil.rmtree(mp)
+            except PermissionError:
+                log.warning(f"Could not delete {mp} — model may be in use")
+                return False
         log.info(f"Deleted OPUS-MT model for {lang_code}: {mp}")
         return True
     return False
@@ -612,7 +644,11 @@ def delete_m2m_model(models_dir):
         mp_str = str(mp)
         with _models_lock:
             _loaded_models.pop(mp_str, None)
-        shutil.rmtree(mp)
+            try:
+                shutil.rmtree(mp)
+            except PermissionError:
+                log.warning(f"Could not delete {mp} — model may be in use")
+                return False
         log.info(f"Deleted M2M-100 model: {mp}")
         return True
     return False

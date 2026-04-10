@@ -28,12 +28,15 @@ _cli_mode = False
 
 
 def _short_hf_cache():
-    """Return a short temp path for HuggingFace downloads.
-    Windows MAX_PATH (260 chars) breaks with long HF cache paths."""
+    """Return a unique short temp path for HuggingFace downloads.
+    Windows MAX_PATH (260 chars) breaks with long HF cache paths.
+    Each call returns a unique directory to avoid race conditions
+    between concurrent downloads."""
     if sys.platform == "win32":
-        d = Path("C:/tmp/lt_hf")
-        d.mkdir(parents=True, exist_ok=True)
-        return str(d)
+        base = Path("C:/tmp")
+        base.mkdir(parents=True, exist_ok=True)
+        d = tempfile.mkdtemp(prefix="lt_hf_", dir=str(base))
+        return d
     return tempfile.mkdtemp(prefix="lt_hf_")
 
 # Only download files needed for CTranslate2 conversion (skip training checkpoints,
@@ -194,14 +197,21 @@ def detect_vram():
             ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
             stderr=subprocess.DEVNULL, timeout=5
         ).decode().strip()
-        return int(out.split("\n")[0].strip()) if out else 0
+        if not out:
+            return 0
+        # Use max VRAM across all GPUs in multi-GPU systems
+        return max(int(line.strip()) for line in out.split("\n") if line.strip())
     except Exception:
         return 0
 
 
 def _check_converter_deps():
-    """Check if transformers and torch are installed (needed for conversion)."""
+    """Check if conversion dependencies are installed."""
     missing = []
+    try:
+        import ctranslate2  # noqa: F401
+    except ImportError:
+        missing.append("ctranslate2")
     try:
         import transformers  # noqa: F401
     except ImportError:
@@ -210,6 +220,10 @@ def _check_converter_deps():
         import torch  # noqa: F401
     except ImportError:
         missing.append("torch")
+    try:
+        import huggingface_hub  # noqa: F401
+    except ImportError:
+        missing.append("huggingface_hub")
     return missing
 
 
@@ -285,6 +299,15 @@ def download_and_convert(models_dir, lang_code, vram_mb=0, on_complete=None):
                 from ctranslate2.converters import TransformersConverter
                 converter = TransformersConverter(hf_local)
                 converter.convert(str(output_path), quantization=quant, force=True)
+                # Copy tokenizer files needed by faster-whisper at inference time
+                for tok_file in ("tokenizer.json", "tokenizer_config.json",
+                                 "vocab.json", "merges.txt", "added_tokens.json",
+                                 "special_tokens_map.json", "preprocessor_config.json",
+                                 "normalizer.json"):
+                    src = Path(hf_local) / tok_file
+                    dst = output_path / tok_file
+                    if src.exists() and not dst.exists():
+                        shutil.copy2(str(src), str(dst))
             except Exception as conv_err:
                 # Clean up partial output
                 if output_path.exists():
@@ -317,6 +340,18 @@ def download_and_convert(models_dir, lang_code, vram_mb=0, on_complete=None):
                 on_complete(lang_code, True, "")
 
         except Exception as e:
+            # Clean up partial output directory
+            if output_path.exists() and not (output_path / "model.bin").exists():
+                try:
+                    shutil.rmtree(output_path, ignore_errors=True)
+                except Exception:
+                    pass
+            # Clean up HF cache on failure
+            try:
+                if hf_cache_dir:
+                    shutil.rmtree(hf_cache_dir, ignore_errors=True)
+            except Exception:
+                pass
             error_msg = str(e)[:200]
             _set_progress(lang_code, "error", 0, error_msg)
             log.error(f"Tuned model download/convert failed for {lang_code}: {e}")

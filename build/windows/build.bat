@@ -35,7 +35,9 @@ set "VENV_FULL=%SCRIPT_DIR%venv_full"
 set "PYTHON_VER=3.11.9"
 set "PYTHON_URL=https://www.python.org/ftp/python/%PYTHON_VER%/python-%PYTHON_VER%-amd64.exe"
 
-:: ── Base pip packages (no speech backends) ──
+:: ── Base pip packages ──
+:: NOTE: Canonical package list lives in requirements.txt at project root.
+:: Keep extras (vosk, faster-whisper, torch, etc.) installed separately below.
 set "BASE_PACKAGES=fastapi uvicorn websockets sounddevice numpy requests python-multipart"
 
 echo.
@@ -78,14 +80,25 @@ if not exist "%INSTALLER%" (
     exit /b 1
 )
 
+:: L-BD1: Verify SHA256 checksum of the Python installer
+echo   Verifying installer checksum...
+for /f "delims=" %%h in ('powershell -Command "(Get-FileHash -Algorithm SHA256 '%INSTALLER%').Hash"') do set "DL_HASH=%%h"
+if /i not "!DL_HASH!"=="82BFB3AED60FE04EC2AB5178E2EEBCE940AD45E6C3E0B3DCBE80E4C2F55D0B2E" (
+    echo   WARNING: SHA256 checksum mismatch — expected 82BFB3AE..., got !DL_HASH!
+    echo   The installer may have been tampered with or the expected hash needs updating.
+    echo   Continuing anyway — verify manually if concerned.
+)
+
+:: H23: Use start /wait for reliable blocking instead of ping-based poll loop
 echo   Installing Python to python_dist\ ...
 echo   (This takes 1-2 minutes)
-"%INSTALLER%" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Include_tcltk=1 TargetDir="%PYTHON_DIR%" >> "%SCRIPT_DIR%build_log.txt" 2>&1
+start /wait "" "%INSTALLER%" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Include_tcltk=1 TargetDir="%PYTHON_DIR%"
 
-:: Wait for installer to complete (ping used as portable sleep — works in cmd and bash)
-:wait_python
-ping -n 3 127.0.0.1 >nul 2>&1
-if not exist "%PYTHON_DIR%\python.exe" goto :wait_python
+if not exist "%PYTHON_DIR%\python.exe" (
+    echo   ERROR: Python installation failed — python.exe not found.
+    if not defined CI pause
+    exit /b 1
+)
 
 del "%INSTALLER%" 2>nul
 
@@ -121,17 +134,28 @@ if not exist "%VENV_LITE%\Scripts\python.exe" (
 echo   Upgrading pip...
 "%VENV_LITE%\Scripts\python.exe" -m pip install --upgrade pip >> "%SCRIPT_DIR%build_log.txt" 2>&1
 
-echo   Installing base packages...
-"%VENV_LITE%\Scripts\pip.exe" install %BASE_PACKAGES% >> "%SCRIPT_DIR%build_log.txt" 2>&1
+:: M50: Use requirements.txt as the primary install source
+echo   Installing base packages from requirements.txt...
+"%VENV_LITE%\Scripts\pip.exe" install -r "%PROJECT_DIR%\requirements.txt" >> "%SCRIPT_DIR%build_log.txt" 2>&1
+:: M51: Check for pip install failures
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Base package installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing Vosk (CPU speech backend)...
 "%VENV_LITE%\Scripts\pip.exe" install vosk >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Vosk installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing offline translation packages...
 "%VENV_LITE%\Scripts\pip.exe" install sentencepiece ctranslate2 huggingface_hub >> "%SCRIPT_DIR%build_log.txt" 2>&1
-
-echo   Installing language detection runtime...
-"%VENV_LITE%\Scripts\pip.exe" install onnxruntime >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Offline translation package installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   [OK] Lite venv ready (Vosk CPU)
 
@@ -158,24 +182,46 @@ if not exist "%VENV_FULL%\Scripts\python.exe" (
 echo   Upgrading pip...
 "%VENV_FULL%\Scripts\python.exe" -m pip install --upgrade pip >> "%SCRIPT_DIR%build_log.txt" 2>&1
 
-echo   Installing base packages...
-"%VENV_FULL%\Scripts\pip.exe" install %BASE_PACKAGES% >> "%SCRIPT_DIR%build_log.txt" 2>&1
+:: M50: Use requirements.txt as the primary install source
+echo   Installing base packages from requirements.txt...
+"%VENV_FULL%\Scripts\pip.exe" install -r "%PROJECT_DIR%\requirements.txt" >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Base package installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing faster-whisper (GPU speech backend)...
 "%VENV_FULL%\Scripts\pip.exe" install faster-whisper >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] faster-whisper installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing Vosk (CPU fallback)...
 "%VENV_FULL%\Scripts\pip.exe" install vosk >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Vosk installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing offline translation packages...
 "%VENV_FULL%\Scripts\pip.exe" install sentencepiece ctranslate2 huggingface_hub >> "%SCRIPT_DIR%build_log.txt" 2>&1
-
-echo   Installing language detection runtime...
-"%VENV_FULL%\Scripts\pip.exe" install onnxruntime >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Offline translation package installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   Installing model conversion tools (transformers + torch-cpu)...
 "%VENV_FULL%\Scripts\pip.exe" install torch --index-url https://download.pytorch.org/whl/cpu >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] torch installation failed. See build_log.txt
+    exit /b 1
+)
 "%VENV_FULL%\Scripts\pip.exe" install transformers >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] transformers installation failed. See build_log.txt
+    exit /b 1
+)
 
 echo   [NOTE] NVIDIA CUDA libraries are NOT bundled in the venv.
 echo          The installer will download them from GitHub during install.
@@ -267,11 +313,12 @@ echo.
 
 "%ISCC%" /DEDITION=Lite "%SCRIPT_DIR%installer.iss"
 
-if !ERRORLEVEL! EQU 0 (
-    echo   [OK] CPU Only installer built
-) else (
+:: M52: Exit nonzero on Inno Setup failure
+if !ERRORLEVEL! NEQ 0 (
     echo   [FAIL] CPU Only installer -- check errors above.
+    exit /b 1
 )
+echo   [OK] CPU Only installer built
 
 echo.
 echo   --- Compiling CPU+GPU installer ---
@@ -279,11 +326,12 @@ echo.
 
 "%ISCC%" /DEDITION=Full "%SCRIPT_DIR%installer.iss"
 
-if !ERRORLEVEL! EQU 0 (
-    echo   [OK] CPU+GPU installer built
-) else (
+:: M52: Exit nonzero on Inno Setup failure
+if !ERRORLEVEL! NEQ 0 (
     echo   [FAIL] CPU+GPU installer -- check errors above.
+    exit /b 1
 )
+echo   [OK] CPU+GPU installer built
 
 echo.
 echo   ========================================

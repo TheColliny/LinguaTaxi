@@ -6,7 +6,7 @@
 #   - macOS 12+ with Xcode Command Line Tools
 #   - Optional: create-dmg (brew install create-dmg) for fancy DMG
 #
-# Output: dist/LinguaTaxi-1.0.0.dmg
+# Output: dist/LinguaTaxi-1.0.1.dmg
 # ════════════════════════════════════════════════════════
 
 set -e
@@ -16,7 +16,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/dist/mac_build"
 APP_BUNDLE="$BUILD_DIR/LinguaTaxi.app"
 DIST_DIR="$PROJECT_DIR/dist"
-VERSION="1.0.0"
+# H20: Match Windows version
+VERSION="1.0.1"
+RESOURCES="$APP_BUNDLE/Contents/Resources"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
@@ -31,9 +33,9 @@ mkdir -p "$BUILD_DIR" "$DIST_DIR"
 # ── Create .app bundle structure ──
 echo "  Creating app bundle..."
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
-mkdir -p "$APP_BUNDLE/Contents/Resources"
-mkdir -p "$APP_BUNDLE/Contents/Resources/uploads"
-mkdir -p "$APP_BUNDLE/Contents/Resources/models"
+mkdir -p "$RESOURCES"
+mkdir -p "$RESOURCES/uploads"
+mkdir -p "$RESOURCES/models"
 
 # Copy Info.plist
 cp "$SCRIPT_DIR/Info.plist" "$APP_BUNDLE/Contents/"
@@ -43,21 +45,31 @@ cp "$SCRIPT_DIR/launcher.sh" "$APP_BUNDLE/Contents/MacOS/LinguaTaxi"
 chmod +x "$APP_BUNDLE/Contents/MacOS/LinguaTaxi"
 
 # Copy application files
-cp "$PROJECT_DIR/server.py" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/launcher.pyw" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/display.html" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/operator.html" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/dictation.html" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/requirements.txt" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/download_models.py" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/tuned_models.py" "$APP_BUNDLE/Contents/Resources/"
-cp "$PROJECT_DIR/offline_translate.py" "$APP_BUNDLE/Contents/Resources/"
+# NOTE: Keep this list in sync with [Files] section of build/windows/installer.iss
+cp "$PROJECT_DIR/server.py" "$RESOURCES/"
+cp "$PROJECT_DIR/launcher.pyw" "$RESOURCES/"
+cp "$PROJECT_DIR/display.html" "$RESOURCES/"
+cp "$PROJECT_DIR/operator.html" "$RESOURCES/"
+cp "$PROJECT_DIR/dictation.html" "$RESOURCES/"
+cp "$PROJECT_DIR/requirements.txt" "$RESOURCES/"
+cp "$PROJECT_DIR/download_models.py" "$RESOURCES/"
+cp "$PROJECT_DIR/tuned_models.py" "$RESOURCES/"
+cp "$PROJECT_DIR/offline_translate.py" "$RESOURCES/"
+cp "$PROJECT_DIR/plugin_loader.py" "$RESOURCES/"
+cp -r "$PROJECT_DIR/static" "$RESOURCES/static"
+cp -r "$PROJECT_DIR/plugins" "$RESOURCES/plugins"
+# H19: Copy files that were missing from macOS but present in Windows installer
+cp "$PROJECT_DIR/bidirectional.html" "$RESOURCES/"
+cp "$PROJECT_DIR/lang_detect.py" "$RESOURCES/"
+cp -r "$PROJECT_DIR/locales" "$RESOURCES/locales"
+cp -r "$PROJECT_DIR/assets" "$RESOURCES/assets"
+cp "$PROJECT_DIR/LICENSE" "$RESOURCES/" 2>/dev/null || true
 
-echo "macOS" > "$APP_BUNDLE/Contents/Resources/edition.txt"
+echo "macOS" > "$RESOURCES/edition.txt"
 
 # ── Icon ──
 if [ -f "$PROJECT_DIR/assets/linguataxi.icns" ]; then
-    cp "$PROJECT_DIR/assets/linguataxi.icns" "$APP_BUNDLE/Contents/Resources/"
+    cp "$PROJECT_DIR/assets/linguataxi.icns" "$RESOURCES/"
     echo "  [OK] Icon copied"
 elif [ -f "$PROJECT_DIR/assets/linguataxi.png" ]; then
     # Convert PNG to ICNS
@@ -74,7 +86,7 @@ elif [ -f "$PROJECT_DIR/assets/linguataxi.png" ]; then
     sips -z 512 512   "$PROJECT_DIR/assets/linguataxi.png" --out "$ICONSET/icon_256x256@2x.png" 2>/dev/null
     sips -z 512 512   "$PROJECT_DIR/assets/linguataxi.png" --out "$ICONSET/icon_512x512.png" 2>/dev/null
     sips -z 1024 1024 "$PROJECT_DIR/assets/linguataxi.png" --out "$ICONSET/icon_512x512@2x.png" 2>/dev/null
-    iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/linguataxi.icns"
+    iconutil -c icns "$ICONSET" -o "$RESOURCES/linguataxi.icns"
     rm -rf "$ICONSET"
     echo "  [OK] Icon converted"
 else
@@ -91,7 +103,7 @@ if command -v create-dmg &>/dev/null; then
     # Fancy DMG with create-dmg
     create-dmg \
         --volname "LinguaTaxi" \
-        --volicon "$APP_BUNDLE/Contents/Resources/linguataxi.icns" \
+        --volicon "$RESOURCES/linguataxi.icns" \
         --window-pos 200 120 \
         --window-size 600 400 \
         --icon-size 100 \

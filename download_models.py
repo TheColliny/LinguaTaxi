@@ -5,7 +5,7 @@ Detects which speech backend is installed and downloads the appropriate model
 so the user doesn't wait on first launch.
 """
 
-import importlib.util, os, sys, time
+import importlib.util, os, shutil, sys
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -29,15 +29,21 @@ VOSK_MODEL_MAP = {
 }
 
 
-def download_whisper_model():
+def download_whisper_model(models_dir=None):
     """Pre-download faster-whisper large-v3-turbo model to local models dir."""
     try:
         import faster_whisper  # noqa: F401 — verify package is installed
     except ImportError:
         return False
 
+    if models_dir is None:
+        models_dir = MODELS_DIR
+    else:
+        models_dir = Path(models_dir)
+        models_dir.mkdir(exist_ok=True, parents=True)
+
     model_name = "large-v3-turbo"
-    local_dir = MODELS_DIR / f"faster-whisper-{model_name}"
+    local_dir = models_dir / f"faster-whisper-{model_name}"
 
     # Already downloaded locally?
     if (local_dir / "model.bin").exists():
@@ -110,11 +116,30 @@ def download_vosk_model(models_dir=None, lang="en"):
                 total_mb = total_size / (1024 * 1024)
                 print(f"\r  {mb:.0f} / {total_mb:.0f} MB ({pct}%)", end="", flush=True)
 
-        urllib.request.urlretrieve(download_url, str(zip_path), reporthook=progress_hook)
+        req = urllib.request.urlopen(download_url, timeout=120)
+        total_size = int(req.headers.get('Content-Length', 0))
+        downloaded = 0
+        with open(str(zip_path), 'wb') as f:
+            while True:
+                chunk = req.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    pct = min(100, downloaded * 100 // total_size)
+                    mb = downloaded / (1024 * 1024)
+                    total_mb = total_size / (1024 * 1024)
+                    print(f"\r  {mb:.0f} / {total_mb:.0f} MB ({pct}%)", end="", flush=True)
         print()  # newline after progress
 
         print(f"  Extracting...")
         with zipfile.ZipFile(str(zip_path), "r") as z:
+            # Validate paths to prevent zip-slip (path traversal)
+            for member in z.namelist():
+                member_path = (models_dir / member).resolve()
+                if not str(member_path).startswith(str(models_dir.resolve())):
+                    raise ValueError(f"Zip contains unsafe path: {member}")
             z.extractall(str(models_dir))
 
         zip_path.unlink(missing_ok=True)
@@ -131,6 +156,9 @@ def download_vosk_model(models_dir=None, lang="en"):
         print(f"\n  [WARNING] Vosk model download failed: {e}")
         print(f"  The model will download automatically on first server start.")
         zip_path.unlink(missing_ok=True)
+        # Clean up partial extraction
+        if model_path.exists():
+            shutil.rmtree(model_path, ignore_errors=True)
         return False
 
 

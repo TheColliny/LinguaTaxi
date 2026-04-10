@@ -25,9 +25,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 .section-hdr .dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;transition:.3s}
 .dot.live{background:#f44336;box-shadow:0 0 6px #f44336;animation:pdot 1.5s ease-in-out infinite}
 .dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
+.dot.paused{background:#FFA726;box-shadow:0 0 6px #FFA726}
 @keyframes pdot{0%,100%{opacity:1}50%{opacity:.4}}
 
-.scroll-box{flex:1;overflow-y:hidden;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0}
+.scroll-box{flex:1;overflow-y:auto;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0;max-height:calc(var(--max-lines) * var(--fs) * 1.4)}
 .scroll-inner{display:flex;flex-direction:column}
 .line{font-weight:600;font-size:var(--fs);line-height:1.35;padding:.05em 0;word-wrap:break-word;overflow-wrap:break-word}
 .line.interim{opacity:.45}
@@ -70,8 +71,6 @@ async function loadTranslations(lang){
     document.documentElement.lang=lang.toLowerCase();
     document.documentElement.dir=lang==='AR'?'rtl':'ltr';
 }
-
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 
 function buildSections(c){
   sectionsEl.innerHTML='';
@@ -124,7 +123,7 @@ function addFinalLine(slotId, text, speaker, lineId, color){
   s.interimEl.style.display='none';s.interimEl.innerHTML='';
   s.lines.push(line);
   while(s.lines.length>200){s.lines.shift().remove()}
-  requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight});
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight})});
 }
 
 function correctLine(slotId, lineId, newText){
@@ -164,7 +163,7 @@ function setInterim(slotId, text, speaker, color){
   } else {
     s.interimEl.style.display='none';s.interimEl.innerHTML='';
   }
-  requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight});
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight})});
 }
 
 function clearAll(){
@@ -172,14 +171,15 @@ function clearAll(){
     s.lines.forEach(l=>l.remove());s.lines=[];
     s.interimEl.style.display='none';s.interimEl.innerHTML='';
     s.lastSpeaker=null;
+    if(s.dotEl)s.dotEl.className='dot conn';
   });
 }
 
 function applyStyle(c){
   const r=document.documentElement.style;
   if(c.bg_color)r.setProperty('--bg',c.bg_color);
-  if(c.font_size)r.setProperty('--fs',c.font_size+'px');
-  if(c.max_lines)r.setProperty('--max-lines',c.max_lines);
+  if(c.font_size!==undefined)r.setProperty('--fs',c.font_size+'px');
+  if(c.max_lines!==undefined)r.setProperty('--max-lines',c.max_lines);
   if(c.font_css)r.setProperty('--font',c.font_css);
   if(c.caption_color)r.setProperty('--caption-color',c.caption_color);
   if(c.session_title){document.getElementById('title').textContent=c.session_title;document.title=c.session_title}
@@ -187,6 +187,11 @@ function applyStyle(c){
   if(c.footer_image){fi.src='/uploads/'+c.footer_image+'?t='+Date.now();fw.classList.add('vis')}
   else fw.classList.remove('vis');
   if(slots['caption'])slots['caption'].color=c.caption_color||'#FFF';
+  // Update translation slot colors from config
+  (c.translations||[]).forEach(tr=>{
+    const k='slot_'+tr.slot;
+    if(slots[k]&&tr.color)slots[k].color=tr.color;
+  });
 }
 
 function slotKey(slot){return 'slot_'+slot}
@@ -196,6 +201,10 @@ function handleMsg(msg){
     case 'status':
       if(msg.state==='speech') Object.values(slots).forEach(s=>s.dotEl.className='dot live');
       else if(msg.state==='silence') Object.values(slots).forEach(s=>s.dotEl.className='dot conn');
+      else if(msg.state==='connected') Object.values(slots).forEach(s=>s.dotEl.className='dot conn');
+      break;
+    case 'captioning_paused':
+      Object.values(slots).forEach(s=>{if(s.dotEl)s.dotEl.className=msg.paused?'dot paused':'dot live'});
       break;
     case 'interim':
       setInterim('caption', msg.text||'', msg.speaker||'', msg.color);
@@ -238,16 +247,22 @@ function handleMsg(msg){
         fetch('/api/config').then(r=>r.json()).then(c=>{cfg=c;buildSections(c);applyStyle(c)});
       }
       break;
+    default: break;
   }
 }
 
 function connect(){
   ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
   ws.onopen=()=>{recon=0};
-  ws.onmessage=e=>handleMsg(JSON.parse(e.data));
-  ws.onclose=()=>{if(recon<50)setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000))};
-  ws.onerror=()=>{};
+  ws.onmessage=e=>{try{handleMsg(JSON.parse(e.data))}catch(err){}};
+  ws.onclose=()=>{
+    Object.values(slots).forEach(s=>{if(s.dotEl)s.dotEl.className='dot'});
+    if(recon<50)setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
+    else{const el=document.createElement('div');el.className='no-langs';el.textContent='Connection lost — please refresh the page';sectionsEl.appendChild(el)}
+  };
+  ws.onerror=()=>{ws.close()};
 }
+window.addEventListener('beforeunload',()=>{if(ws)ws.close()});
 
 fetch('/api/config').then(r=>r.json()).then(c=>{
   cfg=c; buildSections(c); applyStyle(c); if(c.ui_language) loadTranslations(c.ui_language); connect();

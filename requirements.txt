@@ -1,12 +1,21 @@
 # Base dependencies (always installed)
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-websockets>=12.0
-sounddevice>=0.4.6
-numpy>=1.24.0
-requests>=2.31.0
-python-multipart>=0.0.6
-onnxruntime>=1.16.0
+# M64: Upper bounds prevent breaking changes from major version bumps.
+# M65: This file is the canonical package list. Keep in sync with:
+#   - build/windows/build.bat (BASE_PACKAGES + venv installs)
+#   - build/windows/installer.iss ([Files] section)
+#   - build/mac/launcher.sh (pip install in first_run_setup)
+#   - .github/workflows/build.yml (CI venv build steps)
+fastapi>=0.104.0,<1.0
+uvicorn[standard]>=0.24.0,<1.0
+websockets>=12.0,<14.0
+sounddevice>=0.4.6,<1.0
+numpy>=1.24.0,<3.0
+requests>=2.31.0,<3.0
+python-multipart>=0.0.6,<1.0
+onnxruntime>=1.16.0,<2.0
+
+# Optional: Fact checker (requires Anthropic API key)
+# anthropic>=0.42.0,<1.0
 
 # Speech recognition backends (installed by setup script based on hardware):
 # GPU:  pip install faster-whisper>=1.0.0

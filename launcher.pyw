@@ -81,13 +81,14 @@ def load_settings():
         SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
         if SETTINGS_FILE.exists():
             with open(SETTINGS_FILE, "r") as f:
-                cfg = {**DEFAULT_SETTINGS, **json.load(f)}
-            # Migrate old mic_index to source_indices
-            if "mic_index" in cfg and "source_indices" not in cfg:
-                idx = cfg.pop("mic_index")
-                cfg["source_indices"] = [idx if idx is not None else -1]
-            elif "mic_index" in cfg:
-                cfg.pop("mic_index")
+                raw = json.load(f)
+            # Migrate old mic_index BEFORE merging defaults (so "source_indices" in defaults doesn't mask it)
+            if "mic_index" in raw and "source_indices" not in raw:
+                idx = raw.pop("mic_index")
+                raw["source_indices"] = [idx if idx is not None else -1]
+            elif "mic_index" in raw:
+                raw.pop("mic_index")
+            cfg = {**DEFAULT_SETTINGS, **raw}
             return cfg
     except Exception:
         pass
@@ -596,8 +597,9 @@ class LinguaTaxiApp(tk.Tk):
         self._log_system(_t("launcher.log_ready"))
 
     def _bind_main_mousewheel(self):
-        """Bind mousewheel scrolling to the main canvas."""
-        self._canvas.bind_all("<MouseWheel>", self._main_mousewheel)
+        """Bind mousewheel scrolling to the main canvas (hover-scoped)."""
+        self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._main_mousewheel))
+        self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
 
     # ── Drawing ──
 
@@ -683,6 +685,11 @@ class LinguaTaxiApp(tk.Tk):
 
     def _get_source_indices(self):
         """Get device indices for all configured audio sources."""
+        # Refresh device list to avoid stale data
+        try:
+            self._mic_devices = list_mics()
+        except Exception:
+            pass
         indices = []
         for _, combo, var in self._source_frames:
             text = var.get()
@@ -751,6 +758,7 @@ class LinguaTaxiApp(tk.Tk):
         dlg.configure(bg=self.BG)
         dlg.transient(self)
         dlg.grab_set()
+        dlg.protocol("WM_DELETE_WINDOW", lambda: None)  # prevent close during download
 
         # Center on parent
         dlg.update_idletasks()
@@ -780,6 +788,7 @@ class LinguaTaxiApp(tk.Tk):
         hint.pack()
 
         download_done = [False]
+        dlg._has_active_download = True
 
         def run_download():
             try:
@@ -818,6 +827,7 @@ class LinguaTaxiApp(tk.Tk):
 
             finally:
                 download_done[0] = True
+                dlg._has_active_download = False
 
         t = threading.Thread(target=run_download, daemon=True)
         t.start()
@@ -919,7 +929,8 @@ class LinguaTaxiApp(tk.Tk):
 
         def _cb_mousewheel(event):
             cb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel)
+        cb_canvas.bind("<Enter>", lambda e: cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel))
+        cb_canvas.bind("<Leave>", lambda e: cb_canvas.unbind_all("<MouseWheel>"))
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         check_vars = {}
@@ -1183,7 +1194,8 @@ class LinguaTaxiApp(tk.Tk):
 
         def _cb_mousewheel(event):
             cb_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel)
+        cb_canvas.bind("<Enter>", lambda e: cb_canvas.bind_all("<MouseWheel>", _cb_mousewheel))
+        cb_canvas.bind("<Leave>", lambda e: cb_canvas.unbind_all("<MouseWheel>"))
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         check_vars = {}
@@ -1443,7 +1455,8 @@ class LinguaTaxiApp(tk.Tk):
 
         def _ol_mousewheel(event):
             ol_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        ol_canvas.bind_all("<MouseWheel>", _ol_mousewheel)
+        ol_canvas.bind("<Enter>", lambda e: ol_canvas.bind_all("<MouseWheel>", _ol_mousewheel))
+        ol_canvas.bind("<Leave>", lambda e: ol_canvas.unbind_all("<MouseWheel>"))
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # OPUS-MT section
@@ -1763,7 +1776,8 @@ class LinguaTaxiApp(tk.Tk):
         # Mousewheel scrolling
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # Button frame
@@ -1834,46 +1848,46 @@ class LinguaTaxiApp(tk.Tk):
             return {}
 
         def _delete_model(model_type, key, name):
-            """Delete a model and refresh the list."""
+            """Delete a model in a background thread and refresh the list."""
             if not messagebox.askyesno(_t("launcher.dialog_models_delete_confirm_title"),
                     _t("launcher.dialog_models_delete_confirm", name=name),
                     parent=dlg):
                 return
 
-            kwargs = {}
-            if IS_WIN:
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            status_var.set(_t("launcher.dialog_models_deleting", name=name) if _t("launcher.dialog_models_deleting") != "launcher.dialog_models_deleting" else f"Deleting {name}...")
+            dlg.config(cursor="wait")
 
-            try:
-                if model_type == "speech":
-                    # Direct delete for speech models
-                    path = models_dir / key
-                    if path.exists():
-                        shutil.rmtree(path)
-                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
-                elif model_type == "tuned":
-                    subprocess.run(
-                        [python, str(APP_DIR / "tuned_models.py"),
-                         "--delete", key, "--models-dir", str(models_dir)],
-                        capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
-                elif model_type == "opus":
-                    subprocess.run(
-                        [python, str(APP_DIR / "offline_translate.py"),
-                         "--delete-opus", key, "--models-dir", str(models_dir)],
-                        capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
-                elif model_type == "m2m":
-                    subprocess.run(
-                        [python, str(APP_DIR / "offline_translate.py"),
-                         "--delete-m2m", "--models-dir", str(models_dir)],
-                        capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
-                    status_var.set(_t("launcher.dialog_models_deleted", name=name))
-            except Exception as e:
-                status_var.set(_t("launcher.error_delete_failed", error=e))
-                return
+            def _do_delete():
+                kwargs = {}
+                if IS_WIN:
+                    kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                try:
+                    if model_type == "speech":
+                        path = models_dir / key
+                        if path.exists():
+                            shutil.rmtree(path)
+                    elif model_type == "tuned":
+                        subprocess.run(
+                            [python, str(APP_DIR / "tuned_models.py"),
+                             "--delete", key, "--models-dir", str(models_dir)],
+                            capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
+                    elif model_type == "opus":
+                        subprocess.run(
+                            [python, str(APP_DIR / "offline_translate.py"),
+                             "--delete-opus", key, "--models-dir", str(models_dir)],
+                            capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
+                    elif model_type == "m2m":
+                        subprocess.run(
+                            [python, str(APP_DIR / "offline_translate.py"),
+                             "--delete-m2m", "--models-dir", str(models_dir)],
+                            capture_output=True, timeout=30, cwd=str(APP_DIR), **kwargs)
+                    dlg.after(0, lambda: status_var.set(_t("launcher.dialog_models_deleted", name=name)))
+                except Exception as e:
+                    dlg.after(0, lambda: status_var.set(_t("launcher.error_delete_failed", error=e)))
+                finally:
+                    dlg.after(0, lambda: (dlg.config(cursor=""), _populate()))
 
-            _populate()
+            threading.Thread(target=_do_delete, daemon=True).start()
 
         def _add_section_header(parent, text):
             """Add a section header label."""
@@ -1994,9 +2008,10 @@ class LinguaTaxiApp(tk.Tk):
                           translate=sum(1 for i in opus.values() if i.get('available'))))
             canvas.yview_moveto(0)
 
-        # Run initial populate in a thread to avoid blocking UI
+        # Run populate with busy cursor feedback
         def _bg_populate():
-            dlg.after(100, _populate)
+            dlg.config(cursor="wait")
+            dlg.after(100, lambda: (_populate(), dlg.config(cursor="")))
 
         _bg_populate()
 
@@ -2124,9 +2139,9 @@ class LinguaTaxiApp(tk.Tk):
         except Exception:
             pass
         finally:
-            # Server exited
+            # Server exited — include PID to avoid race with rapid stop/start
             if self._server_running:
-                self.log_queue.put(("stopped", None))
+                self.log_queue.put(("stopped", proc.pid))
 
     def _poll_log_queue(self):
         """Process log messages from the server thread (runs on main thread)."""
@@ -2156,8 +2171,14 @@ class LinguaTaxiApp(tk.Tk):
                         self._draw_dot(self.GREEN)
                         self.status_label.configure(text=_t("launcher.status_running"), foreground=self.GREEN)
                         self._log_system(_t("launcher.log_server_ready"))
+                        # Now enable browser buttons
+                        for btn in (self.op_btn, self.main_btn, self.ext_btn, self.dict_btn, self.bidir_btn):
+                            btn.configure(state="normal")
 
                 elif msg_type == "stopped":
+                    # Ignore stale stopped messages from an old process
+                    if data is not None and self.server_proc and hasattr(self.server_proc, 'pid') and self.server_proc.pid != data:
+                        continue
                     self._server_running = False
                     self._server_ready = False
                     self.server_proc = None
@@ -2176,11 +2197,13 @@ class LinguaTaxiApp(tk.Tk):
         if running:
             self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
-            self.op_btn.configure(state="normal")
-            self.main_btn.configure(state="normal")
-            self.ext_btn.configure(state="normal")
-            self.dict_btn.configure(state="normal")
-            self.bidir_btn.configure(state="normal")
+            # Browser buttons stay disabled until server is actually ready
+            btn_state = "normal" if self._server_ready else "disabled"
+            self.op_btn.configure(state=btn_state)
+            self.main_btn.configure(state=btn_state)
+            self.ext_btn.configure(state=btn_state)
+            self.dict_btn.configure(state=btn_state)
+            self.bidir_btn.configure(state=btn_state)
             self._draw_dot(self.ORANGE)
             self.status_label.configure(text=_t("launcher.status_starting"), foreground=self.ORANGE)
             self.backend_label.configure(text=_t("launcher.status_detecting"))
@@ -2663,22 +2686,26 @@ class LinguaTaxiApp(tk.Tk):
         save_settings(self.settings)
         _load_translations(lang)
         self._refresh_ui()
-        # Notify running server
+        # Notify running server (in background to avoid blocking UI)
         if self._server_running:
-            try:
-                port = self.settings.get("operator_port", 3001)
-                data = json.dumps({"ui_language": lang}).encode()
-                req = urllib.request.Request(f"http://127.0.0.1:{port}/api/config",
-                    data=data, headers={"Content-Type": "application/json"}, method="POST")
-                urllib.request.urlopen(req, timeout=2)
-            except Exception:
-                pass
+            def _notify():
+                try:
+                    port = self.settings.get("operator_port", 3001)
+                    data = json.dumps({"ui_language": lang}).encode()
+                    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/config",
+                        data=data, headers={"Content-Type": "application/json"}, method="POST")
+                    urllib.request.urlopen(req, timeout=2)
+                except Exception:
+                    pass
+            threading.Thread(target=_notify, daemon=True).start()
 
     def _refresh_ui(self):
         """Re-apply all translated strings to UI widgets."""
-        # Close any open dialogs first
-        for w in self.winfo_children():
+        # Close any open dialogs first (skip those with active downloads)
+        for w in list(self.winfo_children()):
             if isinstance(w, tk.Toplevel):
+                if getattr(w, '_has_active_download', False):
+                    continue
                 w.destroy()
 
         # Window title
@@ -2770,6 +2797,7 @@ class LinguaTaxiApp(tk.Tk):
                 self._stop_server()
             else:
                 self._closing = False
+                self._poll_log_queue()  # restart the log poller
                 return
 
         self.destroy()
