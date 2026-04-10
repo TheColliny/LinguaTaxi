@@ -1,0 +1,23 @@
+{
+  "id": "fact_checker",
+  "name": "Fact Checker",
+  "version": "1.0.0",
+  "description": "Real-time political statement fact-checking with Claude AI and web search",
+  "author": "LinguaTaxi",
+  "hooks": ["on_final", "on_config_change", "on_shutdown"],
+  "has_routes": true,
+  "has_panel": true,
+  "route_prefix": "/api/fact-check",
+  "settings_schema": {
+    "anthropic_api_key": {
+      "type": "password",
+      "label": "Anthropic API Key",
+      "default": ""
+    },
+    "rate_limit": {
+      "type": "number",
+      "label": "Max checks per minute",
+      "default": 10
+    }
+  }
+}
