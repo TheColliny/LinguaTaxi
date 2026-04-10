@@ -1,0 +1,103 @@
+/* LinguaTaxi — Plugin Panel Standard Styles
+   Provides the wrapper for all plugin panels: header, indicator, toggle, settings, collapse */
+
+.plugin-panel {
+  margin: 12px 0;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.25);
+  font-family: inherit;
+}
+
+.plugin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+.plugin-header:hover { background: rgba(255,255,255,0.07); }
+
+.plugin-header-left  { display: flex; align-items: center; gap: 8px; }
+.plugin-header-right { display: flex; align-items: center; gap: 10px; }
+
+.plugin-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.8);
+  letter-spacing: 0.01em;
+}
+
+.plugin-indicator {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  flex-shrink: 0; transition: background 0.2s;
+}
+.plugin-indicator--on { background: #EF9F27; }
+
+.plugin-error-badge {
+  display: inline-block; width: 16px; height: 16px; line-height: 16px;
+  text-align: center; border-radius: 50%; background: #A32D2D;
+  color: #fff; font-size: 10px; font-weight: 700; cursor: help;
+}
+
+.plugin-chevron { font-size: 12px; color: rgba(255,255,255,0.4); }
+
+.plugin-toggle-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.2); background: transparent;
+  color: rgba(255,255,255,0.6); cursor: pointer; font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.plugin-toggle-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9); }
+
+.plugin-settings-btn {
+  font-size: 14px; background: none; border: none;
+  color: rgba(255,255,255,0.35); cursor: pointer; padding: 2px 4px;
+  transition: color 0.15s;
+}
+.plugin-settings-btn:hover { color: rgba(255,255,255,0.8); }
+
+.plugin-body { padding: 10px 12px 12px; }
+
+/* Settings Dialog */
+.plugin-settings-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+}
+.plugin-settings-dialog {
+  background: #1a1a2e; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px; padding: 20px; min-width: 340px; max-width: 480px;
+}
+.plugin-settings-title {
+  font-size: 15px; font-weight: 600; color: #fff;
+  margin-bottom: 16px; text-transform: capitalize;
+}
+.plugin-settings-fields { display: flex; flex-direction: column; gap: 12px; }
+.plugin-settings-label {
+  font-size: 12px; color: rgba(255,255,255,0.6);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.plugin-settings-input {
+  padding: 6px 10px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05); color: #fff;
+  font-family: inherit; font-size: 13px;
+}
+.plugin-settings-input:focus { outline: none; border-color: #4FC3F7; }
+.plugin-settings-btns {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+}
+.plugin-settings-save, .plugin-settings-cancel {
+  padding: 6px 16px; border-radius: 5px; font-family: inherit;
+  font-size: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.15);
+}
+.plugin-settings-save {
+  background: #4FC3F7; color: #000; border-color: #4FC3F7; font-weight: 600;
+}
+.plugin-settings-cancel { background: transparent; color: rgba(255,255,255,0.5); }
