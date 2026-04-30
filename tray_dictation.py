@@ -343,11 +343,203 @@ def _show_overlay():
 def _hide_overlay():
     pass
 
+_hotkey_listener = None
+
+BLOCKED_SINGLE_KEYS = {
+    "space", "backspace", "enter", "return", "tab", "escape",
+    "delete", "insert", "home", "end", "page_up", "page_down",
+    "up", "down", "left", "right",
+}
+
+def _is_modifier(key):
+    from pynput.keyboard import Key
+    return key in (Key.shift, Key.shift_l, Key.shift_r,
+                   Key.ctrl, Key.ctrl_l, Key.ctrl_r,
+                   Key.alt, Key.alt_l, Key.alt_r, Key.alt_gr,
+                   Key.cmd, Key.cmd_l, Key.cmd_r)
+
+def _key_to_code(key):
+    """Convert a pynput key to a string code for storage."""
+    from pynput.keyboard import Key, KeyCode
+    if isinstance(key, Key):
+        return key.name
+    elif isinstance(key, KeyCode):
+        if key.vk and key.char is None:
+            return f"vk_{key.vk}"
+        return key.char if key.char else f"vk_{key.vk}"
+    return str(key)
+
+def _key_to_display(key):
+    """Convert a pynput key to a human-readable display string."""
+    from pynput.keyboard import Key, KeyCode
+    if isinstance(key, Key):
+        name = key.name.replace("_", " ").title()
+        return name.replace("Cmd", "Win")
+    elif isinstance(key, KeyCode):
+        if key.char:
+            return key.char.upper()
+        return f"Key {key.vk}"
+    return str(key)
+
+_pressed_modifiers = set()
+_grace_timer = None
+
 def _start_hotkey_listener():
-    pass
+    from pynput import keyboard
+    global _hotkey_listener
+
+    def on_press(key):
+        global _dictation_active, _grace_timer
+
+        if _is_modifier(key):
+            _pressed_modifiers.add(_key_to_code(key))
+            return
+
+        hotkey_cfg = get_setting("global_dictation_hotkey")
+        if not hotkey_cfg:
+            return
+
+        code = _key_to_code(key)
+        if code != hotkey_cfg.get("code"):
+            return
+
+        mode = get_setting("global_dictation_mode", "hold")
+
+        if mode == "toggle":
+            if _dictation_active:
+                _dictation_active = False
+                _send_ws({"type": "set_dictation_active", "active": False})
+                _update_tray_icon("idle")
+                _hide_overlay()
+            else:
+                _dictation_active = True
+                _send_ws({"type": "set_dictation_active", "active": True})
+                _update_tray_icon("active")
+                _show_overlay()
+        else:
+            # Hold mode — start dictation
+            if _grace_timer:
+                _grace_timer.cancel()
+                _grace_timer = None
+            if not _dictation_active:
+                _dictation_active = True
+                _send_ws({"type": "set_dictation_active", "active": True})
+                _update_tray_icon("active")
+                _show_overlay()
+
+    def on_release(key):
+        global _dictation_active, _grace_timer
+
+        if _is_modifier(key):
+            _pressed_modifiers.discard(_key_to_code(key))
+            return
+
+        hotkey_cfg = get_setting("global_dictation_hotkey")
+        if not hotkey_cfg:
+            return
+
+        code = _key_to_code(key)
+        if code != hotkey_cfg.get("code"):
+            return
+
+        mode = get_setting("global_dictation_mode", "hold")
+        if mode != "hold":
+            return
+
+        if _dictation_active:
+            def _grace_expired():
+                global _dictation_active, _grace_timer
+                _grace_timer = None
+                if _dictation_active:
+                    _dictation_active = False
+                    _send_ws({"type": "set_dictation_active", "active": False})
+                    _update_tray_icon("idle")
+                    _hide_overlay()
+
+            _grace_timer = threading.Timer(GRACE_MS / 1000.0, _grace_expired)
+            _grace_timer.start()
+
+    _hotkey_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    _hotkey_listener.start()
 
 def _show_hotkey_dialog():
-    pass
+    """Show a small tkinter dialog to capture a global hotkey."""
+    import tkinter as tk
+    from pynput import keyboard
+
+    result = {"key": None, "code": None, "display": None}
+    listener = [None]
+
+    root = tk.Tk()
+    root.title("Set Global Dictation Hotkey")
+    root.geometry("360x150")
+    root.resizable(False, False)
+    root.attributes("-topmost", True)
+    root.configure(bg="#1a1a2e")
+
+    label = tk.Label(root, text="Press any key or key combo...",
+                     fg="#4FC3F7", bg="#1a1a2e", font=("Segoe UI", 14, "bold"))
+    label.pack(pady=20)
+
+    msg_label = tk.Label(root, text="", fg="#f44336", bg="#1a1a2e",
+                         font=("Segoe UI", 10))
+    msg_label.pack(pady=5)
+
+    def _is_blocked_single(key):
+        code = _key_to_code(key)
+        if code.lower() in BLOCKED_SINGLE_KEYS:
+            return True
+        if hasattr(key, 'char') and key.char and key.char.isalnum():
+            return True
+        return False
+
+    def on_press(key):
+        if _is_modifier(key):
+            return
+
+        display = _key_to_display(key)
+        code = _key_to_code(key)
+
+        # If no modifiers held, check if it's a blocked single key
+        if not _pressed_modifiers and _is_blocked_single(key):
+            root.after(0, lambda: msg_label.configure(
+                text=f"Can't use {display} alone — conflicts with typing.\n"
+                     f"Use a function key (F1-F12) or add a modifier (Ctrl+Shift+...)"))
+            return
+
+        # Build combo string if modifiers are held
+        if _pressed_modifiers:
+            mod_names = sorted(_pressed_modifiers)
+            mod_display = "+".join(m.replace("_l","").replace("_r","").replace("_gr","").title()
+                                   for m in mod_names)
+            code = "+".join(mod_names) + "+" + code
+            display = mod_display + "+" + display
+
+        result["code"] = code
+        result["display"] = display
+
+        # Stop listener and close dialog
+        if listener[0]:
+            listener[0].stop()
+        root.after(0, root.destroy)
+
+    listener[0] = keyboard.Listener(on_press=on_press)
+    listener[0].start()
+
+    root.protocol("WM_DELETE_WINDOW", lambda: (listener[0].stop() if listener[0] else None, root.destroy()))
+    root.mainloop()
+
+    if result["code"]:
+        set_setting("global_dictation_hotkey", {"code": result["code"], "display": result["display"]})
+        if _tray_icon:
+            _tray_icon.menu = _build_menu()
+            _tray_icon.update_menu()
+
+        # Restart hotkey listener with new key
+        global _hotkey_listener
+        if _hotkey_listener:
+            _hotkey_listener.stop()
+        _start_hotkey_listener()
 
 
 # ── Entry Point ──
