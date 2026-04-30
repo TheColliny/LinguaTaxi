@@ -20,8 +20,8 @@ setlocal EnableDelayedExpansion
 ::   4. Compiles both Inno Setup installers
 ::
 :: Output:
-::   dist\LinguaTaxi-GPU-Setup-1.0.1.exe    (Full, ~200 MB — CUDA downloaded at install)
-::   dist\LinguaTaxi-CPU-Setup-1.0.1.exe   (Lite, ~50 MB)
+::   dist\LinguaTaxi-GPU-Setup-1.0.2.exe    (Full, ~200 MB — CUDA downloaded at install)
+::   dist\LinguaTaxi-CPU-Setup-1.0.2.exe   (Lite, ~50 MB)
 :: ════════════════════════════════════════════════════════
 
 title LinguaTaxi - Build Installer
@@ -51,6 +51,7 @@ set "ISCC="
 for %%p in (
     "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
     "%ProgramFiles%\Inno Setup 6\ISCC.exe"
+    "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 ) do (
     if exist "%%~p" set "ISCC=%%~p"
 )
@@ -157,6 +158,13 @@ if !ERRORLEVEL! NEQ 0 (
     exit /b 1
 )
 
+echo   Installing tray dictation packages...
+"%VENV_LITE%\Scripts\pip.exe" install pystray pynput Pillow websocket-client >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Tray dictation package installation failed. See build_log.txt
+    exit /b 1
+)
+
 echo   [OK] Lite venv ready (Vosk CPU)
 
 :lite_ready
@@ -220,6 +228,13 @@ if !ERRORLEVEL! NEQ 0 (
 "%VENV_FULL%\Scripts\pip.exe" install transformers >> "%SCRIPT_DIR%build_log.txt" 2>&1
 if !ERRORLEVEL! NEQ 0 (
     echo   [FAIL] transformers installation failed. See build_log.txt
+    exit /b 1
+)
+
+echo   Installing tray dictation packages...
+"%VENV_FULL%\Scripts\pip.exe" install pystray pynput Pillow websocket-client >> "%SCRIPT_DIR%build_log.txt" 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo   [FAIL] Tray dictation package installation failed. See build_log.txt
     exit /b 1
 )
 
@@ -339,11 +354,11 @@ echo     BUILD COMPLETE
 echo   ========================================
 echo.
 echo   Output:
-if exist "%DIST_DIR%\LinguaTaxi-GPU-Setup-1.0.1.exe" (
-    echo     dist\LinguaTaxi-GPU-Setup-1.0.1.exe   (CPU+GPU Best Accuracy)
+if exist "%DIST_DIR%\LinguaTaxi-GPU-Setup-1.0.2.exe" (
+    echo     dist\LinguaTaxi-GPU-Setup-1.0.2.exe   (CPU+GPU Best Accuracy)
 )
-if exist "%DIST_DIR%\LinguaTaxi-CPU-Setup-1.0.1.exe" (
-    echo     dist\LinguaTaxi-CPU-Setup-1.0.1.exe   (CPU Only)
+if exist "%DIST_DIR%\LinguaTaxi-CPU-Setup-1.0.2.exe" (
+    echo     dist\LinguaTaxi-CPU-Setup-1.0.2.exe   (CPU Only)
 )
 echo.
 echo   To rebuild from scratch, delete:
