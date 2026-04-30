@@ -2,7 +2,7 @@
   "_meta": {
     "locale": "EN",
     "name": "English",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "generated": "source"
   },
 
@@ -244,6 +244,7 @@
   "operator.offline_m2m_not_downloaded": "M2M-100 not downloaded \u2014",
   "operator.offline_auto_ready": "Ready ({engines})",
   "operator.offline_auto_none": "No offline models \u2014",
+  "operator.offline_error_prefix": "Offline translate error",
   "operator.offline_download_opus": "Download OPUS-MT",
   "operator.offline_download_m2m": "Download M2M-100",
   "operator.offline_downloading": "{engine} downloading... {pct}%",
@@ -349,6 +350,20 @@
   "dictation.editor_placeholder": "Click Start then speak \u2014 text will appear here.\n\nYou can click anywhere to position your cursor.\nNew speech will be inserted at the cursor position.\nYou can freely edit, select, and type in this area.",
   "dictation.insert_at_cursor": "Insert at cursor",
   "dictation.insert_at_cursor_position": "Inserting at cursor (position {pos})",
+  "dictation.mode_toggle": "Toggle",
+  "dictation.mode_hold": "Hold",
+  "dictation.ptt_label": "PTT:",
+  "dictation.ptt_none": "none",
+  "dictation.ptt_set": "Set",
+  "dictation.ptt_change": "Change",
+  "dictation.ptt_capture_prompt": "Press any key...",
+  "dictation.ptt_blocked_enter": "Can't use Enter \u2014 it's already used for setting the save directory",
+  "dictation.ptt_blocked_tab": "Can't use Tab \u2014 it's used for browser focus navigation",
+  "dictation.ptt_blocked_escape": "Can't use Escape \u2014 it's used for browser cancel/close",
+  "dictation.ptt_blocked_modifier": "Modifier keys can't be used alone as a PTT key",
+  "dictation.ptt_blocked_generic": "Can't use {key} \u2014 it's reserved",
+  "dictation.status_nothing_to_copy": "Nothing to copy",
+  "dictation.status_nothing_to_save": "Nothing to save",
 
   "installer.task_desktop_shortcut": "Create a &desktop shortcut",
   "installer.task_desktop_group": "Additional shortcuts:",
