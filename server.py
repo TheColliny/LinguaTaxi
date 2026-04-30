@@ -57,6 +57,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 import tuned_models
 import offline_translate
+import voice_id
 from plugin_loader import PluginDispatcher
 
 # ── Paths ──
@@ -73,9 +74,9 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 MODELS_DIR = BASE_DIR / "models"
 TRANSCRIPTS_DIR = Path(os.environ.get("LINGUATAXI_TRANSCRIPTS",
     str(Path.home() / "Documents" / "LinguaTaxi Transcripts")))
-UPLOADS_DIR.mkdir(exist_ok=True)
-MODELS_DIR.mkdir(exist_ok=True)
-TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Language data ──
 DEEPL_SOURCE_LANGS = {
@@ -170,12 +171,18 @@ DEFAULT_CONFIG = {
     "bidirectional_enabled": False,
     "bidirectional_langs": [],        # e.g., ["EN", "AR"]
     "bidirectional_tuned_swap": False,
+    "voice_id_enabled": True,
+    "voice_id_threshold": 0.65,
+    # display_grids: per-display 4x4 grid layout pushed by operator panel
+    # Format: {"main": {"<row>-<col>": {pluginId, row, col, colSpan, rowSpan}, ...},
+    #          "extended": {...}}
+    "display_grids": {"main": {}, "extended": {}},
 }
 
 def load_config():
     if CONFIG_PATH.exists():
         try:
-            with open(CONFIG_PATH, "r") as f:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 return {**DEFAULT_CONFIG, **json.load(f)}
         except Exception:
             pass
@@ -185,15 +192,15 @@ _config_lock = threading.Lock()
 
 def save_config(cfg):
     with _config_lock:
-        with open(CONFIG_PATH, "w") as f:
-            json.dump(cfg, f, indent=2)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 config = load_config()
 
 # ── Plugin System ──
 PLUGINS_DIR = BASE_DIR / "plugins"
 PLUGINS_DIR.mkdir(exist_ok=True)
-plugin_dispatcher = PluginDispatcher(PLUGINS_DIR, config)
+plugin_dispatcher = PluginDispatcher(PLUGINS_DIR, config, save_callback=save_config)
 
 def _save_speaker_config():
     """Save speaker names, colors, assignments to config."""
@@ -325,6 +332,7 @@ class AudioSource:
         self.active = True
         self.restart_event = threading.Event()
         self.current_lang = None  # detected language (set by lang detection in buffer loop)
+        self.voice_id_enroll_pending = None  # str (speaker name) to enroll, or None
 
 # Thread-safe source registry
 _sources = []  # List[AudioSource]
@@ -486,6 +494,88 @@ def _detect_segment_lang(source, buf):
     return None
 
 
+def _voice_id_try_enroll(source, buf, loop=None):
+    """If enrollment is pending and we have enough audio, enroll the speaker's voiceprint."""
+    pending = source.voice_id_enroll_pending
+    if not pending:
+        return
+    min_samples = int(voice_id.MIN_ENROLL_SECONDS * voice_id.SAMPLE_RATE)
+    if len(buf) < min_samples:
+        return  # not enough audio yet — will try again on next segment
+    try:
+        # Use the last N seconds of the buffer for enrollment
+        enroll_buf = buf[-min_samples:] if len(buf) > min_samples else buf
+        emb = voice_id.extract_embedding(enroll_buf)
+        voice_id.registry.enroll(pending, emb)
+        source.voice_id_enroll_pending = None
+        plugin_dispatcher.fire("on_speaker_enrolled", {
+            "speaker": pending, "source_id": source.id
+        })
+        if loop is not None:
+            _bc(loop, {"type": "voice_id_enrolled", "speaker": pending,
+                        "source_id": source.id})
+    except RuntimeError as e:
+        # Model unavailable (e.g. download failed) — give up to avoid retry spam
+        log.warning(f"[Voice ID] Enrollment aborted for '{pending}': {e}")
+        source.voice_id_enroll_pending = None
+        if loop is not None:
+            _bc(loop, {"type": "voice_id_error", "speaker": pending,
+                        "error": str(e)[:200]})
+    except Exception as e:
+        # Transient errors: log and retry on next segment
+        log.debug(f"[Voice ID] Enrollment attempt failed for '{pending}': {e}")
+
+
+def _voice_id_try_identify(source, buf, loop):
+    """Try to auto-identify the speaker from the audio segment.
+    Returns True if speaker was auto-switched. Rate-limited to once per 1.5s per source."""
+    if not config.get("voice_id_enabled", True):
+        return False
+    if voice_id.registry.count < 2:
+        return False  # need at least 2 enrolled speakers to auto-switch
+    min_samples = int(voice_id.MIN_IDENTIFY_SECONDS * voice_id.SAMPLE_RATE)
+    if len(buf) < min_samples:
+        return False
+    # Per-source rate limit: skip if we identified within the last 1.5s
+    now_t = time.monotonic()
+    last_t = getattr(source, "_voice_id_last_check", 0.0)
+    if now_t - last_t < 1.5:
+        return False
+    source._voice_id_last_check = now_t
+    try:
+        # Use the last 3 seconds for identification (best signal-to-noise)
+        id_samples = int(3.0 * voice_id.SAMPLE_RATE)
+        id_buf = buf[-id_samples:] if len(buf) > id_samples else buf
+        emb = voice_id.extract_embedding(id_buf)
+        match = voice_id.registry.identify(emb)
+        if match is None:
+            return False
+        name, confidence = match
+        if name == source.speaker:
+            return False  # same speaker, no change needed
+        old_speaker = source.speaker
+        source.speaker = name
+        # Try to restore the speaker's color from config
+        sc = config.get("speaker_config", {})
+        for key, info in sc.items():
+            if info.get("name") == name:
+                source.color = info.get("color", "")
+                break
+        log.info(f"[Voice ID] Auto-detected '{name}' (confidence: {confidence:.2f}, "
+                 f"was '{old_speaker}') on [{source.name}]")
+        _bc(loop, {"type": "speaker_change", "speaker": name, "auto": True,
+                    "confidence": round(confidence, 2), "previous": old_speaker})
+        plugin_dispatcher.fire("on_auto_speaker_change", {
+            "speaker": name, "previous": old_speaker,
+            "confidence": confidence, "source_id": source.id
+        })
+        _save_speaker_config()
+        return True
+    except Exception as e:
+        log.debug(f"[Voice ID] Identification failed: {e}")
+        return False
+
+
 def _buffer_audio_loop(transcribe_fn, loop, source):
     """Per-source audio processing loop for buffer-based backends (Whisper, MLX).
     Handles speaker changes with 0.5s retroactive buffer splitting.
@@ -510,6 +600,10 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
             last_interim = 0
             if len(buf) == 0:
                 is_speech = False; silence_start = None; seg_start = None
+
+        # ── Voice ID: try enrollment if pending (needs accumulated audio) ──
+        if source.voice_id_enroll_pending and len(buf) > 0:
+            _voice_id_try_enroll(source, buf, loop)
 
         buf = np.concatenate([buf, chunk])
         rms = float(np.sqrt(np.mean(chunk**2))); now = time.time()
@@ -536,6 +630,8 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                     silence_start = now
                 elif (now - silence_start) >= SILENCE_DURATION:
                     if len(buf) / SAMPLE_RATE >= MIN_SPEECH_DURATION:
+                        # Voice ID: identify speaker before transcription
+                        _voice_id_try_identify(source, buf, loop)
                         detected_lang = _detect_segment_lang(source, buf)
                         try:
                             _transcription_queue.put_nowait((source, buf.copy(), detected_lang))
@@ -545,6 +641,8 @@ def _buffer_audio_loop(transcribe_fn, loop, source):
                     is_speech = False; silence_start = None; seg_start = None; last_interim = 0
                     _bc(loop, {"type":"status","state":"silence"})
         if is_speech and seg_start and (now - seg_start) >= MAX_SEGMENT_DURATION:
+            # Voice ID: identify speaker before transcription
+            _voice_id_try_identify(source, buf, loop)
             detected_lang = _detect_segment_lang(source, buf)
             try:
                 _transcription_queue.put_nowait((source, buf.copy(), detected_lang))
@@ -687,6 +785,7 @@ class VoskBackend(SpeechBackend):
         bidir_was_on = False     # track toggle state
         last_partial = ""; last_pt = 0; in_speech = False
         lang_detect_buf = np.empty((0,1), dtype=np.float32)  # audio accumulator for lang detection
+        voice_id_buf = np.empty((0,1), dtype=np.float32)
         last_lang_check = 0      # timestamp of last language detection call
         while not shutdown_event.is_set() and source.active:
             try:
@@ -755,8 +854,14 @@ class VoskBackend(SpeechBackend):
                 source.speaker = new_speaker
                 last_partial = ""; in_speech = False
                 lang_detect_buf = np.empty((0,1), dtype=np.float32)
+                # Voice ID enrollment for Vosk — track audio for enrollment
+                if new_speaker and config.get("voice_id_enabled", True):
+                    source.voice_id_enroll_pending = new_speaker
+                voice_id_buf = np.empty((0,1), dtype=np.float32)
 
             audio_bytes = (chunk.flatten()*32767).astype(np.int16).tobytes()
+            # Accumulate audio for Voice ID
+            voice_id_buf = np.concatenate([voice_id_buf, chunk])
             rms = float(np.sqrt(np.mean(chunk**2)))
             if rms >= silence_threshold and not in_speech:
                 in_speech = True; _bc(loop, {"type":"status","state":"speech"})
@@ -790,12 +895,18 @@ class VoskBackend(SpeechBackend):
                                  f"{old_lang} -> {detected_lang}")
 
             if active_rec.AcceptWaveform(audio_bytes):
+                # Voice ID: try enrollment if pending
+                if source.voice_id_enroll_pending and len(voice_id_buf) > 0:
+                    _voice_id_try_enroll(source, voice_id_buf, loop)
+                # Voice ID: identify speaker before broadcasting
+                _voice_id_try_identify(source, voice_id_buf, loop)
                 text = json.loads(active_rec.Result()).get("text","").strip()
                 if text:
                     _broadcast_final(text, loop, source, detected_lang=source.current_lang)
                 last_partial = ""; in_speech = False
                 _bc(loop, {"type":"status","state":"silence"})
                 lang_detect_buf = np.empty((0,1), dtype=np.float32)
+                voice_id_buf = np.empty((0,1), dtype=np.float32)  # reset after identification
             else:
                 pt = json.loads(active_rec.PartialResult()).get("partial","").strip()
                 if pt and pt != last_partial:
@@ -987,8 +1098,18 @@ def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_overri
         return
     if not translated:
         if msg_type == "final_translation" and mode.startswith("offline"):
+            # Get the specific failure reason recorded by offline_translate
+            engine_key = {"offline-opus": "opus-mt", "offline-m2m": "m2m100"}.get(mode, "auto")
+            reason = offline_translate.get_last_offline_error(
+                source_lang or config.get("input_lang", "EN"), lang, engine_key)
+            if not reason:
+                reason = "unknown (check model downloads + ctranslate2 install)"
             log.warning(f"   [{slot}] {lang} offline translation returned empty "
-                        f"(mode={mode}) — check model availability")
+                        f"(mode={mode}) — {reason}")
+            # Surface the error to the operator panel so the user sees it
+            _bc(loop, {"type": "offline_translate_error",
+                       "slot": slot, "lang": lang, "mode": mode,
+                       "reason": reason})
         return
     speaker = speaker_override if speaker_override is not None else ""
     msg = {"type": msg_type, "translated": translated, "lang": lang, "slot": slot, "speaker": speaker, "is_translation": True}
@@ -1102,8 +1223,19 @@ def _translations_for_slots(slot_start, slot_end):
 # DISPLAY APP (Port 3000) — caption + slots 0-1
 # ══════════════════════════════════════════════
 
+def _render_display_html(display_target: str) -> str:
+    """Render display.html with plugin assets injected and the display target identified."""
+    html = (BASE_DIR / "display.html").read_text(encoding="utf-8")
+    html = html.replace("<!-- DISPLAY_TARGET -->", display_target)
+    html = html.replace("<!-- PLUGIN_CSS -->", plugin_dispatcher.get_css_links())
+    html = html.replace("<!-- PLUGIN_PANELS -->", plugin_dispatcher.get_panel_html())
+    html = html.replace("<!-- PLUGIN_JS -->", plugin_dispatcher.get_js_scripts())
+    return html
+
+
 @display_app.get("/")
-async def d_index(): return FileResponse(BASE_DIR / "display.html")
+async def d_index():
+    return HTMLResponse(_render_display_html("main"))
 
 @display_app.get("/bidirectional")
 async def bidirectional_page(): return FileResponse(BASE_DIR / "bidirectional.html")
@@ -1159,7 +1291,8 @@ async def d_ws(ws: WebSocket):
 # ══════════════════════════════════════════════
 
 @extended_app.get("/")
-async def e_index(): return FileResponse(BASE_DIR / "display.html")
+async def e_index():
+    return HTMLResponse(_render_display_html("extended"))
 
 @extended_app.get("/uploads/{fn}")
 async def e_uploads(fn: str):
@@ -1199,16 +1332,43 @@ async def e_ws(ws: WebSocket):
 plugin_dispatcher.discover()
 plugin_dispatcher.load_enabled(operator_app)
 
-# Serve core static files (plugin_dispatcher.js, plugin_panel.css)
+# Serve core static files on all 3 apps (operator + display + extended need plugin assets)
 _static_dir = BASE_DIR / "static"
 if _static_dir.is_dir():
     operator_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+    display_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static_d")
+    extended_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static_e")
 
-# Serve each plugin's static files
+# Serve each plugin's static files (only JS/CSS/images — not routes.py or manifest.json)
+_PLUGIN_STATIC_EXTS = {".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".woff", ".woff2", ".html"}
+
+
+def _make_plugin_file_handler(plugin_dir):
+    async def _serve(filename: str):
+        # Block path traversal (check both posix and windows separators) and non-static files
+        if ".." in filename or "\\" in filename:
+            raise HTTPException(status_code=404)
+        from pathlib import PurePosixPath
+        safe = PurePosixPath(filename)
+        if safe.suffix.lower() not in _PLUGIN_STATIC_EXTS:
+            raise HTTPException(status_code=404)
+        fpath = (plugin_dir / filename).resolve()
+        if not str(fpath).startswith(str(plugin_dir.resolve())):
+            raise HTTPException(status_code=404)
+        if not fpath.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(str(fpath))
+    return _serve
+
+
 for _m in plugin_dispatcher.get_all_manifests():
     _plugin_static = _m.path
     if _plugin_static.is_dir():
-        operator_app.mount(f"/plugins/{_m.id}", StaticFiles(directory=str(_plugin_static)), name=f"plugin_{_m.id}")
+        # Mount on all three apps so audience displays can load plugin JS/CSS too
+        _handler = _make_plugin_file_handler(_plugin_static)
+        operator_app.get(f"/plugins/{_m.id}/{{filename}}")(_handler)
+        display_app.get(f"/plugins/{_m.id}/{{filename}}")(_handler)
+        extended_app.get(f"/plugins/{_m.id}/{{filename}}")(_handler)
 
 @operator_app.get("/")
 async def o_index():
@@ -1256,8 +1416,9 @@ async def api_plugin_settings_post(plugin_id: str, request: Request):
                 settings[key] = settings[key] in ("true", "True", "1", "on")
             elif schema.get("type") == "number" and key in settings:
                 try:
-                    settings[key] = float(settings[key])
-                except ValueError:
+                    val = float(settings[key])
+                    settings[key] = int(val) if val == int(val) else val
+                except (ValueError, OverflowError):
                     pass
     plugin_dispatcher.save_settings(plugin_id, settings)
     save_config(config)
@@ -1271,6 +1432,22 @@ async def api_plugin_enabled(plugin_id: str, request: Request):
     plugin_dispatcher.set_enabled(plugin_id, enabled)
     save_config(config)
     return JSONResponse({"ok": True, "enabled": enabled})
+
+@operator_app.post("/api/fact-check-broadcast")
+async def api_fact_check_broadcast(request: Request):
+    """Relay a fact-check result from operator to display/extended clients via WS."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, 400)
+    msg = json.dumps({"type": "fact_check_result", "result": data})
+    for clients in [display_clients, extended_clients]:
+        dead = set()
+        for ws in list(clients):
+            try: await ws.send_text(msg)
+            except Exception: dead.add(ws)
+        clients.difference_update(dead)
+    return JSONResponse({"ok": True})
 
 @operator_app.get("/uploads/{fn}")
 async def o_uploads(fn: str):
@@ -1779,6 +1956,134 @@ async def get_vosk_models():
                 models.append({"path": d.name, "lang": lang})
     return {"models": models}
 
+# ── Voice ID API ──
+
+@operator_app.get("/api/voice-id/status")
+async def voice_id_status():
+    return {
+        "enabled": config.get("voice_id_enabled", True),
+        "threshold": config.get("voice_id_threshold", 0.65),
+        "enrolled": voice_id.registry.get_enrolled(),
+        "model_available": voice_id.is_available(),
+    }
+
+
+@operator_app.post("/api/voice-id/toggle")
+async def voice_id_toggle(request: Request):
+    body = await request.json()
+    if "enabled" not in body:
+        raise HTTPException(status_code=400, detail="Missing 'enabled' field")
+    config["voice_id_enabled"] = bool(body["enabled"])
+    save_config(config)
+    return {"enabled": config["voice_id_enabled"]}
+
+
+@operator_app.post("/api/voice-id/threshold")
+async def voice_id_threshold(request: Request):
+    body = await request.json()
+    val = max(0.0, min(1.0, float(body.get("value", 0.65))))
+    config["voice_id_threshold"] = val
+    voice_id.registry.set_threshold(val)
+    save_config(config)
+    return {"threshold": val}
+
+
+@operator_app.post("/api/voice-id/unenroll")
+async def voice_id_unenroll(request: Request):
+    body = await request.json()
+    name = body.get("name", "")
+    removed = voice_id.registry.unenroll(name)
+    return {"removed": removed, "name": name}
+
+
+@operator_app.post("/api/voice-id/clear")
+async def voice_id_clear():
+    voice_id.registry.clear()
+    return {"status": "cleared"}
+
+
+# ── Display grids (operator pushes layout, audience displays subscribe) ──
+
+def _snapshot_display_grids() -> dict:
+    """Return a defensive copy of the display_grids config — safe to serialize
+    while another thread is mutating the live dict."""
+    src = config.get("display_grids", {"main": {}, "extended": {}}) or {}
+    return {
+        "main": dict(src.get("main") or {}),
+        "extended": dict(src.get("extended") or {}),
+    }
+
+
+@operator_app.get("/api/display-grids")
+async def get_display_grids():
+    return _snapshot_display_grids()
+
+
+@operator_app.post("/api/display-grids")
+async def set_display_grids(request: Request):
+    """Operator panel pushes the current grid layout for both displays.
+    Body shape: {"main": {...}, "extended": {...}} or {"display": "main"|"extended", "grid": {...}}.
+    On update, the new layout is broadcast to all display + extended WebSocket clients."""
+    body = await request.json()
+
+    # Build the new grids dict OUTSIDE the live config, then atomically replace.
+    # This prevents readers seeing half-mutated state while we update.
+    with _config_lock:
+        existing = config.get("display_grids", {"main": {}, "extended": {}}) or {}
+        new_grids = {
+            "main": dict(existing.get("main") or {}),
+            "extended": dict(existing.get("extended") or {}),
+        }
+        if "main" in body or "extended" in body:
+            if "main" in body and isinstance(body["main"], dict):
+                new_grids["main"] = body["main"]
+            if "extended" in body and isinstance(body["extended"], dict):
+                new_grids["extended"] = body["extended"]
+        elif "display" in body and "grid" in body:
+            which = body["display"]
+            if which in ("main", "extended") and isinstance(body["grid"], dict):
+                new_grids[which] = body["grid"]
+        config["display_grids"] = new_grids
+    # save_config has its own lock — call OUTSIDE _config_lock to avoid double-acquire
+    save_config(config)
+
+    # Broadcast layout changes to display + extended clients (collect-then-discard)
+    main_msg = json.dumps({"type": "display_grid_change", "display": "main",
+                           "grid": new_grids.get("main", {})})
+    ext_msg = json.dumps({"type": "display_grid_change", "display": "extended",
+                          "grid": new_grids.get("extended", {})})
+
+    dead_d = set()
+    for ws in list(display_clients):
+        try:
+            await ws.send_text(main_msg)
+        except Exception:
+            dead_d.add(ws)
+    display_clients.difference_update(dead_d)
+
+    dead_e = set()
+    for ws in list(extended_clients):
+        try:
+            await ws.send_text(ext_msg)
+        except Exception:
+            dead_e.add(ws)
+    extended_clients.difference_update(dead_e)
+
+    return {"status": "ok", "display_grids": new_grids}
+
+
+# ── Display + Extended apps need static + plugin file access too ──
+
+@display_app.get("/api/display-grids")
+async def d_get_grids():
+    return _snapshot_display_grids()
+
+
+@extended_app.get("/api/display-grids")
+async def e_get_grids():
+    return _snapshot_display_grids()
+
+
 @operator_app.websocket("/ws")
 async def o_ws(ws: WebSocket):
     await ws.accept(); operator_clients.add(ws)
@@ -1807,6 +2112,9 @@ async def o_ws(ws: WebSocket):
                         if source_id is None or src.id == source_id:
                             with src.speaker_lock:
                                 src.speaker_change_pending = dict(change)
+                            # Trigger voice ID enrollment for this speaker
+                            if new_name and config.get("voice_id_enabled", True):
+                                src.voice_id_enroll_pending = new_name
                 await broadcast_all({"type":"speaker_change","speaker":new_name})
                 _save_speaker_config()
             elif msg.get("type") == "clear_captions":
@@ -1885,6 +2193,25 @@ async def dict_index(): return FileResponse(BASE_DIR / "dictation.html")
 async def dict_config():
     d = config.get("dictation_dir", str(TRANSCRIPTS_DIR))
     return JSONResponse({"dictation_dir": d})
+
+@dictation_app.get("/api/config")
+async def dict_main_config():
+    """Return main config for dictation page (ui_language, etc.)."""
+    return JSONResponse({
+        "ui_language": config.get("ui_language", "EN"),
+        "session_title": config.get("session_title", ""),
+    })
+
+@dictation_app.get("/api/locales/{lang}")
+async def dict_get_locale(lang: str):
+    """Serve translation JSON for a language."""
+    locale_path = BASE_DIR / "locales" / f"{lang.lower()}.json"
+    if locale_path.exists():
+        return JSONResponse(json.loads(locale_path.read_text(encoding="utf-8")))
+    en_path = BASE_DIR / "locales" / "en.json"
+    if en_path.exists():
+        return JSONResponse(json.loads(en_path.read_text(encoding="utf-8")))
+    return JSONResponse({})
 
 @dictation_app.post("/api/dictation-config")
 async def dict_update_config(dictation_dir: str = Form(None)):
@@ -2119,6 +2446,12 @@ def main():
             log.info("Silero language detection model not found — will download on first use")
     except ImportError:
         log.info("onnxruntime not installed — Silero language detection unavailable")
+
+    # Initialize Voice ID speaker identification
+    voice_id.set_models_dir(MODELS_DIR)
+    voice_id.registry.set_threshold(config.get("voice_id_threshold", 0.65))
+    if not voice_id.is_available():
+        log.info("Voice ID model not found — will download on first use when a speaker is enrolled")
 
     config["backend"] = bc; save_config(config)
     tc = config.get("translation_count", 1)
