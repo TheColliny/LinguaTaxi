@@ -21,7 +21,7 @@
 
 #define MyAppName "LinguaTaxi - Live Caption and Translation"
 #define MyAppShortName "LinguaTaxi"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "LinguaTaxi"
 #define MyAppURL "https://github.com/linguataxi"
 
@@ -58,6 +58,16 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
+; ── Reinstall / repair behaviour ──
+; Auto-close any running LinguaTaxi launcher before file copy so we don't hit
+; "file in use" errors. Restart it after install completes.
+CloseApplications=yes
+RestartApplications=yes
+; Use the previous install location automatically (no DirPage on reinstall)
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
+; Don't bail out if the same version is already installed — the InitializeSetup
+; hook below shows a friendly "Reinstall?" prompt and proceeds.
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -181,6 +191,9 @@ Source: "..\..\operator.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dictation.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\bidirectional.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\lang_detect.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\voice_id.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\model_manager.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\models-manifest.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -209,18 +222,22 @@ Source: ".\python_dist\*"; DestDir: "{app}\python"; Excludes: "__pycache__,*.pyc
 ; ── Pre-built venv (edition-specific: venv_lite or venv_full) ──
 Source: ".\{#VenvSrc}\*"; DestDir: "{app}\venv"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Bundled speech models (optional — downloaded on first run if not bundled) ──
+; ── Bundled speech models ──
+; Use `onlyifdoesntexist` so reinstall over the same version skips the slow
+; re-extraction (the bundled models for the same build are byte-identical).
+; To force a re-extract, the operator can delete the model directory first.
+; Note: `onlyifdoesntexist` overrides `ignoreversion` — drop the latter as it's a no-op here.
 #ifexist ".\models_prebuilt\vosk-model-small-en-us-0.15\README"
-Source: ".\models_prebuilt\vosk-model-small-en-us-0.15\*"; DestDir: "{app}\models\vosk-model-small-en-us-0.15"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\models_prebuilt\vosk-model-small-en-us-0.15\*"; DestDir: "{app}\models\vosk-model-small-en-us-0.15"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs
 #endif
 #if EDITION == "Full"
   #ifexist ".\models_prebuilt\faster-whisper-large-v3-turbo\model.bin"
-Source: ".\models_prebuilt\faster-whisper-large-v3-turbo\*"; DestDir: "{app}\models\faster-whisper-large-v3-turbo"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: ".\models_prebuilt\faster-whisper-large-v3-turbo\*"; DestDir: "{app}\models\faster-whisper-large-v3-turbo"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs
   #endif
 #endif
 ; ── Silero language detection (bundled for both editions — 16 MB, MIT licensed) ──
 #ifexist ".\models_prebuilt\silero-lang-detect\lang_classifier_95.onnx"
-Source: ".\models_prebuilt\silero-lang-detect\*"; DestDir: "{app}\models\silero-lang-detect"; Flags: ignoreversion
+Source: ".\models_prebuilt\silero-lang-detect\*"; DestDir: "{app}\models\silero-lang-detect"; Flags: onlyifdoesntexist
 #endif
 
 [Dirs]
@@ -231,37 +248,13 @@ Name: "{app}\models\tuned"; Permissions: users-modify
 
 [Icons]
 Name: "{group}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "Launch LinguaTaxi"
+Name: "{group}\{#MyAppShortName} Dictation"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\tray_dictation.py"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "LinguaTaxi Global Dictation (tray)"
 Name: "{group}\Uninstall {#MyAppShortName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\assets\linguataxi.ico"
 Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Tasks: desktopicon
 
 [Run]
-; Optional: check for updated speech models (unchecked by default — bundled models work out of the box)
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"""; WorkingDir: "{app}"; Tasks: updatemodels; StatusMsg: "{cm:CheckingModels}"; Flags: runhidden
-#if EDITION == "Full"
-; Download language-tuned models (each runs only if its task is selected)
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\es; StatusMsg: "{cm:DownloadingTunedEs}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\fr; StatusMsg: "{cm:DownloadingTunedFr}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\de; StatusMsg: "{cm:DownloadingTunedDe}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download AR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ar; StatusMsg: "{cm:DownloadingTunedAr}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download JA --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\ja; StatusMsg: "{cm:DownloadingTunedJa}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\tuned_models.py"" --download ZH --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: tuned\zh; StatusMsg: "{cm:DownloadingTunedZh}"; Flags: runhidden
-; Offline translation models
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus ES --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_es; StatusMsg: "{cm:DownloadingOpusEs}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus FR --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_fr; StatusMsg: "{cm:DownloadingOpusFr}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus DE --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_de; StatusMsg: "{cm:DownloadingOpusDe}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus IT --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_it; StatusMsg: "{cm:DownloadingOpusIt}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-opus RU --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\opus_ru; StatusMsg: "{cm:DownloadingOpusRu}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\offline_translate.py"" --download-m2m --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: offline\m2m100; StatusMsg: "{cm:DownloadingM2m}"; Flags: runhidden
-#endif
-; Vosk CPU language models (available in both editions)
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang de --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\de; StatusMsg: "{cm:DownloadingVoskDe}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang fr --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\fr; StatusMsg: "{cm:DownloadingVoskFr}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang es --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\es; StatusMsg: "{cm:DownloadingVoskEs}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang ru --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\ru; StatusMsg: "{cm:DownloadingVoskRu}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang ar --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\ar; StatusMsg: "{cm:DownloadingVoskAr}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang ja --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\ja; StatusMsg: "{cm:DownloadingVoskJa}"; Flags: runhidden
-Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\download_models.py"" --vosk-lang zh --models-dir ""{app}\models"""; WorkingDir: "{app}"; Tasks: vosk_lang\zh; StatusMsg: "{cm:DownloadingVoskZh}"; Flags: runhidden
-; Launch after install
+; Model downloads are handled by model_manager.py with a progress UI (see [Code] section).
+; Only the post-install launch entry remains here.
 Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; Description: "Launch {#MyAppShortName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
@@ -270,27 +263,99 @@ Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM pythonw.exe"; Flags: runhidden skipifdoesntexist; RunOnceId: "KillLinguaTaxi"
 
 [Code]
-// ── Fix venv paths after file copy ──
-// The venv was built on the build machine with different paths.
-// We rewrite pyvenv.cfg to point to the installed Python location.
-// This takes milliseconds and is invisible to the user.
+// ═══════════════════════════════════════════════════════════════════════════
+// LinguaTaxi Installer — Pascal Script
+//
+// 1. Fix venv paths after file copy
+// 2. Install CUDA wheels (GPU edition)
+// 3. Run model downloads with a progress UI via model_manager.py
+// 4. Stamp installed model versions for future update checks
+// ═══════════════════════════════════════════════════════════════════════════
+
+var
+  DownloadPage: TOutputProgressWizardPage;
+
+// ── Helpers ──
+
+function GetInstalledVersion(): String;
+begin
+  if not RegQueryStringValue(HKLM,
+       'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1',
+       'DisplayVersion', Result) then
+    Result := '';
+end;
+
+procedure StopRunningLinguaTaxi();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM pythonw.exe',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM python.exe',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  PrevVersion: String;
+begin
+  Result := '';
+  PrevVersion := GetInstalledVersion();
+  if PrevVersion <> '' then
+    StopRunningLinguaTaxi();
+end;
+
+function InitializeSetup(): Boolean;
+var
+  PrevVersion: String;
+  Res: Integer;
+begin
+  Result := True;
+  PrevVersion := GetInstalledVersion();
+  if (PrevVersion <> '') and (PrevVersion = '{#MyAppVersion}') then
+  begin
+    Res := MsgBox(
+      'LinguaTaxi v' + PrevVersion + ' is already installed.' + #13#10 + #13#10 +
+      'Reinstall and replace all program files?' + #13#10 + #13#10 +
+      'PRESERVED:' + #13#10 +
+      '  - Your transcripts (in Documents\LinguaTaxi Transcripts)' + #13#10 +
+      '  - Downloaded models (tuned, OPUS-MT, M2M-100, voice ID)' + #13#10 +
+      '  - Bundled models will not be re-extracted (saves time)' + #13#10 +
+      '  - Voice ID enrollments and dossiers' + #13#10 +
+      '  - All settings, profiles, and saved layouts' + #13#10 + #13#10 +
+      'REPLACED:' + #13#10 +
+      '  - All program files (server.py, plugins, HTML, JS, CSS)' + #13#10 +
+      '  - The Python runtime and venv' + #13#10 + #13#10 +
+      'Click Yes to reinstall, No to cancel.',
+      mbConfirmation, MB_YESNO);
+    Result := (Res = IDYES);
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateOutputProgressPage(
+    'Downloading Models',
+    'Downloading optional models. This may take several minutes depending on your internet speed.');
+end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
   MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 var
   PrevVersion: String;
 begin
-  // Check if upgrading from a previous version
-  if RegQueryStringValue(HKLM,
-       'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1',
-       'DisplayVersion', PrevVersion) then
+  PrevVersion := GetInstalledVersion();
+  if PrevVersion <> '' then
   begin
-    if PrevVersion <> '{#MyAppVersion}' then
-      Result := 'Upgrading LinguaTaxi from v' + PrevVersion + ' to v{#MyAppVersion}.' + NewLine + NewLine +
+    if PrevVersion = '{#MyAppVersion}' then
+      Result := 'REINSTALLING LinguaTaxi v{#MyAppVersion}.' + NewLine + NewLine +
+                'Program files will be replaced. Models, transcripts, dossiers,' + NewLine +
+                'and saved layouts will be preserved.' + NewLine + NewLine
+    else
+      Result := 'UPGRADING LinguaTaxi from v' + PrevVersion + ' to v{#MyAppVersion}.' + NewLine + NewLine +
                 'Your models, transcripts, and settings will be preserved.' + NewLine +
                 'Only program files will be updated.' + NewLine + NewLine;
   end;
-  // Append standard memo content
   if MemoDirInfo <> '' then
     Result := Result + MemoDirInfo + NewLine + NewLine;
   if MemoGroupInfo <> '' then
@@ -299,27 +364,270 @@ begin
     Result := Result + MemoTasksInfo + NewLine;
 end;
 
+// ── Download plan builder ──
+// Builds a JSON download plan based on selected tasks.
+
+function HasModelDownloads(): Boolean;
+begin
+  Result := IsTaskSelected('updatemodels')
+         or IsTaskSelected('vosk_lang\de') or IsTaskSelected('vosk_lang\fr')
+         or IsTaskSelected('vosk_lang\es') or IsTaskSelected('vosk_lang\ru')
+         or IsTaskSelected('vosk_lang\ar') or IsTaskSelected('vosk_lang\ja')
+         or IsTaskSelected('vosk_lang\zh');
+#if EDITION == "Full"
+  Result := Result
+         or IsTaskSelected('offline\opus_es') or IsTaskSelected('offline\opus_fr')
+         or IsTaskSelected('offline\opus_de') or IsTaskSelected('offline\opus_it')
+         or IsTaskSelected('offline\opus_ru') or IsTaskSelected('offline\m2m100')
+         or IsTaskSelected('tuned\es') or IsTaskSelected('tuned\fr')
+         or IsTaskSelected('tuned\de') or IsTaskSelected('tuned\ar')
+         or IsTaskSelected('tuned\ja') or IsTaskSelected('tuned\zh');
+#endif
+end;
+
+function EscapeJsonPath(const S: String): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do begin
+    if S[I] = '\' then
+      Result := Result + '\\'
+    else
+      Result := Result + S[I];
+  end;
+end;
+
+function BuildDownloadPlan(): String;
+var
+  AppDir, AppJ: String;
+  Plan, DL: String;
+  First: Boolean;
+begin
+  AppDir := ExpandConstant('{app}');
+  AppJ := EscapeJsonPath(AppDir);
+  First := True;
+
+  DL := '';
+
+  // Helper macro — appends a download entry
+  // (Inno Pascal doesn't have macros so we repeat the pattern)
+
+  if IsTaskSelected('updatemodels') then begin
+    if not First then DL := DL + ',';
+    DL := DL + '{"type":"update_models"}';
+    First := False;
+  end;
+
+  // Vosk language models
+  if IsTaskSelected('vosk_lang\de') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"de"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\fr') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"fr"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\es') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"es"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\ru') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"ru"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\ar') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"ar"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\ja') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"ja"}'; First := False; end;
+  if IsTaskSelected('vosk_lang\zh') then begin if not First then DL := DL + ','; DL := DL + '{"type":"vosk_lang","lang":"zh"}'; First := False; end;
+
+#if EDITION == "Full"
+  // OPUS-MT models
+  if IsTaskSelected('offline\opus_es') then begin if not First then DL := DL + ','; DL := DL + '{"type":"opus","lang":"ES"}'; First := False; end;
+  if IsTaskSelected('offline\opus_fr') then begin if not First then DL := DL + ','; DL := DL + '{"type":"opus","lang":"FR"}'; First := False; end;
+  if IsTaskSelected('offline\opus_de') then begin if not First then DL := DL + ','; DL := DL + '{"type":"opus","lang":"DE"}'; First := False; end;
+  if IsTaskSelected('offline\opus_it') then begin if not First then DL := DL + ','; DL := DL + '{"type":"opus","lang":"IT"}'; First := False; end;
+  if IsTaskSelected('offline\opus_ru') then begin if not First then DL := DL + ','; DL := DL + '{"type":"opus","lang":"RU"}'; First := False; end;
+
+  // M2M-100
+  if IsTaskSelected('offline\m2m100') then begin if not First then DL := DL + ','; DL := DL + '{"type":"m2m100"}'; First := False; end;
+
+  // Tuned models
+  if IsTaskSelected('tuned\es') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"ES"}'; First := False; end;
+  if IsTaskSelected('tuned\fr') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"FR"}'; First := False; end;
+  if IsTaskSelected('tuned\de') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"DE"}'; First := False; end;
+  if IsTaskSelected('tuned\ar') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"AR"}'; First := False; end;
+  if IsTaskSelected('tuned\ja') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"JA"}'; First := False; end;
+  if IsTaskSelected('tuned\zh') then begin if not First then DL := DL + ','; DL := DL + '{"type":"tuned","lang":"ZH"}'; First := False; end;
+#endif
+
+  Plan := '{"models_dir":"' + AppJ + '\\models","app_dir":"' + AppJ
+        + '","venv_dir":"' + AppJ + '\\venv","downloads":[' + DL + ']}';
+
+  Result := Plan;
+end;
+
+// ── Progress file reader ──
+// Reads the JSON status file written by model_manager.py and returns
+// parsed values via var parameters.
+
+// Extract a JSON string value by key from a flat JSON string.
+// Simple parser — works for our single-level status JSON.
+function JsonStr(const Json, Key: String): String;
+var
+  Search: String;
+  P, Q: Integer;
+  Rest: String;
+begin
+  Result := '';
+  Search := '"' + Key + '":';
+  P := Pos(Search, Json);
+  if P = 0 then Exit;
+  Rest := Copy(Json, P + Length(Search), Length(Json));
+  Rest := Trim(Rest);
+  if (Length(Rest) > 0) and (Rest[1] = '"') then begin
+    Rest := Copy(Rest, 2, Length(Rest));
+    Q := Pos('"', Rest);
+    if Q > 0 then
+      Result := Copy(Rest, 1, Q - 1);
+  end;
+end;
+
+// Extract a JSON integer value by key.
+function JsonInt(const Json, Key: String): Integer;
+var
+  Search: String;
+  P, I: Integer;
+  Rest, Num: String;
+begin
+  Result := 0;
+  Search := '"' + Key + '":';
+  P := Pos(Search, Json);
+  if P = 0 then Exit;
+  Rest := Trim(Copy(Json, P + Length(Search), Length(Json)));
+  Num := '';
+  for I := 1 to Length(Rest) do begin
+    if (Rest[I] >= '0') and (Rest[I] <= '9') then
+      Num := Num + Rest[I]
+    else
+      Break;
+  end;
+  Result := StrToIntDef(Num, 0);
+end;
+
+function ReadStatusFile(StatusPath: String;
+  var TaskLabel: String; var OverallPct, CurrentPct: Integer;
+  var State: String): Boolean;
+var
+  Content: AnsiString;
+  S: String;
+begin
+  Result := False;
+  if not FileExists(StatusPath) then Exit;
+  if not LoadStringFromFile(StatusPath, Content) then Exit;
+  S := String(Content);
+
+  State := JsonStr(S, 'state');
+  TaskLabel := JsonStr(S, 'task_label');
+  OverallPct := JsonInt(S, 'overall_pct');
+  CurrentPct := JsonInt(S, 'current_pct');
+  Result := True;
+end;
+
+// ── Run downloads with progress UI ──
+
+procedure RunModelDownloads();
+var
+  PlanPath, StatusPath, DonePath: String;
+  PlanContent: String;
+  Python, Params: String;
+  ResultCode: Integer;
+  TaskLabel, State: String;
+  OverallPct, CurrentPct: Integer;
+  WaitCount: Integer;
+begin
+  PlanPath := ExpandConstant('{tmp}\download_plan.json');
+  StatusPath := ExpandConstant('{tmp}\download_status.json');
+  DonePath := StatusPath + '.done';
+
+  // Write the download plan
+  PlanContent := BuildDownloadPlan();
+  SaveStringToFile(PlanPath, PlanContent, False);
+
+  // Delete stale status/done files from any previous run
+  DeleteFile(StatusPath);
+  DeleteFile(DonePath);
+
+  // Launch model_manager.py in background
+  Python := ExpandConstant('{app}\venv\Scripts\python.exe');
+  Params := '"' + ExpandConstant('{app}\model_manager.py') + '" download'
+          + ' --plan "' + PlanPath + '"'
+          + ' --progress "' + StatusPath + '"';
+
+  if not Exec(Python, Params, ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode) then
+  begin
+    MsgBox('Failed to start model download helper. Models can be downloaded later from the app.',
+           mbError, MB_OK);
+    Exit;
+  end;
+
+  // Show progress page and poll the status file
+  DownloadPage.Show;
+  try
+    DownloadPage.SetText('Starting downloads...', '');
+    DownloadPage.SetProgress(0, 100);
+
+    WaitCount := 0;
+    while not FileExists(DonePath) do
+    begin
+      Sleep(500);
+
+      TaskLabel := '';
+      OverallPct := 0;
+      CurrentPct := 0;
+      State := '';
+
+      if ReadStatusFile(StatusPath, TaskLabel, OverallPct, CurrentPct, State) then
+      begin
+        DownloadPage.SetText(TaskLabel, 'Overall progress: ' + IntToStr(OverallPct) + '%');
+        DownloadPage.SetProgress(OverallPct, 100);
+        WaitCount := 0;
+      end else begin
+        // Status file not yet written — increment wait counter
+        WaitCount := WaitCount + 1;
+      end;
+
+      // Safety timeout: if no .done file after 2 hours, bail
+      if WaitCount > 14400 then begin
+        MsgBox('Model download appears to have stalled. ' +
+               'You can download remaining models from within the app.',
+               mbError, MB_OK);
+        Break;
+      end;
+
+      // Keep Inno Setup UI responsive
+      WizardForm.Refresh;
+    end;
+
+    // Final status read
+    if FileExists(StatusPath) then begin
+      ReadStatusFile(StatusPath, TaskLabel, OverallPct, CurrentPct, State);
+      if (State = 'complete_with_errors') then
+        MsgBox('Some model downloads failed. You can retry them from within the app.',
+               mbInformation, MB_OK);
+    end;
+
+  finally
+    DownloadPage.Hide;
+  end;
+end;
+
+// ── Post-install step ──
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  CfgPath: String;
-  PythonHome: String;
-  EditionPath: String;
-  PipPath: String;
+  CfgPath, PythonHome, EditionPath, PipPath: String;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
-    // Fix venv paths (must happen first — pip needs working venv)
+    // 1. Fix venv paths
     CfgPath := ExpandConstant('{app}\venv\pyvenv.cfg');
     PythonHome := ExpandConstant('{app}\python');
-    // M56 IMPORTANT: Update version below when changing Python version in build.bat
     SaveStringToFile(CfgPath,
       'home = ' + PythonHome + #13#10 +
       'include-system-site-packages = false' + #13#10 +
       'version = 3.11.9' + #13#10,
       False);
 
-    // Write edition.txt
+    // 2. Write edition.txt
     EditionPath := ExpandConstant('{app}\edition.txt');
   #if EDITION == "Full"
     SaveStringToFile(EditionPath, 'GPU', False);
@@ -328,8 +636,7 @@ begin
   #endif
 
   #if EDITION == "Full"
-    // H22: Install CUDA packages sequentially (ewWaitUntilTerminated) so each
-    // completes before the next starts, avoiding pip lock conflicts.
+    // 3. Install CUDA packages (GPU edition only)
     PipPath := ExpandConstant('{app}\venv\Scripts\pip.exe');
     Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"',
          ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -338,6 +645,16 @@ begin
     Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"',
          ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   #endif
+
+    // 4. Run model downloads if any tasks were selected
+    if HasModelDownloads() then
+      RunModelDownloads();
+
+    // 5. Stamp installed model versions for future update checks
+    Exec(ExpandConstant('{app}\venv\Scripts\python.exe'),
+         '"' + ExpandConstant('{app}\model_manager.py') + '" stamp --models-dir "' +
+         ExpandConstant('{app}\models') + '"',
+         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
 
