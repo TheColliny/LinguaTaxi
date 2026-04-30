@@ -45,6 +45,16 @@ body{display:flex;flex-direction:column}
 .editor{flex:1;width:100%;padding:24px 32px;border:none;outline:none;resize:none;background:transparent;color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.8;max-width:900px;margin:0 auto;box-sizing:border-box}
 .editor::placeholder{color:rgba(255,255,255,.25);font-style:italic}
 .insert-hint{position:absolute;bottom:8px;right:16px;font-size:10px;color:var(--dim);pointer-events:none;transition:opacity .2s}
+.mode-toggle{display:inline-flex;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin:0 4px}
+.mode-toggle .mt-opt{padding:5px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);background:transparent;border:none;cursor:pointer;font-family:inherit;transition:.15s}
+.mode-toggle .mt-opt.active{background:var(--accent);color:#0f0f1a}
+.mode-toggle .mt-opt:not(.active):hover{background:rgba(255,255,255,.08)}
+.ptt-group{display:flex;align-items:center;gap:4px;margin:0 4px;font-size:11px}
+.ptt-key{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+.ptt-msg{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:#f44336;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:500;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+.ptt-msg.show{opacity:1}
+.btn-capture{animation:capturePulse 1.2s ease-in-out infinite;border-color:var(--accent)!important}
+@keyframes capturePulse{0%,100%{box-shadow:0 0 0 0 rgba(79,195,247,.4)}50%{box-shadow:0 0 0 6px rgba(79,195,247,0)}}
 </style>
 </head>
 <body>
@@ -52,12 +62,22 @@ body{display:flex;flex-direction:column}
 <div class="toolbar">
   <div class="title"><span class="dot" id="dot"></span> <span data-i18n="dictation.toolbar_title">Dictation</span></div>
   <button class="btn btn-go" id="goBtn" onclick="toggleTranscribing()" data-i18n="dictation.start_btn">Start</button>
+  <div class="mode-toggle" id="modeToggle">
+    <button class="mt-opt active" id="mtToggle" onclick="setMode('toggle')" data-i18n="dictation.mode_toggle">Toggle</button>
+    <button class="mt-opt" id="mtHold" onclick="setMode('hold')" data-i18n="dictation.mode_hold">Hold</button>
+  </div>
+  <div class="ptt-group">
+    <span class="ptt-key" id="pttLabel" data-i18n="dictation.ptt_label">PTT:</span>
+    <span class="ptt-key" id="pttKeyDisplay">none</span>
+    <button class="btn" id="pttBtn" onclick="startCapture()" style="padding:3px 8px;font-size:10px" data-i18n="dictation.ptt_set">Set</button>
+  </div>
   <span class="status" id="status" data-i18n="dictation.status_connecting">Connecting...</span>
   <span class="wordcount" id="wordcount" data-i18n="dictation.word_count">0 words</span>
   <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard" data-i18n="dictation.copy_btn">Copy</button>
   <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file" data-i18n="dictation.save_btn">Save</button>
   <button class="btn btn-danger" onclick="clearAll()" title="Clear all text" data-i18n="dictation.clear_btn">Clear</button>
 </div>
+<div class="ptt-msg" id="pttMsg"></div>
 
 <div class="settings-row">
   <label data-i18n="dictation.save_to_label">Save to:</label>
@@ -80,6 +100,86 @@ body{display:flex;flex-direction:column}
 let ws = null, recon = 0;
 let interimStr = '';
 let transcribing = false;
+let pttMode = localStorage.getItem('lt_dictation_mode') || 'toggle';
+let pttCode = localStorage.getItem('lt_ptt_key') || '';
+let pttDisplayName = localStorage.getItem('lt_ptt_key_display') || '';
+let capturing = false;
+let graceTimer = null;
+const GRACE_MS = 750;
+
+let BLOCKED_KEYS = {};
+function rebuildBlockedKeys() {
+  BLOCKED_KEYS = {
+    'Enter':  t('dictation.ptt_blocked_enter'),
+    'Tab':    t('dictation.ptt_blocked_tab'),
+    'Escape': t('dictation.ptt_blocked_escape'),
+  };
+}
+rebuildBlockedKeys();
+const MODIFIER_CODES = ['ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','MetaLeft','MetaRight'];
+
+function setMode(m) {
+  pttMode = m;
+  localStorage.setItem('lt_dictation_mode', m);
+  document.getElementById('mtToggle').classList.toggle('active', m === 'toggle');
+  document.getElementById('mtHold').classList.toggle('active', m === 'hold');
+  if (m === 'toggle' && graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+}
+
+function updatePttDisplay() {
+  const disp = document.getElementById('pttKeyDisplay');
+  const btn = document.getElementById('pttBtn');
+  if (pttCode) {
+    disp.textContent = pttDisplayName || pttCode;
+    btn.textContent = t('dictation.ptt_change');
+    btn.setAttribute('data-i18n', 'dictation.ptt_change');
+  } else {
+    disp.textContent = t('dictation.ptt_none');
+    btn.textContent = t('dictation.ptt_set');
+    btn.setAttribute('data-i18n', 'dictation.ptt_set');
+  }
+}
+
+function showPttMsg(msg) {
+  const el = document.getElementById('pttMsg');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function startCapture() {
+  capturing = true;
+  const btn = document.getElementById('pttBtn');
+  btn.textContent = t('dictation.ptt_capture_prompt');
+  btn.classList.add('btn-capture');
+
+  function onCapture(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (MODIFIER_CODES.includes(e.code)) {
+      showPttMsg(t('dictation.ptt_blocked_modifier'));
+      return;
+    }
+
+    if (BLOCKED_KEYS[e.key]) {
+      showPttMsg(BLOCKED_KEYS[e.key]);
+      return;
+    }
+
+    pttCode = e.code;
+    pttDisplayName = e.key === ' ' ? 'Space' : e.key;
+    localStorage.setItem('lt_ptt_key', pttCode);
+    localStorage.setItem('lt_ptt_key_display', pttDisplayName);
+    capturing = false;
+    btn.classList.remove('btn-capture');
+    updatePttDisplay();
+
+    document.removeEventListener('keydown', onCapture, true);
+  }
+
+  document.addEventListener('keydown', onCapture, true);
+}
 
 let _i18n={}, _i18nEn={};
 function t(key,vars){
@@ -99,6 +199,8 @@ async function loadTranslations(lang){
     });
     document.documentElement.lang=lang.toLowerCase();
     document.documentElement.dir=lang==='AR'?'rtl':'ltr';
+    rebuildBlockedKeys();
+    updatePttDisplay();
 }
 
 const editor = document.getElementById('editor');
@@ -347,6 +449,49 @@ function connect() {
   ws.onerror = () => { ws.close(); };
 }
 window.addEventListener('beforeunload', () => { if(ws) ws.close(); });
+
+document.addEventListener('keydown', function(e) {
+  if (capturing) return;
+  if (!pttCode || e.code !== pttCode) return;
+  if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName) && e.target !== editor) return;
+
+  e.preventDefault();
+
+  if (pttMode === 'toggle') {
+    if (e.repeat) return;
+    toggleTranscribing();
+  } else {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    if (!transcribing && ws && ws.readyState === 1) {
+      transcribing = true;
+      ws.send(JSON.stringify({ type: 'set_dictation_active', active: true }));
+      updateGoBtn();
+      updateInsertHint();
+    }
+  }
+});
+
+document.addEventListener('keyup', function(e) {
+  if (capturing) return;
+  if (!pttCode || e.code !== pttCode) return;
+  if (pttMode !== 'hold') return;
+
+  if (transcribing) {
+    graceTimer = setTimeout(function() {
+      graceTimer = null;
+      if (transcribing && ws && ws.readyState === 1) {
+        transcribing = false;
+        ws.send(JSON.stringify({ type: 'set_dictation_active', active: false }));
+        updateGoBtn();
+        updateInsertHint();
+      }
+    }, GRACE_MS);
+  }
+});
+
+// Init PTT state from localStorage
+setMode(pttMode);
+updatePttDisplay();
 
 // Load initial config and translations
 fetch('/api/dictation-config').then(r=>r.json()).then(c=>{
