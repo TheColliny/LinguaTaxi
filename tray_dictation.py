@@ -349,28 +349,34 @@ def _inject_text(text):
     # Trailing space after the chunk so the next chunk doesn't merge
     kb.type(" ")
 
-_overlay_root = None
+_overlay_tk = None
+_overlay_win = None
 _overlay_visible = False
+_overlay_dot = None
+_overlay_dot_id = None
+_pulse_on = [True]
 
 def _ensure_overlay():
-    """Create the overlay window (once, on the main-ish thread)."""
-    global _overlay_root
-    if _overlay_root is not None:
+    """Create the overlay window (once, on the overlay thread)."""
+    global _overlay_tk, _overlay_win, _overlay_dot, _overlay_dot_id
+    if _overlay_tk is not None:
         return
 
     import tkinter as tk
 
-    _overlay_root = tk.Tk()
-    _overlay_root.withdraw()
-    _overlay_root.overrideredirect(True)
-    _overlay_root.attributes("-topmost", True)
-    _overlay_root.attributes("-alpha", 0.85)
-    _overlay_root.configure(bg="#1a1a2e")
+    _overlay_tk = tk.Tk()
+    _overlay_tk.withdraw()
 
-    # Prevent focus stealing
+    _overlay_win = tk.Toplevel(_overlay_tk)
+    _overlay_win.withdraw()
+    _overlay_win.overrideredirect(True)
+    _overlay_win.attributes("-topmost", True)
+    _overlay_win.attributes("-alpha", 0.85)
+    _overlay_win.configure(bg="#1a1a2e")
+
     if IS_WIN:
         import ctypes
-        hwnd = int(_overlay_root.frame(), 16)
+        hwnd = int(_overlay_win.frame(), 16)
         WS_EX_NOACTIVATE = 0x08000000
         WS_EX_TOOLWINDOW = 0x00000080
         GWL_EXSTYLE = -20
@@ -378,47 +384,57 @@ def _ensure_overlay():
             ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
 
-    frame = tk.Frame(_overlay_root, bg="#1a1a2e", padx=12, pady=6)
+    frame = tk.Frame(_overlay_win, bg="#1a1a2e", padx=12, pady=6)
     frame.pack()
 
-    dot = tk.Canvas(frame, width=12, height=12, bg="#1a1a2e", highlightthickness=0)
-    dot.create_oval(2, 2, 10, 10, fill="#f44336", outline="")
-    dot.pack(side="left", padx=(0, 6))
+    _overlay_dot = tk.Canvas(frame, width=12, height=12, bg="#1a1a2e", highlightthickness=0)
+    _overlay_dot_id = _overlay_dot.create_oval(2, 2, 10, 10, fill="#f44336", outline="")
+    _overlay_dot.pack(side="left", padx=(0, 6))
 
     label = tk.Label(frame, text="Listening...", fg="#e0e0e0", bg="#1a1a2e",
                      font=("Segoe UI", 11, "bold"))
     label.pack(side="left")
 
-    _overlay_root.update_idletasks()
-    w = _overlay_root.winfo_reqwidth() + 24
-    h = _overlay_root.winfo_reqheight() + 12
+    _overlay_win.update_idletasks()
+    w = _overlay_win.winfo_reqwidth() + 24
+    h = _overlay_win.winfo_reqheight() + 12
 
-    # Position: bottom-right, above taskbar
-    screen_w = _overlay_root.winfo_screenwidth()
-    screen_h = _overlay_root.winfo_screenheight()
+    screen_w = _overlay_win.winfo_screenwidth()
+    screen_h = _overlay_win.winfo_screenheight()
     x = screen_w - w - 20
     y = screen_h - h - 60
-    _overlay_root.geometry(f"{w}x{h}+{x}+{y}")
+    _overlay_win.geometry(f"{w}x{h}+{x}+{y}")
+
+    _pulse_dot()
+
+def _pulse_dot():
+    """Animate the red dot by cycling between bright and dim."""
+    if not _overlay_dot or not _overlay_tk:
+        return
+    _pulse_on[0] = not _pulse_on[0]
+    color = "#f44336" if _pulse_on[0] else "#7a1a14"
+    _overlay_dot.itemconfig(_overlay_dot_id, fill=color)
+    _overlay_tk.after(600, _pulse_dot)
 
 def _show_overlay():
     global _overlay_visible
     if _overlay_visible:
         return
     _overlay_visible = True
-    if _overlay_root:
-        _overlay_root.after(0, lambda: (_overlay_root.deiconify(), _overlay_root.lift()))
+    if _overlay_win:
+        _overlay_tk.after(0, lambda: (_overlay_win.deiconify(), _overlay_win.lift()))
 
 def _hide_overlay():
     global _overlay_visible
     _overlay_visible = False
-    if _overlay_root:
-        _overlay_root.after(0, lambda: _overlay_root.withdraw() if _overlay_root else None)
+    if _overlay_win:
+        _overlay_tk.after(0, lambda: _overlay_win.withdraw() if _overlay_win else None)
 
 def _run_overlay_mainloop():
     """Run the tkinter mainloop for the overlay on its own thread."""
     _ensure_overlay()
-    if _overlay_root:
-        _overlay_root.mainloop()
+    if _overlay_tk:
+        _overlay_tk.mainloop()
 
 _hotkey_listener = None
 
