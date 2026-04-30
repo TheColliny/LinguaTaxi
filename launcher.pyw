@@ -15,7 +15,7 @@ from tkinter import ttk, filedialog, messagebox
 
 APP_NAME = "LinguaTaxi"
 APP_FULL = "LinguaTaxi — Live Caption & Translation"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -73,6 +73,7 @@ DEFAULT_SETTINGS = {
     "check_for_updates": True,
     "dismissed_version": None,
     "language": None,
+    "close_to_tray": True,
 }
 
 
@@ -212,6 +213,7 @@ class LinguaTaxiApp(tk.Tk):
 
         self._setup_window()
         self._build_ui()
+        self._setup_tray()
         self._poll_log_queue()
 
         # Handle close
@@ -416,6 +418,14 @@ class LinguaTaxiApp(tk.Tk):
                         style="Update.TCheckbutton",
                         command=self._on_update_check_toggled)
         self._update_chk.pack(anchor="e", pady=(4, 0))
+
+        self.close_tray_var = tk.BooleanVar(
+            value=self.settings.get("close_to_tray", True))
+        self._close_tray_chk = ttk.Checkbutton(hdr_right,
+                        text="Minimize to tray on close",
+                        variable=self.close_tray_var,
+                        style="Update.TCheckbutton")
+        self._close_tray_chk.pack(anchor="e", pady=(2, 0))
 
         # ── Server Control ──
         self._srv_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_frame") + "  ", padding=12)
@@ -2352,6 +2362,8 @@ class LinguaTaxiApp(tk.Tk):
         self.settings["window_geometry"] = self.geometry()
         self.settings["check_for_updates"] = self.update_check_var.get()
         self.settings["language"] = self._current_lang
+        if hasattr(self, 'close_tray_var'):
+            self.settings["close_to_tray"] = self.close_tray_var.get()
         save_settings(self.settings)
 
     # ── Logging ──
@@ -2785,11 +2797,102 @@ class LinguaTaxiApp(tk.Tk):
         self.open_tdir_btn.configure(text=_t("launcher.open_transcripts"))
         self._about_btn.configure(text=_t("launcher.about"))
 
+    # ── Tray ──
+
+    def _setup_tray(self):
+        """Set up system tray icon for minimize-to-tray."""
+        self._tray_icon = None
+        try:
+            import pystray
+            from PIL import Image
+        except ImportError:
+            return
+
+        icon_path = APP_DIR / "assets" / "linguataxi.png"
+        if icon_path.exists():
+            image = Image.open(str(icon_path)).resize((64, 64))
+        else:
+            image = Image.new("RGBA", (64, 64), (79, 195, 247, 255))
+
+        def _show_window(icon, item):
+            self.after(0, self._restore_from_tray)
+
+        def _start_srv(icon, item):
+            self.after(0, self._start_server)
+
+        def _stop_srv(icon, item):
+            self.after(0, self._stop_server)
+
+        def _open_op(icon, item):
+            self.after(0, self._open_operator)
+
+        def _open_disp(icon, item):
+            self.after(0, self._open_main)
+
+        def _open_dict(icon, item):
+            self.after(0, self._open_dictation)
+
+        def _quit(icon, item):
+            self.after(0, self._quit_from_tray)
+
+        self._tray_icon = pystray.Icon(
+            "LinguaTaxi",
+            image,
+            "LinguaTaxi",
+            menu=pystray.Menu(
+                pystray.MenuItem("Show Window", _show_window, default=True),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Start Server", _start_srv),
+                pystray.MenuItem("Stop Server", _stop_srv),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Open Operator", _open_op),
+                pystray.MenuItem("Open Display", _open_disp),
+                pystray.MenuItem("Open Dictation", _open_dict),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Quit", _quit),
+            ),
+        )
+
+    def _minimize_to_tray(self):
+        """Hide window and show tray icon."""
+        if not hasattr(self, '_tray_icon') or not self._tray_icon:
+            return False
+        self.withdraw()
+        threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        return True
+
+    def _restore_from_tray(self):
+        """Show window and hide tray icon."""
+        if hasattr(self, '_tray_icon') and self._tray_icon:
+            try:
+                self._tray_icon.stop()
+            except Exception:
+                pass
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _quit_from_tray(self):
+        """Full quit from tray: stop server, destroy window, exit."""
+        if self._server_running:
+            self._stop_server()
+        if hasattr(self, '_tray_icon') and self._tray_icon:
+            try:
+                self._tray_icon.stop()
+            except Exception:
+                pass
+        self.destroy()
+
     # ── Cleanup ──
 
     def _on_close(self):
         self._closing = True
         self._save_current_settings()
+
+        if self.settings.get("close_to_tray", True) and self._server_running:
+            if self._minimize_to_tray():
+                self._closing = False
+                return
 
         if self._server_running:
             if messagebox.askyesno(_t("launcher.dialog_quit_title"),
@@ -2797,7 +2900,7 @@ class LinguaTaxiApp(tk.Tk):
                 self._stop_server()
             else:
                 self._closing = False
-                self._poll_log_queue()  # restart the log poller
+                self._poll_log_queue()
                 return
 
         self.destroy()
