@@ -174,6 +174,7 @@ def stop_server():
 # ── Tray App ──
 
 _tray_icon = None
+_ws = None
 _ws_connected = False
 _dictation_active = False
 
@@ -267,7 +268,79 @@ def _reconnect_loop():
 
 # ── Placeholder functions (implemented in later tasks) ──
 
+def _on_ws_open(ws):
+    global _ws_connected
+    _ws_connected = True
+    _update_tray_icon("idle")
+
+def _on_ws_message(ws, message):
+    try:
+        msg = json.loads(message)
+    except Exception:
+        return
+
+    if msg.get("type") == "final" and msg.get("text"):
+        _inject_text(msg["text"])
+    elif msg.get("type") == "dictation_active":
+        global _dictation_active
+        _dictation_active = msg.get("active", False)
+        _update_tray_icon("active" if _dictation_active else "idle")
+        if _dictation_active:
+            _show_overlay()
+        else:
+            _hide_overlay()
+    elif msg.get("type") == "status":
+        if msg.get("dictation_active") is not None:
+            _dictation_active = msg["dictation_active"]
+            _update_tray_icon("active" if _dictation_active else "idle")
+
+def _on_ws_close(ws, close_status_code, close_msg):
+    global _ws_connected
+    _ws_connected = False
+    _update_tray_icon("disconnected")
+
+def _on_ws_error(ws, error):
+    pass
+
+def _send_ws(msg_dict):
+    """Send a JSON message to the server WebSocket."""
+    global _ws
+    if _ws and _ws_connected:
+        try:
+            _ws.send(json.dumps(msg_dict))
+        except Exception:
+            pass
+
 def _ws_loop():
+    """Connect to the dictation WebSocket and handle messages."""
+    import websocket
+    global _ws_connected, _ws
+
+    url = f"ws://localhost:{DICTATION_PORT}/ws"
+
+    while True:
+        try:
+            _ws = websocket.WebSocketApp(
+                url,
+                on_open=_on_ws_open,
+                on_message=_on_ws_message,
+                on_close=_on_ws_close,
+                on_error=_on_ws_error,
+            )
+            _ws.run_forever(ping_interval=30, ping_timeout=10)
+        except Exception:
+            pass
+        _ws_connected = False
+        _update_tray_icon("disconnected")
+        time.sleep(5)
+
+def _inject_text(text):
+    pass
+
+def _show_overlay():
+    pass
+
+def _hide_overlay():
     pass
 
 def _start_hotkey_listener():
