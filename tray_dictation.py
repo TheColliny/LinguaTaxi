@@ -249,20 +249,19 @@ def run_tray():
         menu=_build_menu(),
     )
 
-    # Start server + WS + hotkey in background threads
     def _startup(icon):
         icon.visible = True
+        # Always start hotkey listener and overlay (they don't need the server)
+        _start_hotkey_listener()
+        threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
+
         started = start_server_if_needed()
         if started:
             _update_tray_icon("idle")
             threading.Thread(target=_ws_loop, daemon=True).start()
-            _start_hotkey_listener()
-            threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
         else:
             _update_tray_icon("disconnected")
-            # Retry connection periodically
             threading.Thread(target=_reconnect_loop, daemon=True).start()
-            threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
 
     _tray_icon.run(setup=_startup)
 

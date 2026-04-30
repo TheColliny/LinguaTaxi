@@ -2800,8 +2800,9 @@ class LinguaTaxiApp(tk.Tk):
     # ── Tray ──
 
     def _setup_tray(self):
-        """Set up system tray icon for minimize-to-tray."""
+        """Set up system tray icon and start it running (hidden initially)."""
         self._tray_icon = None
+        self._tray_running = False
         try:
             import pystray
             from PIL import Image
@@ -2853,21 +2854,28 @@ class LinguaTaxiApp(tk.Tk):
             ),
         )
 
+        def _run_tray_bg():
+            self._tray_running = True
+            try:
+                self._tray_icon.run()
+            except Exception:
+                pass
+            self._tray_running = False
+
+        threading.Thread(target=_run_tray_bg, daemon=True).start()
+
     def _minimize_to_tray(self):
         """Hide window and show tray icon."""
-        if not hasattr(self, '_tray_icon') or not self._tray_icon:
+        if not self._tray_icon or not self._tray_running:
             return False
         self.withdraw()
-        threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        self._tray_icon.visible = True
         return True
 
     def _restore_from_tray(self):
         """Show window and hide tray icon."""
-        if hasattr(self, '_tray_icon') and self._tray_icon:
-            try:
-                self._tray_icon.stop()
-            except Exception:
-                pass
+        if self._tray_icon:
+            self._tray_icon.visible = False
         self.deiconify()
         self.lift()
         self.focus_force()
@@ -2876,7 +2884,7 @@ class LinguaTaxiApp(tk.Tk):
         """Full quit from tray: stop server, destroy window, exit."""
         if self._server_running:
             self._stop_server()
-        if hasattr(self, '_tray_icon') and self._tray_icon:
+        if self._tray_icon:
             try:
                 self._tray_icon.stop()
             except Exception:
