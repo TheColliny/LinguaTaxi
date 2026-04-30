@@ -2,7 +2,7 @@
   "_meta": {
     "locale": "KO",
     "name": "Korean",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "generated": "deepl"
   },
   "app.name": "링구아택시",
@@ -347,5 +347,19 @@
   "installer.uninstall_model_delete": "{name}: 삭제",
   "installer.uninstall_proceed": "제거를 진행하시겠습니까?",
   "installer.upgrade_message": "링구아택시를 v{old}에서 v{new}로 업그레이드합니다.",
-  "installer.upgrade_preserve": "모델, 성적표 및 설정은 그대로 유지됩니다.\n프로그램 파일만 업데이트됩니다."
+  "installer.upgrade_preserve": "모델, 성적표 및 설정은 그대로 유지됩니다.\n프로그램 파일만 업데이트됩니다.",
+  "dictation.mode_toggle": "Toggle",
+  "dictation.mode_hold": "Hold",
+  "dictation.ptt_label": "PTT:",
+  "dictation.ptt_none": "none",
+  "dictation.ptt_set": "Set",
+  "dictation.ptt_change": "Change",
+  "dictation.ptt_capture_prompt": "Press any key...",
+  "dictation.ptt_blocked_enter": "Can't use Enter — it's already used for setting the save directory",
+  "dictation.ptt_blocked_tab": "Can't use Tab — it's used for browser focus navigation",
+  "dictation.ptt_blocked_escape": "Can't use Escape — it's used for browser cancel/close",
+  "dictation.ptt_blocked_modifier": "Modifier keys can't be used alone as a PTT key",
+  "dictation.ptt_blocked_generic": "Can't use {key} — it's reserved",
+  "dictation.status_nothing_to_copy": "Nothing to copy",
+  "dictation.status_nothing_to_save": "Nothing to save"
 }

@@ -2,7 +2,7 @@
   "_meta": {
     "locale": "LV",
     "name": "Latvian",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "generated": "deepl"
   },
   "app.name": "LinguaTaxi",
@@ -347,5 +347,19 @@
   "installer.uninstall_model_delete": "{name}: DELETE",
   "installer.uninstall_proceed": "Turpināt atinstalēt?",
   "installer.upgrade_message": "LinguaTaxi atjaunināšana no v{old} uz v{new}.",
-  "installer.upgrade_preserve": "Jūsu modeļi, transkripcijas un iestatījumi tiks saglabāti.\nTiks atjaunināti tikai programmas faili."
+  "installer.upgrade_preserve": "Jūsu modeļi, transkripcijas un iestatījumi tiks saglabāti.\nTiks atjaunināti tikai programmas faili.",
+  "dictation.mode_toggle": "Toggle",
+  "dictation.mode_hold": "Hold",
+  "dictation.ptt_label": "PTT:",
+  "dictation.ptt_none": "none",
+  "dictation.ptt_set": "Set",
+  "dictation.ptt_change": "Change",
+  "dictation.ptt_capture_prompt": "Press any key...",
+  "dictation.ptt_blocked_enter": "Can't use Enter — it's already used for setting the save directory",
+  "dictation.ptt_blocked_tab": "Can't use Tab — it's used for browser focus navigation",
+  "dictation.ptt_blocked_escape": "Can't use Escape — it's used for browser cancel/close",
+  "dictation.ptt_blocked_modifier": "Modifier keys can't be used alone as a PTT key",
+  "dictation.ptt_blocked_generic": "Can't use {key} — it's reserved",
+  "dictation.status_nothing_to_copy": "Nothing to copy",
+  "dictation.status_nothing_to_save": "Nothing to save"
 }
