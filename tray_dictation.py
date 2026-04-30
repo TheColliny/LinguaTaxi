@@ -335,7 +335,17 @@ def _ws_loop():
         time.sleep(5)
 
 def _inject_text(text):
-    pass
+    """Inject text word-by-word into the currently focused application."""
+    from pynput.keyboard import Controller
+
+    kb = Controller()
+    words = text.split()
+    for i, word in enumerate(words):
+        if i > 0:
+            kb.type(" ")
+        kb.type(word)
+    # Trailing space after the chunk so the next chunk doesn't merge
+    kb.type(" ")
 
 def _show_overlay():
     pass
