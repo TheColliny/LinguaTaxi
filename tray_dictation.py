@@ -248,10 +248,12 @@ def run_tray():
             _update_tray_icon("idle")
             threading.Thread(target=_ws_loop, daemon=True).start()
             _start_hotkey_listener()
+            threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
         else:
             _update_tray_icon("disconnected")
             # Retry connection periodically
             threading.Thread(target=_reconnect_loop, daemon=True).start()
+            threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
 
     _tray_icon.run(setup=_startup)
 
@@ -347,11 +349,76 @@ def _inject_text(text):
     # Trailing space after the chunk so the next chunk doesn't merge
     kb.type(" ")
 
+_overlay_root = None
+_overlay_visible = False
+
+def _ensure_overlay():
+    """Create the overlay window (once, on the main-ish thread)."""
+    global _overlay_root
+    if _overlay_root is not None:
+        return
+
+    import tkinter as tk
+
+    _overlay_root = tk.Tk()
+    _overlay_root.withdraw()
+    _overlay_root.overrideredirect(True)
+    _overlay_root.attributes("-topmost", True)
+    _overlay_root.attributes("-alpha", 0.85)
+    _overlay_root.configure(bg="#1a1a2e")
+
+    # Prevent focus stealing
+    if IS_WIN:
+        import ctypes
+        hwnd = int(_overlay_root.frame(), 16)
+        WS_EX_NOACTIVATE = 0x08000000
+        WS_EX_TOOLWINDOW = 0x00000080
+        GWL_EXSTYLE = -20
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
+            ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
+
+    frame = tk.Frame(_overlay_root, bg="#1a1a2e", padx=12, pady=6)
+    frame.pack()
+
+    dot = tk.Canvas(frame, width=12, height=12, bg="#1a1a2e", highlightthickness=0)
+    dot.create_oval(2, 2, 10, 10, fill="#f44336", outline="")
+    dot.pack(side="left", padx=(0, 6))
+
+    label = tk.Label(frame, text="Listening...", fg="#e0e0e0", bg="#1a1a2e",
+                     font=("Segoe UI", 11, "bold"))
+    label.pack(side="left")
+
+    _overlay_root.update_idletasks()
+    w = _overlay_root.winfo_reqwidth() + 24
+    h = _overlay_root.winfo_reqheight() + 12
+
+    # Position: bottom-right, above taskbar
+    screen_w = _overlay_root.winfo_screenwidth()
+    screen_h = _overlay_root.winfo_screenheight()
+    x = screen_w - w - 20
+    y = screen_h - h - 60
+    _overlay_root.geometry(f"{w}x{h}+{x}+{y}")
+
 def _show_overlay():
-    pass
+    global _overlay_visible
+    if _overlay_visible:
+        return
+    _overlay_visible = True
+    if _overlay_root:
+        _overlay_root.after(0, lambda: (_overlay_root.deiconify(), _overlay_root.lift()))
 
 def _hide_overlay():
-    pass
+    global _overlay_visible
+    _overlay_visible = False
+    if _overlay_root:
+        _overlay_root.after(0, lambda: _overlay_root.withdraw() if _overlay_root else None)
+
+def _run_overlay_mainloop():
+    """Run the tkinter mainloop for the overlay on its own thread."""
+    _ensure_overlay()
+    if _overlay_root:
+        _overlay_root.mainloop()
 
 _hotkey_listener = None
 
