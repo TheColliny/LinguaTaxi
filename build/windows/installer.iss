@@ -186,6 +186,7 @@ Source: "..\..\download_models.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\tuned_models.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\offline_translate.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\plugin_loader.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\tray_dictation.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\display.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\operator.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dictation.html"; DestDir: "{app}"; Flags: ignoreversion

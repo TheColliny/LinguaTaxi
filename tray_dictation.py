@@ -202,13 +202,22 @@ def _on_set_hotkey(icon, item):
 
 def _on_set_hold(icon, item):
     set_setting("global_dictation_mode", "hold")
+    _reload_hotkey_cache()
     icon.update_menu()
 
 def _on_set_toggle(icon, item):
     set_setting("global_dictation_mode", "toggle")
+    _reload_hotkey_cache()
     icon.update_menu()
 
 def _on_quit(icon, item):
+    global _grace_timer
+    if _grace_timer:
+        _grace_timer.cancel()
+    if _hotkey_listener:
+        _hotkey_listener.stop()
+    if _overlay_tk:
+        _overlay_tk.after(0, _overlay_tk.quit)
     stop_server()
     icon.stop()
 
@@ -268,7 +277,7 @@ def _reconnect_loop():
             threading.Thread(target=_ws_loop, daemon=True).start()
             return
 
-# ── Placeholder functions (implemented in later tasks) ──
+# ── WebSocket ──
 
 def _on_ws_open(ws):
     global _ws_connected
@@ -336,18 +345,21 @@ def _ws_loop():
         _update_tray_icon("disconnected")
         time.sleep(5)
 
+_kb_controller = None
+
 def _inject_text(text):
     """Inject text word-by-word into the currently focused application."""
-    from pynput.keyboard import Controller
+    global _kb_controller
+    if _kb_controller is None:
+        from pynput.keyboard import Controller
+        _kb_controller = Controller()
 
-    kb = Controller()
     words = text.split()
     for i, word in enumerate(words):
         if i > 0:
-            kb.type(" ")
-        kb.type(word)
-    # Trailing space after the chunk so the next chunk doesn't merge
-    kb.type(" ")
+            _kb_controller.type(" ")
+        _kb_controller.type(word)
+    _kb_controller.type(" ")
 
 _overlay_tk = None
 _overlay_win = None
@@ -476,10 +488,36 @@ def _key_to_display(key):
 
 _pressed_modifiers = set()
 _grace_timer = None
+_cached_hotkey = None
+_cached_mode = None
+
+def _reload_hotkey_cache():
+    """Reload hotkey config from settings into memory."""
+    global _cached_hotkey, _cached_mode
+    _cached_hotkey = get_setting("global_dictation_hotkey")
+    _cached_mode = get_setting("global_dictation_mode", "hold")
+
+def _match_hotkey(key):
+    """Check if a key event matches the configured hotkey (including modifier combos)."""
+    if not _cached_hotkey:
+        return False
+    stored_code = _cached_hotkey.get("code", "")
+    parts = stored_code.split("+")
+    trigger_key = parts[-1]
+    required_mods = set(parts[:-1]) if len(parts) > 1 else set()
+
+    code = _key_to_code(key)
+    if code != trigger_key:
+        return False
+    if required_mods and not required_mods.issubset(_pressed_modifiers):
+        return False
+    return True
 
 def _start_hotkey_listener():
     from pynput import keyboard
     global _hotkey_listener
+
+    _reload_hotkey_cache()
 
     def on_press(key):
         global _dictation_active, _grace_timer
@@ -488,15 +526,10 @@ def _start_hotkey_listener():
             _pressed_modifiers.add(_key_to_code(key))
             return
 
-        hotkey_cfg = get_setting("global_dictation_hotkey")
-        if not hotkey_cfg:
+        if not _match_hotkey(key):
             return
 
-        code = _key_to_code(key)
-        if code != hotkey_cfg.get("code"):
-            return
-
-        mode = get_setting("global_dictation_mode", "hold")
+        mode = _cached_mode or "hold"
 
         if mode == "toggle":
             if _dictation_active:
@@ -510,7 +543,6 @@ def _start_hotkey_listener():
                 _update_tray_icon("active")
                 _show_overlay()
         else:
-            # Hold mode — start dictation
             if _grace_timer:
                 _grace_timer.cancel()
                 _grace_timer = None
@@ -527,15 +559,10 @@ def _start_hotkey_listener():
             _pressed_modifiers.discard(_key_to_code(key))
             return
 
-        hotkey_cfg = get_setting("global_dictation_hotkey")
-        if not hotkey_cfg:
+        if not _match_hotkey(key):
             return
 
-        code = _key_to_code(key)
-        if code != hotkey_cfg.get("code"):
-            return
-
-        mode = get_setting("global_dictation_mode", "hold")
+        mode = _cached_mode or "hold"
         if mode != "hold":
             return
 
