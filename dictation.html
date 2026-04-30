@@ -119,11 +119,22 @@ rebuildBlockedKeys();
 const MODIFIER_CODES = ['ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','MetaLeft','MetaRight'];
 
 function setMode(m) {
+  if (m === 'toggle' && pttMode === 'hold' && transcribing) {
+    if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+    transcribing = false;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'set_dictation_active', active: false }));
+    }
+    updateGoBtn();
+    updateInsertHint();
+  } else if (m === 'toggle' && graceTimer) {
+    clearTimeout(graceTimer);
+    graceTimer = null;
+  }
   pttMode = m;
   localStorage.setItem('lt_dictation_mode', m);
   document.getElementById('mtToggle').classList.toggle('active', m === 'toggle');
   document.getElementById('mtHold').classList.toggle('active', m === 'hold');
-  if (m === 'toggle' && graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
 }
 
 function updatePttDisplay() {
@@ -147,7 +158,20 @@ function showPttMsg(msg) {
   setTimeout(() => el.classList.remove('show'), 3000);
 }
 
+let _captureListener = null;
+
 function startCapture() {
+  if (capturing) {
+    // Cancel capture
+    capturing = false;
+    document.getElementById('pttBtn').classList.remove('btn-capture');
+    if (_captureListener) {
+      document.removeEventListener('keydown', _captureListener, true);
+      _captureListener = null;
+    }
+    updatePttDisplay();
+    return;
+  }
   capturing = true;
   const btn = document.getElementById('pttBtn');
   btn.textContent = t('dictation.ptt_capture_prompt');
@@ -173,11 +197,13 @@ function startCapture() {
     localStorage.setItem('lt_ptt_key_display', pttDisplayName);
     capturing = false;
     btn.classList.remove('btn-capture');
+    _captureListener = null;
     updatePttDisplay();
 
     document.removeEventListener('keydown', onCapture, true);
   }
 
+  _captureListener = onCapture;
   document.addEventListener('keydown', onCapture, true);
 }
 
@@ -477,6 +503,20 @@ document.addEventListener('keyup', function(e) {
   if (pttMode !== 'hold') return;
 
   if (transcribing) {
+    graceTimer = setTimeout(function() {
+      graceTimer = null;
+      if (transcribing && ws && ws.readyState === 1) {
+        transcribing = false;
+        ws.send(JSON.stringify({ type: 'set_dictation_active', active: false }));
+        updateGoBtn();
+        updateInsertHint();
+      }
+    }, GRACE_MS);
+  }
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden && pttMode === 'hold' && transcribing && !graceTimer) {
     graceTimer = setTimeout(function() {
       graceTimer = null;
       if (transcribing && ws && ws.readyState === 1) {
