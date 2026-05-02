@@ -1618,8 +1618,8 @@ async def o_update(
     bidirectional_langs: str = Form(None),
     bidirectional_tuned_swap: str = Form(None),
     speaker_langs: str = Form(None),
-    collapsed_sections: Optional[str] = Form(None),
-    footer_position: Optional[int] = Form(None),
+    collapsed_sections: str = Form(None),
+    footer_position: int = Form(None),
 ):
     if session_title is not None: config["session_title"] = session_title
     if deepl_api_key is not None: config["deepl_api_key"] = deepl_api_key
@@ -1682,7 +1682,9 @@ async def o_update(
 
     if collapsed_sections is not None:
         try:
-            config["collapsed_sections"] = json.loads(collapsed_sections)
+            parsed = json.loads(collapsed_sections)
+            if isinstance(parsed, list):
+                config["collapsed_sections"] = parsed
         except (json.JSONDecodeError, TypeError):
             pass
     if footer_position is not None:
