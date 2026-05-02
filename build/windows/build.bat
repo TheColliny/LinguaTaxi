@@ -348,6 +348,26 @@ if !ERRORLEVEL! NEQ 0 (
 )
 echo   [OK] CPU+GPU installer built
 
+:: ── Step 9: Tag git and reset version.json ──
+echo.
+echo   Tagging git...
+
+:: Read version from version.json
+for /f "delims=" %%v in ('powershell -Command "(Get-Content '%PROJECT_DIR%\version.json' | ConvertFrom-Json).version"') do set "APP_VER=%%v"
+
+:: Delete existing build tags for this version (in case of rebuild)
+git tag -d "build/v!APP_VER!-Full" 2>nul
+git tag -d "build/v!APP_VER!-Lite" 2>nul
+
+:: Create new tags
+git tag "build/v!APP_VER!-Full"
+git tag "build/v!APP_VER!-Lite"
+echo   [OK] Tagged: build/v!APP_VER!-Full, build/v!APP_VER!-Lite
+
+:: Reset version.json patch to 0 (in case it was incremented by a prior patch build)
+powershell -Command "$j = Get-Content '%PROJECT_DIR%\version.json' | ConvertFrom-Json; $j.patch = 0; $j | ConvertTo-Json -Compress | Set-Content '%PROJECT_DIR%\version.json' -Encoding utf8"
+echo   [OK] version.json reset to patch 0
+
 echo.
 echo   ========================================
 echo     BUILD COMPLETE
