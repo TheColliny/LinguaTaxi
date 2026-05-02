@@ -173,6 +173,8 @@ DEFAULT_CONFIG = {
     "bidirectional_tuned_swap": False,
     "voice_id_enabled": True,
     "voice_id_threshold": 0.65,
+    "collapsed_sections": ["languages"],
+    "footer_position": 50,
     # display_grids: per-display 4x4 grid layout pushed by operator panel
     # Format: {"main": {"<row>-<col>": {pluginId, row, col, colSpan, rowSpan}, ...},
     #          "extended": {...}}
@@ -717,7 +719,7 @@ def _load_vosk_bidir_model(lang_code):
 class VoskBackend(SpeechBackend):
     MODELS = {
         "small": {"url":"https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
-                  "dir":"vosk-model-small-en-us-0.15","size":"~40 MB"},
+                  "dir":"vosk-model-small-en-us-0.15","size":"~68 MB"},
         "large": {"url":"https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip",
                   "dir":"vosk-model-en-us-0.22","size":"~1.8 GB"},
     }
@@ -1141,22 +1143,75 @@ def _make_audio_callback(source):
     return callback
 
 
+def _open_input_stream(source, callback):
+    """Open an sd.InputStream for *source*, handling sample-rate negotiation.
+
+    Some devices (notably Stereo Mix / loopback on Windows) reject 16 kHz and
+    only accept their native rate.  When the initial open at SAMPLE_RATE fails
+    we query the device's default_samplerate and open at that rate instead,
+    wrapping the callback so it resamples on the fly to SAMPLE_RATE before
+    queuing the audio.
+    """
+    bs = int(SAMPLE_RATE * CHUNK_DURATION)
+    # --- first try: open at the target 16 kHz ---
+    try:
+        s = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
+                           blocksize=bs, device=source.device_index, callback=callback)
+        s.start()
+        log.info(f"Audio stream opened for [{source.name}] at {SAMPLE_RATE} Hz "
+                 f"(device: {source.device_index or 'default'})")
+        return s
+    except Exception as first_err:
+        log.debug(f"[{source.name}] cannot open at {SAMPLE_RATE} Hz: {first_err}")
+
+    # --- fallback: open at the device's native rate and resample ---
+    try:
+        dev_info = sd.query_devices(source.device_index)
+        native_rate = int(dev_info["default_samplerate"])
+    except Exception:
+        raise first_err  # can't determine native rate — re-raise original error
+
+    if native_rate == SAMPLE_RATE:
+        raise first_err  # native rate is already what we tried
+
+    native_bs = int(native_rate * CHUNK_DURATION)
+
+    # Build a resampling callback that converts native_rate -> SAMPLE_RATE
+    def _resample_cb(indata, frames, ti, status):
+        if status:
+            log.warning(f"Audio [{source.name}]: {status}")
+        # Simple linear interpolation resample (good enough for speech)
+        ratio = SAMPLE_RATE / native_rate
+        n_out = int(len(indata) * ratio)
+        indices = np.linspace(0, len(indata) - 1, n_out).astype(np.float32)
+        idx_floor = indices.astype(np.intp)
+        idx_ceil = np.minimum(idx_floor + 1, len(indata) - 1)
+        frac = (indices - idx_floor).reshape(-1, 1)
+        resampled = indata[idx_floor] * (1 - frac) + indata[idx_ceil] * frac
+        source.queue.put(resampled.astype(np.float32))
+
+    s = sd.InputStream(samplerate=native_rate, channels=CHANNELS, dtype=DTYPE,
+                       blocksize=native_bs, device=source.device_index,
+                       callback=_resample_cb)
+    s.start()
+    log.info(f"Audio stream opened for [{source.name}] at {native_rate} Hz "
+             f"(native rate, resampling to {SAMPLE_RATE} Hz) "
+             f"(device: {source.device_index or 'default'})")
+    return s
+
+
 def start_source_capture(source):
     """Open audio stream for a single AudioSource. Runs in its own thread.
     Retries on failure with exponential backoff up to 30s, so a temporarily
     unavailable device can recover without killing the source."""
-    bs = int(SAMPLE_RATE * CHUNK_DURATION)
     retry_delay = 2
     while source.active and not shutdown_event.is_set():
         source.restart_event.clear()
         try:
             cb = _make_audio_callback(source)
-            s = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
-                               blocksize=bs, device=source.device_index, callback=cb)
+            s = _open_input_stream(source, cb)
             source.stream = s
-            s.start()
             retry_delay = 2  # reset on successful open
-            log.info(f"Audio capture started for [{source.name}] (device: {source.device_index or 'default'})")
             while source.active and not shutdown_event.is_set() and not source.restart_event.is_set():
                 shutdown_event.wait(0.3)
             s.stop()
@@ -1195,6 +1250,7 @@ def _style_config():
         "input_lang": config.get("input_lang", "EN"),
         "input_lang_name": DEEPL_SOURCE_LANGS.get(config.get("input_lang","EN"), "English"),
         "footer_image": config.get("footer_image"),
+        "footer_position": config.get("footer_position", 50),
         "font_size": config.get("font_size", 42),
         "max_lines": config.get("max_lines", 3),
         "bg_color": config.get("bg_color", "#00004D"),
@@ -1500,6 +1556,8 @@ async def o_config():
             "bidirectional_langs": config.get("bidirectional_langs", []),
             "bidirectional_tuned_swap": config.get("bidirectional_tuned_swap", False),
             "speaker_langs": config.get("speaker_langs", {}),
+            "collapsed_sections": config.get("collapsed_sections", ["languages"]),
+            "footer_position": config.get("footer_position", 50),
         })
     except Exception as e:
         # Fallback: return at minimum the essential data so dropdowns populate
@@ -1524,7 +1582,16 @@ async def o_config():
             "bidirectional_langs": config.get("bidirectional_langs", []),
             "bidirectional_tuned_swap": config.get("bidirectional_tuned_swap", False),
             "speaker_langs": config.get("speaker_langs", {}),
+            "collapsed_sections": config.get("collapsed_sections", ["languages"]),
+            "footer_position": config.get("footer_position", 50),
         })
+
+@operator_app.get("/api/status")
+async def o_status():
+    return JSONResponse({
+        "captioning_paused": captioning_paused,
+        "translation_paused": translation_paused,
+    })
 
 @operator_app.get("/api/locales/{lang}")
 async def o_get_locale(lang: str):
@@ -1551,6 +1618,8 @@ async def o_update(
     bidirectional_langs: str = Form(None),
     bidirectional_tuned_swap: str = Form(None),
     speaker_langs: str = Form(None),
+    collapsed_sections: Optional[str] = Form(None),
+    footer_position: Optional[int] = Form(None),
 ):
     if session_title is not None: config["session_title"] = session_title
     if deepl_api_key is not None: config["deepl_api_key"] = deepl_api_key
@@ -1610,6 +1679,14 @@ async def o_update(
             user_slots = [t for t in existing if not t.get("auto_bidir")]
             config["translations"] = user_slots
             config["translation_count"] = len(user_slots)
+
+    if collapsed_sections is not None:
+        try:
+            config["collapsed_sections"] = json.loads(collapsed_sections)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if footer_position is not None:
+        config["footer_position"] = max(0, min(100, footer_position))
 
     save_config(config)
 
@@ -1860,7 +1937,8 @@ async def o_list_mics():
 
 @operator_app.post("/api/set-mic")
 async def o_set_mic(request: Request):
-    """Change the active microphone without restarting the server."""
+    """Change the active microphone without restarting the server.
+    Updates Source 0's device and restarts its capture stream."""
     global current_mic_index
     form = await request.form()
     raw = form.get("mic_index", "")
@@ -1872,9 +1950,17 @@ async def o_set_mic(request: Request):
         return JSONResponse({"status": "ok", "changed": False,
                              "mic_index": current_mic_index})
     current_mic_index = new_idx
-    mic_restart_event.set()
     name = sd.query_devices(new_idx)["name"] if new_idx is not None else "default"
     log.info(f"Mic change requested: [{new_idx or 'default'}] {name}")
+    # Update Source 0 (primary mic) device and restart its capture stream
+    src = get_source(0)
+    if src:
+        src.device_index = new_idx
+        src.name = name
+        src.restart_event.set()
+    else:
+        # Legacy fallback
+        mic_restart_event.set()
     return JSONResponse({"status": "ok", "changed": True,
                          "mic_index": current_mic_index, "mic_name": name})
 
@@ -1893,6 +1979,12 @@ async def api_add_source(request: Request):
     data = await request.json()
     dev_idx = data.get("device_index")
     name = data.get("name")
+    # Look up device name if caller didn't provide one
+    if not name and dev_idx is not None:
+        try:
+            name = sd.query_devices(dev_idx)["name"]
+        except Exception:
+            pass
     src = add_source(dev_idx, name)
     if not src:
         return JSONResponse({"error": "Maximum 8 sources"}, status_code=400)
@@ -2402,6 +2494,15 @@ def main():
     display_app.state.mic_index = args.mic
 
     # Create audio sources from --sources or --mic
+    def _device_name(dev_idx):
+        """Look up human-readable name for a sounddevice index."""
+        try:
+            if dev_idx is None:
+                return sd.query_devices(sd.default.device[0])["name"]
+            return sd.query_devices(dev_idx)["name"]
+        except Exception:
+            return None
+
     if args.sources:
         seen_devices = set()
         for idx_str in args.sources.split(","):
@@ -2411,11 +2512,11 @@ def main():
                 log.warning(f"Skipping duplicate audio device: {dev}")
                 continue
             seen_devices.add(dev)
-            add_source(dev)
+            add_source(dev, _device_name(dev))
     elif args.mic is not None:
-        add_source(args.mic)
+        add_source(args.mic, _device_name(args.mic))
     else:
-        add_source(None)  # system default
+        add_source(None, _device_name(None))  # system default
 
     _load_speaker_config()
 
