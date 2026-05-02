@@ -113,13 +113,13 @@ TunedJa=Japanese tuned model (~1.5 GB download, ~1.5 GB on disk)
 TunedZh=Chinese tuned model (~3.1 GB download, ~2.9 GB on disk)
 ; Vosk CPU language models
 DownloadVosk=Download Vosk CPU language models (for bi-directional translation)
-VoskDe=German — Vosk (~45 MB download)
-VoskFr=French — Vosk (~41 MB download)
-VoskEs=Spanish — Vosk (~39 MB download)
-VoskRu=Russian — Vosk (~45 MB download)
-VoskAr=Arabic — Vosk (~318 MB download)
-VoskJa=Japanese — Vosk (~48 MB download)
-VoskZh=Chinese — Vosk (~42 MB download)
+VoskDe=German — Vosk (~45 MB download, ~77 MB on disk)
+VoskFr=French — Vosk (~41 MB download, ~70 MB on disk)
+VoskEs=Spanish — Vosk (~39 MB download, ~67 MB on disk)
+VoskRu=Russian — Vosk (~45 MB download, ~77 MB on disk)
+VoskAr=Arabic — Vosk (~318 MB download, ~543 MB on disk)
+VoskJa=Japanese — Vosk (~48 MB download, ~82 MB on disk)
+VoskZh=Chinese — Vosk (~42 MB download, ~72 MB on disk)
 VoskModels=Vosk CPU Language Models (for bi-directional mode):
 DownloadingVoskDe=Downloading German Vosk model (~45 MB)...
 DownloadingVoskFr=Downloading French Vosk model (~41 MB)...
@@ -197,6 +197,7 @@ Source: "..\..\model_manager.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\models-manifest.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\version.json"; DestDir: "{app}"; Flags: ignoreversion
 
 ; ── NVIDIA notice (Full edition only) ──
 #if EDITION == "Full"
@@ -248,10 +249,10 @@ Name: "{app}\models\translate"; Permissions: users-modify
 Name: "{app}\models\tuned"; Permissions: users-modify
 
 [Icons]
-Name: "{group}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "Launch LinguaTaxi"
-Name: "{group}\{#MyAppShortName} Dictation"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\tray_dictation.py"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "LinguaTaxi Global Dictation (tray)"
+Name: "{group}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "Launch LinguaTaxi"; AppUserModelID: "LinguaTaxi.Launcher"
+Name: "{group}\{#MyAppShortName} Dictation"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\tray_dictation.py"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Comment: "LinguaTaxi Global Dictation (tray)"; AppUserModelID: "LinguaTaxi.Dictation"
 Name: "{group}\Uninstall {#MyAppShortName}"; Filename: "{uninstallexe}"; IconFilename: "{app}\assets\linguataxi.ico"
-Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\launcher.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\linguataxi.ico"; Tasks: desktopicon; AppUserModelID: "LinguaTaxi.Launcher"
 
 [Run]
 ; Model downloads are handled by model_manager.py with a progress UI (see [Code] section).
@@ -636,15 +637,42 @@ begin
     SaveStringToFile(EditionPath, 'CPU', False);
   #endif
 
+    // 3. Write version.json with edition
+    SaveStringToFile(ExpandConstant('{app}\version.json'),
+      '{"version": "{#MyAppVersion}", "patch": 0, "edition": "{#EDITION}"}',
+      False);
+
   #if EDITION == "Full"
-    // 3. Install CUDA packages (GPU edition only)
+    // 4. Install CUDA packages (GPU edition only) — with progress UI
     PipPath := ExpandConstant('{app}\venv\Scripts\pip.exe');
-    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"',
-         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+    DownloadPage.Show;
+    try
+      DownloadPage.SetText('Installing NVIDIA CUDA Runtime (1 of 3)...', 'Downloading from GitHub - this may take a few minutes.');
+      DownloadPage.SetProgress(5, 100);
+      WizardForm.Refresh;
+
+      Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl"',
+           ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+      DownloadPage.SetText('Installing NVIDIA cuBLAS (2 of 3)...', 'Downloading from GitHub - this may take a few minutes.');
+      DownloadPage.SetProgress(35, 100);
+      WizardForm.Refresh;
+
+      Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cublas_cu12-12.9.1.4-py3-none-win_amd64.whl"',
+           ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+      DownloadPage.SetText('Installing NVIDIA cuDNN (3 of 3)...', 'Downloading from GitHub - this may take a few minutes.');
+      DownloadPage.SetProgress(65, 100);
+      WizardForm.Refresh;
+
+      Exec(PipPath, 'install --no-deps "https://github.com/TheColliny/LinguaTaxi-CUDA/releases/download/v12.9/nvidia_cudnn_cu12-9.19.0.56-py3-none-win_amd64.whl"',
+           ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+      DownloadPage.SetProgress(100, 100);
+    finally
+      DownloadPage.Hide;
+    end;
   #endif
 
     // 4. Run model downloads if any tasks were selected
