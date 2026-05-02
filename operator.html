@@ -1667,39 +1667,11 @@ let captioningPaused = true;
 let saveTranscriptsEnabled = true;
 
 function toggleLive(){
-  captioningPaused = !captioningPaused;
-  const btn = document.getElementById('liveBtn');
-  if(captioningPaused){
-    btn.textContent = t('operator.go_live');
-    btn.style.background = '#4CAF50';
-    btn.style.color = '#fff';
-  } else {
-    btn.textContent = t('operator.pause_captioning');
-    btn.style.background = '#f44336';
-    btn.style.color = '#fff';
-  }
-  updateSessionHint();
-  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_captioning_paused', paused:captioningPaused}));
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_captioning_paused', paused:!captioningPaused}));
 }
 
 function togglePause(){
-  translationPaused = !translationPaused;
-  const btn = document.getElementById('pauseBtn');
-  if(translationPaused){
-    // H13: renamed lambda param from t to tr
-    const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
-    btn.textContent = allOffline ? t('operator.resume_translation_offline') : t('operator.resume_translation_credits');
-    btn.style.background = 'rgba(255,255,255,.08)';
-    btn.style.color = 'rgba(255,255,255,.55)';
-    btn.style.borderColor = 'rgba(255,255,255,.1)';
-  } else {
-    btn.textContent = t('operator.pause_translation');
-    btn.style.background = '#FF9800';
-    btn.style.color = '#000';
-    btn.style.borderColor = '#FF9800';
-  }
-  updateSessionHint();
-  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_translation_paused', paused:translationPaused}));
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_translation_paused', paused:!translationPaused}));
 }
 
 function updateSessionHint(){
@@ -2095,6 +2067,45 @@ function connect(){
   ws.onerror = () => { ws.close(); };
 }
 connect();
+
+// ── Button sync: poll server status every 5s ──
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.captioning_paused !== undefined && s.captioning_paused !== captioningPaused) {
+      captioningPaused = s.captioning_paused;
+      const btn = document.getElementById('liveBtn');
+      if (captioningPaused) {
+        btn.textContent = t('operator.go_live');
+        btn.style.background = '#4CAF50';
+        btn.style.color = '#fff';
+      } else {
+        btn.textContent = t('operator.pause_captioning');
+        btn.style.background = '#f44336';
+        btn.style.color = '#fff';
+      }
+    }
+    if (s.translation_paused !== undefined && s.translation_paused !== translationPaused) {
+      translationPaused = s.translation_paused;
+      const btn = document.getElementById('pauseBtn');
+      if (translationPaused) {
+        const allOffline = translations.slice(0, transCount).every(tr => (tr.mode || 'deepl').startsWith('offline'));
+        btn.textContent = allOffline ? t('operator.resume_translation_offline') : t('operator.resume_translation_credits');
+        btn.style.background = 'rgba(255,255,255,.08)';
+        btn.style.color = 'rgba(255,255,255,.55)';
+        btn.style.borderColor = 'rgba(255,255,255,.1)';
+      } else {
+        btn.textContent = t('operator.pause_translation');
+        btn.style.background = '#FF9800';
+        btn.style.color = '#000';
+        btn.style.borderColor = '#FF9800';
+      }
+    }
+    updateSessionHint();
+  }).catch(() => {});
+}
+
+setInterval(pollStatus, 5000);
+pollStatus();
 
 // ── Keyboard ──
 document.addEventListener('keydown',e=>{
