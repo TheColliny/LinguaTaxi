@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="display-target" content="<!-- DISPLAY_TARGET -->">
 <title>Live Captioning</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,259 +15,597 @@
   --caption-color:#FFFFFF; --accent:#4FC3F7; --label:#90CAF9;
 }
 html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:#fff}
-.app{display:flex;flex-direction:column;height:100vh;padding:1.5vh 3vw}
-.header{text-align:center;padding:1vh 0 1.2vh;flex-shrink:0}
-.header h1{font-weight:800;font-size:clamp(22px,3vw,48px);letter-spacing:.02em;text-transform:uppercase;text-shadow:0 2px 15px rgba(79,195,247,.25)}
-.header .bar{width:100px;height:3px;margin:.6vh auto 0;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+.app{display:flex;flex-direction:column;height:100vh;padding:1.5vh 2vw}
+.header{text-align:center;padding:.6vh 0 .8vh;flex-shrink:0}
+.header h1{font-weight:800;font-size:clamp(20px,2.4vw,42px);letter-spacing:.02em;text-transform:uppercase;text-shadow:0 2px 15px rgba(79,195,247,.25)}
+.header .bar{width:100px;height:3px;margin:.4vh auto 0;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
 
-.sections{flex:1;display:flex;flex-direction:column;gap:1.2vh;min-height:0;overflow:hidden}
-.lang-section{flex:1;display:flex;flex-direction:column;min-height:0}
-.section-hdr{font-weight:700;font-size:clamp(12px,1.3vw,20px);color:var(--label);text-transform:uppercase;letter-spacing:.12em;margin-bottom:.5vh;display:flex;align-items:center;gap:6px;flex-shrink:0}
-.section-hdr .dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;transition:.3s}
+/* ── Audience grid ── */
+.aud-grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:1vh;min-height:0}
+.aud-cell{background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.06);border-radius:8px;display:flex;flex-direction:column;overflow:hidden;min-height:0;position:relative}
+.aud-cell-title{font-weight:700;font-size:clamp(10px,1.1vw,14px);color:var(--label);text-transform:uppercase;letter-spacing:.1em;padding:.6vh 1vw;display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0;background:rgba(0,0,0,.25)}
+.aud-cell-title .dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;transition:.3s}
 .dot.live{background:#f44336;box-shadow:0 0 6px #f44336;animation:pdot 1.5s ease-in-out infinite}
 .dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
 .dot.paused{background:#FFA726;box-shadow:0 0 6px #FFA726}
 @keyframes pdot{0%,100%{opacity:1}50%{opacity:.4}}
+.aud-cell-body{flex:1;overflow:hidden;min-height:0;display:flex;flex-direction:column}
 
-.scroll-box{flex:1;overflow-y:auto;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0;max-height:calc(var(--max-lines) * var(--fs) * 1.4)}
-.scroll-inner{display:flex;flex-direction:column}
-.line{font-weight:600;font-size:var(--fs);line-height:1.35;padding:.05em 0;word-wrap:break-word;overflow-wrap:break-word}
-.line.interim{opacity:.45}
-.speaker-tag{font-weight:800;text-transform:uppercase;opacity:.9}
-.divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);flex-shrink:0}
+/* ── Live caption styling ── */
+.lc-scroll{flex:1;overflow-y:auto;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0;padding:1vh 1.4vw}
+.lc-inner{display:flex;flex-direction:column}
+.lc-line{font-weight:600;font-size:var(--fs);line-height:1.3;padding:.05em 0;word-wrap:break-word;overflow-wrap:break-word;color:var(--caption-color)}
+.lc-line.interim{opacity:.45}
+.lc-speaker-tag{font-weight:800;text-transform:uppercase;opacity:.9}
 
-.footer-banner{flex-shrink:0;text-align:center;padding:.8vh 0 .3vh;display:none}
-.footer-banner img{max-width:min(95%,1000px);height:auto;max-height:7vh;object-fit:contain;border-radius:5px}
-.footer-banner.vis{display:block}
-.no-langs{text-align:center;color:rgba(255,255,255,.15);font-size:20px;padding:40px 0}
+/* ── Translation slot ── */
+.tr-scroll{flex:1;overflow-y:auto;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0;padding:1vh 1.4vw}
+.tr-inner{display:flex;flex-direction:column}
+.tr-line{font-weight:600;font-size:calc(var(--fs) * 0.85);line-height:1.3;padding:.05em 0;word-wrap:break-word;overflow-wrap:break-word}
+.tr-line.interim{opacity:.45}
+
+.empty-grid{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,.2);font-size:clamp(14px,1.6vw,22px);text-align:center;padding:5vh 4vw;line-height:1.5}
+.plugin-shell{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.plugin-shell .plugin-body{flex:1;overflow-y:auto;padding:1vh 1.2vw;color:rgba(255,255,255,.85)}
+
+.footer-banner{flex-shrink:0;padding:.6vh 0 0;display:none;position:relative;height:6vh;min-height:30px}
+.footer-banner.vis{display:flex;align-items:center}
+.footer-banner img{height:auto;max-height:100%;max-width:min(95%,1000px);object-fit:contain;border-radius:5px;position:absolute;transform:translateX(-50%);transition:left .3s ease}
 </style>
+<link rel="stylesheet" href="/static/plugin_panel.css">
+<!-- PLUGIN_CSS -->
 </head>
 <body>
 <div class="app">
   <div class="header">
-    <h1 id="title" data-i18n="display.default_title">Live Captioning</h1>
+    <h1 id="title">Live Captioning</h1>
     <div class="bar"></div>
   </div>
-  <div class="sections" id="sections"></div>
+  <div class="aud-grid" id="audGrid"></div>
   <div class="footer-banner" id="footerWrap"><img id="footerImg" src="" alt=""></div>
 </div>
+
+<!-- Hidden container for plugin panels (audience-side, used by audience grid renderer) -->
+<div id="pluginPanelsHidden" style="display:none">
+  <!-- PLUGIN_PANELS -->
+</div>
+
 <script>
-let ws=null, cfg={}, recon=0;
-const sectionsEl=document.getElementById('sections');
-const slots={}; // slot_id -> {scrollBox, inner, interimEl, dotEl, color, lines[], lastSpeaker}
+// ════════════════════════════════════════════════════════════════════════════
+// AUDIENCE DISPLAY GRID
+// Reads the operator-pushed grid layout for THIS display (main or extended)
+// and renders each cell. The "live_captions" plugin gets the caption rendering;
+// translation slots map to translation plugins; other plugins get their panel.
+// ════════════════════════════════════════════════════════════════════════════
 
-let _i18n={}, _i18nEn={};
-function t(key,vars){
-    let s=_i18n[key]||_i18nEn[key]||key;
-    if(vars)Object.entries(vars).forEach(([k,v])=>{s=s.replaceAll('{'+k+'}',v)});
-    return s;
+const DISPLAY_TARGET = (document.querySelector('meta[name="display-target"]')?.content || 'main').trim();
+const TRANSLATION_PREFIX = 'translation_'; // prefix for synthetic translation slot tiles
+
+let ws = null, recon = 0, cfg = {};
+let currentGrid = {};       // cellKey -> { pluginId, row, col, colSpan, rowSpan }
+let captionState = { lines: [], lastSpeaker: null }; // for live_captions tile
+let translationStates = {}; // slotIndex -> { lines: [], lastSpeaker: null }
+let _i18n = {}, _i18nEn = {};
+
+const elGrid = document.getElementById('audGrid');
+
+// ── i18n ──
+function t(key, vars) {
+  let s = _i18n[key] || _i18nEn[key] || key;
+  if (vars) Object.entries(vars).forEach(([k,v]) => { s = s.replaceAll('{'+k+'}', v); });
+  return s;
 }
-async function loadTranslations(lang){
-    try{
-        if(!Object.keys(_i18nEn).length){const r=await fetch('/api/locales/en');if(r.ok)_i18nEn=await r.json()}
-        const r2=await fetch('/api/locales/'+lang.toLowerCase());
-        if(r2.ok)_i18n=await r2.json();else _i18n={..._i18nEn};
-    }catch(e){_i18n={..._i18nEn}}
-    document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=t(el.getAttribute('data-i18n'))});
-    document.documentElement.lang=lang.toLowerCase();
-    document.documentElement.dir=lang==='AR'?'rtl':'ltr';
+async function loadTranslations(lang) {
+  try {
+    if (!Object.keys(_i18nEn).length) {
+      const r = await fetch('/api/locales/en');
+      if (r.ok) _i18nEn = await r.json();
+    }
+    const r2 = await fetch('/api/locales/' + lang.toLowerCase());
+    if (r2.ok) _i18n = await r2.json();
+    else _i18n = { ..._i18nEn };
+  } catch (e) { _i18n = { ..._i18nEn }; }
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.getAttribute('data-i18n')); });
+  const L = String(lang || '').toUpperCase();
+  document.documentElement.lang = L.toLowerCase();
+  document.documentElement.dir = L === 'AR' ? 'rtl' : 'ltr';
 }
 
-function buildSections(c){
-  sectionsEl.innerHTML='';
-  Object.keys(slots).forEach(k=>delete slots[k]);
-  const parts=[];
-  if(c.show_caption!==false){
-    parts.push({id:'caption', label:(c.input_lang_name||'English')+' Captioning', color:c.caption_color||'#FFF'});
+// ── Grid rendering ──
+function getPluginPanels() {
+  // Panels may be in #pluginPanelsHidden OR currently mounted in a grid cell;
+  // search the whole document so we find them either way.
+  return Array.from(document.querySelectorAll('.plugin-panel')).map(el => ({
+    id: el.dataset.pluginId,
+    el: el,
+    title: el.querySelector('.plugin-title')?.textContent || el.dataset.pluginId,
+  }));
+}
+
+function buildGrid() {
+  if (!elGrid) return;
+  // Move any plugin panels currently mounted in cells back to hidden container
+  // before tearing down the grid. This preserves DOM identity (IDs, listeners).
+  const hidden = document.getElementById('pluginPanelsHidden');
+  if (hidden) {
+    elGrid.querySelectorAll('.plugin-panel').forEach(panel => hidden.appendChild(panel));
   }
-  (c.translations||[]).forEach(t=>{
-    parts.push({id:'slot_'+t.slot, label:t.name, color:t.color, slot:t.slot});
+  elGrid.innerHTML = '';
+  // Reset translation states for current grid (we'll repopulate as cells are built)
+  const newTranslationStates = {};
+
+  // Clamp + filter cells: silently skip any with out-of-bounds row/col
+  const cells = Object.values(currentGrid || {}).filter(c =>
+    c && typeof c.row === 'number' && typeof c.col === 'number' &&
+    c.row >= 0 && c.row < 4 && c.col >= 0 && c.col < 4
+  );
+  if (cells.length === 0) {
+    elGrid.innerHTML = '<div class="empty-grid" style="grid-column:span 4;grid-row:span 4">' +
+      'No layout configured for this display.<br>' +
+      'Open the operator panel and drag plugins into the grid.</div>';
+    return;
+  }
+
+  const pluginMap = {};
+  getPluginPanels().forEach(p => { pluginMap[p.id] = p; });
+
+  cells.forEach(cell => {
+    const pid = cell.pluginId;
+    // Clamp spans so they don't push outside the 4x4 grid
+    const colSpan = Math.max(1, Math.min(4 - cell.col, cell.colSpan || 1));
+    const rowSpan = Math.max(1, Math.min(4 - cell.row, cell.rowSpan || 1));
+    const div = document.createElement('div');
+    div.className = 'aud-cell';
+    div.style.gridColumn = (cell.col + 1) + ' / span ' + colSpan;
+    div.style.gridRow = (cell.row + 1) + ' / span ' + rowSpan;
+    div.dataset.pluginId = pid;
+
+    if (pid === 'live_captions') {
+      div.innerHTML =
+        '<div class="aud-cell-title"><span class="dot" id="lc-dot"></span>' +
+          '<span>' + esc(cfg.input_lang_name || 'Captions') + '</span></div>' +
+        '<div class="aud-cell-body"><div class="lc-scroll" id="lc-scroll"><div class="lc-inner" id="lc-inner">' +
+          '<div class="lc-line interim" id="lc-interim" style="display:none"></div>' +
+        '</div></div></div>';
+      // Replay current caption state
+      replayCaptions();
+    } else if (pid && pid.startsWith(TRANSLATION_PREFIX)) {
+      // Translation slot tile (synthetic)
+      const slotIdx = parseInt(pid.substring(TRANSLATION_PREFIX.length), 10);
+      const tr = (cfg.translations || [])[slotIdx];
+      const label = tr ? (tr.name || tr.lang) : ('Translation ' + (slotIdx + 1));
+      const color = tr ? (tr.color || '#FFD54F') : '#FFD54F';
+      div.innerHTML =
+        '<div class="aud-cell-title"><span class="dot" id="tr-dot-' + slotIdx + '"></span>' +
+          '<span>' + esc(label) + '</span></div>' +
+        '<div class="aud-cell-body"><div class="tr-scroll" id="tr-scroll-' + slotIdx + '"><div class="tr-inner" id="tr-inner-' + slotIdx + '" style="--slot-color:' + esc(color) + '">' +
+          '<div class="tr-line interim" id="tr-interim-' + slotIdx + '" style="display:none;color:' + esc(color) + '"></div>' +
+        '</div></div></div>';
+      newTranslationStates[slotIdx] = translationStates[slotIdx] || { lines: [], lastSpeaker: null, color };
+      newTranslationStates[slotIdx].color = color;
+    } else if (pluginMap[pid]) {
+      // Real plugin — move the entire .plugin-panel into the cell so DOM
+      // identity (IDs, event listeners, panel.js refs) is preserved across
+      // grid rebuilds. The hidden container holds it when it's not in a cell.
+      const p = pluginMap[pid];
+      const title = p.title || pid;
+      div.innerHTML =
+        '<div class="aud-cell-title">' + esc(title) + '</div>' +
+        '<div class="aud-cell-body plugin-shell" data-plugin-id="' + esc(pid) + '"></div>';
+      const shell = div.querySelector('.plugin-shell');
+      // Hide the panel's own header (we have aud-cell-title above)
+      const ph = p.el.querySelector('.plugin-header');
+      if (ph) ph.style.display = 'none';
+      const pt = p.el.querySelector('.plugin-title');
+      if (pt) pt.style.display = 'none';
+      shell.appendChild(p.el);
+    } else {
+      // Unknown plugin id — placeholder
+      div.innerHTML =
+        '<div class="aud-cell-title">' + esc(pid || 'unknown') + '</div>' +
+        '<div class="aud-cell-body" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.25)">' +
+          'Plugin not loaded</div>';
+    }
+
+    elGrid.appendChild(div);
   });
-  if(parts.length===0){sectionsEl.innerHTML='<div class="no-langs" data-i18n="display.no_languages">No languages configured</div>';return}
-  parts.forEach((p,i)=>{
-    if(i>0){const dv=document.createElement('div');dv.className='divider';sectionsEl.appendChild(dv)}
-    const sec=document.createElement('div');sec.className='lang-section';
-    const hdr=document.createElement('div');hdr.className='section-hdr';
-    const dot=document.createElement('span');dot.className='dot';dot.id='dot_'+p.id;
-    hdr.appendChild(dot);hdr.appendChild(document.createTextNode(' '+p.label));
-    sec.appendChild(hdr);
-    const box=document.createElement('div');box.className='scroll-box';
-    const inner=document.createElement('div');inner.className='scroll-inner';
-    const interimLine=document.createElement('div');
-    interimLine.className='line interim';interimLine.style.color=p.color;interimLine.style.display='none';
-    inner.appendChild(interimLine);
-    box.appendChild(inner);sec.appendChild(box);sectionsEl.appendChild(sec);
-    slots[p.id]={scrollBox:box,inner:inner,interimEl:interimLine,dotEl:dot,color:p.color,lines:[],lastSpeaker:null};
-  });
+
+  translationStates = newTranslationStates;
+  // Replay any pending translation lines for the now-visible slots
+  Object.entries(translationStates).forEach(([slotIdx, st]) => replayTranslation(parseInt(slotIdx, 10)));
 }
 
-function addFinalLine(slotId, text, speaker, lineId, color){
-  const s=slots[slotId]; if(!s)return;
-  const line=document.createElement('div');
-  line.className='line';line.style.color=s.color;
-  if(lineId!==undefined) line.dataset.lineId=lineId;
-  // Insert speaker label when speaker changes from last finalized line
-  if(speaker && speaker !== s.lastSpeaker){
-    const tag=document.createElement('span');
-    tag.className='speaker-tag';
-    tag.textContent=speaker+': ';
-    tag.style.color = color || s.color;
+// ── Live captions: render captionState into the live_captions cell if visible ──
+function liveCaptionsCellPresent() {
+  return Object.values(currentGrid).some(c => c.pluginId === 'live_captions');
+}
+
+// Build a single caption line DOM with consistent speaker-tag logic.
+// Tracks `lastSpeakerRef.value` across calls to suppress repeated tags.
+function buildCaptionLine(text, speaker, lineId, color, lastSpeakerRef) {
+  const line = document.createElement('div');
+  line.className = 'lc-line';
+  if (lineId !== undefined) line.dataset.lineId = lineId;
+  if (speaker && speaker !== lastSpeakerRef.value) {
+    const tag = document.createElement('span');
+    tag.className = 'lc-speaker-tag';
+    tag.textContent = speaker + ': ';
+    tag.style.color = color || 'inherit';
     line.appendChild(tag);
-    s.lastSpeaker=speaker;
-  } else if(!speaker && s.lastSpeaker){
-    s.lastSpeaker=null;
+    lastSpeakerRef.value = speaker;
+  } else if (!speaker && lastSpeakerRef.value) {
+    // No speaker on this line — clear so next line with a speaker shows the tag
+    lastSpeakerRef.value = null;
   }
-  const txt=document.createTextNode(text);
+  const txt = document.createTextNode(text);
   line.appendChild(txt);
-  line._textNode=txt; // keep reference for corrections
-  s.inner.insertBefore(line, s.interimEl);
-  s.interimEl.style.display='none';s.interimEl.innerHTML='';
-  s.lines.push(line);
-  while(s.lines.length>200){s.lines.shift().remove()}
-  requestAnimationFrame(()=>{requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight})});
+  line._textNode = txt;
+  return line;
 }
 
-function correctLine(slotId, lineId, newText){
-  const s=slots[slotId]; if(!s)return;
-  for(let i=s.lines.length-1;i>=0;i--){
-    if(s.lines[i].dataset.lineId==lineId){
-      const el=s.lines[i];
-      if(el._textNode) el._textNode.textContent=newText;
-      else{
-        // Fallback: rebuild keeping speaker tag
-        const tag=el.querySelector('.speaker-tag');
-        el.textContent='';
-        if(tag) el.appendChild(tag);
-        const txt=document.createTextNode(newText);
-        el.appendChild(txt);el._textNode=txt;
+function replayCaptions() {
+  const inner = document.getElementById('lc-inner');
+  const interimEl = document.getElementById('lc-interim');
+  if (!inner || !interimEl) return;
+  // Clear existing rendered finals (keep interim el)
+  inner.querySelectorAll('.lc-line:not(#lc-interim)').forEach(el => el.remove());
+  const ref = { value: null };
+  captionState.lines.forEach(l => {
+    inner.insertBefore(buildCaptionLine(l.text, l.speaker, l.lineId, l.color, ref), interimEl);
+  });
+  captionState.lastSpeaker = ref.value;
+  scrollCaptionsToBottom();
+}
+
+function scrollCaptionsToBottom() {
+  const sb = document.getElementById('lc-scroll');
+  if (sb) requestAnimationFrame(() => { sb.scrollTop = sb.scrollHeight; });
+}
+
+function appendCaptionFinal(text, speaker, lineId, color) {
+  captionState.lines.push({ text, speaker, lineId, color });
+  while (captionState.lines.length > 200) captionState.lines.shift();
+  // Render immediately if the cell is visible
+  const inner = document.getElementById('lc-inner');
+  const interimEl = document.getElementById('lc-interim');
+  if (!inner || !interimEl) return;
+  // Use the same builder as replay for consistent speaker-tag logic
+  const ref = { value: captionState.lastSpeaker };
+  const line = buildCaptionLine(text, speaker, lineId, color, ref);
+  captionState.lastSpeaker = ref.value;
+  inner.insertBefore(line, interimEl);
+  interimEl.style.display = 'none';
+  interimEl.innerHTML = '';
+  // Trim DOM
+  const finals = inner.querySelectorAll('.lc-line:not(#lc-interim)');
+  if (finals.length > 200) finals[0].remove();
+  scrollCaptionsToBottom();
+}
+
+function setCaptionInterim(text, speaker, color) {
+  const interimEl = document.getElementById('lc-interim');
+  if (!interimEl) return;
+  if (text) {
+    interimEl.innerHTML = '';
+    if (speaker && speaker !== captionState.lastSpeaker) {
+      const tag = document.createElement('span');
+      tag.className = 'lc-speaker-tag';
+      tag.textContent = speaker + ': ';
+      tag.style.color = color || '';
+      interimEl.appendChild(tag);
+    }
+    interimEl.appendChild(document.createTextNode(text));
+    interimEl.style.display = 'block';
+  } else {
+    interimEl.style.display = 'none';
+    interimEl.innerHTML = '';
+  }
+  scrollCaptionsToBottom();
+}
+
+function correctCaption(lineId, newText) {
+  // Update state
+  for (let i = captionState.lines.length - 1; i >= 0; i--) {
+    if (String(captionState.lines[i].lineId) === String(lineId)) {
+      captionState.lines[i].text = newText;
+      break;
+    }
+  }
+  // Update DOM if visible
+  const inner = document.getElementById('lc-inner');
+  if (!inner) return;
+  const lines = inner.querySelectorAll('.lc-line:not(#lc-interim)');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (String(lines[i].dataset.lineId) === String(lineId)) {
+      const el = lines[i];
+      if (el._textNode) {
+        el._textNode.textContent = newText;
+      } else {
+        const tag = el.querySelector('.lc-speaker-tag');
+        el.textContent = '';
+        if (tag) el.appendChild(tag);
+        const txt = document.createTextNode(newText);
+        el.appendChild(txt);
+        el._textNode = txt;
       }
       return;
     }
   }
 }
 
-function setInterim(slotId, text, speaker, color){
-  const s=slots[slotId]; if(!s)return;
-  if(text){
-    s.interimEl.innerHTML='';
-    // Show inline speaker prefix on interim when speaker differs from last final
-    const showSp = speaker && speaker !== s.lastSpeaker;
-    if(showSp){
-      const tag=document.createElement('span');
-      tag.className='speaker-tag';
-      tag.textContent=speaker+': ';
-      tag.style.color = color || '';
-      s.interimEl.appendChild(tag);
-    }
-    s.interimEl.appendChild(document.createTextNode(text));
-    s.interimEl.style.display='block';
-  } else {
-    s.interimEl.style.display='none';s.interimEl.innerHTML='';
+function clearCaptions() {
+  captionState.lines = [];
+  captionState.lastSpeaker = null;
+  const inner = document.getElementById('lc-inner');
+  const interimEl = document.getElementById('lc-interim');
+  if (inner) inner.querySelectorAll('.lc-line:not(#lc-interim)').forEach(l => l.remove());
+  if (interimEl) { interimEl.style.display = 'none'; interimEl.innerHTML = ''; }
+}
+
+// ── Translation rendering ──
+// Shared builder for translation lines — same speaker-tag logic as captions
+function buildTranslationLine(text, speaker, lineId, color, baseColor, lastSpeakerRef) {
+  const line = document.createElement('div');
+  line.className = 'tr-line';
+  line.style.color = baseColor || '#FFD54F';
+  if (lineId !== undefined) line.dataset.lineId = lineId;
+  if (speaker && speaker !== lastSpeakerRef.value) {
+    const tag = document.createElement('span');
+    tag.className = 'lc-speaker-tag';
+    tag.textContent = speaker + ': ';
+    tag.style.color = color || baseColor;
+    line.appendChild(tag);
+    lastSpeakerRef.value = speaker;
+  } else if (!speaker && lastSpeakerRef.value) {
+    lastSpeakerRef.value = null;
   }
-  requestAnimationFrame(()=>{requestAnimationFrame(()=>{s.scrollBox.scrollTop=s.scrollBox.scrollHeight})});
+  const txt = document.createTextNode(text);
+  line.appendChild(txt);
+  line._textNode = txt;
+  return line;
 }
 
-function clearAll(){
-  Object.values(slots).forEach(s=>{
-    s.lines.forEach(l=>l.remove());s.lines=[];
-    s.interimEl.style.display='none';s.interimEl.innerHTML='';
-    s.lastSpeaker=null;
-    if(s.dotEl)s.dotEl.className='dot conn';
+function replayTranslation(slotIdx) {
+  const inner = document.getElementById('tr-inner-' + slotIdx);
+  const interimEl = document.getElementById('tr-interim-' + slotIdx);
+  if (!inner || !interimEl) return;
+  const st = translationStates[slotIdx];
+  if (!st) return;
+  inner.querySelectorAll('.tr-line:not(.interim)').forEach(el => el.remove());
+  const ref = { value: null };
+  st.lines.forEach(l => {
+    inner.insertBefore(buildTranslationLine(l.text, l.speaker, l.lineId, l.color, st.color, ref), interimEl);
   });
+  st.lastSpeaker = ref.value;
+  const sb = document.getElementById('tr-scroll-' + slotIdx);
+  if (sb) requestAnimationFrame(() => { sb.scrollTop = sb.scrollHeight; });
 }
 
-function applyStyle(c){
-  const r=document.documentElement.style;
-  if(c.bg_color)r.setProperty('--bg',c.bg_color);
-  if(c.font_size!==undefined)r.setProperty('--fs',c.font_size+'px');
-  if(c.max_lines!==undefined)r.setProperty('--max-lines',c.max_lines);
-  if(c.font_css)r.setProperty('--font',c.font_css);
-  if(c.caption_color)r.setProperty('--caption-color',c.caption_color);
-  if(c.session_title){document.getElementById('title').textContent=c.session_title;document.title=c.session_title}
-  const fw=document.getElementById('footerWrap'),fi=document.getElementById('footerImg');
-  if(c.footer_image){fi.src='/uploads/'+c.footer_image+'?t='+Date.now();fw.classList.add('vis')}
-  else fw.classList.remove('vis');
-  if(slots['caption'])slots['caption'].color=c.caption_color||'#FFF';
-  // Update translation slot colors from config
-  (c.translations||[]).forEach(tr=>{
-    const k='slot_'+tr.slot;
-    if(slots[k]&&tr.color)slots[k].color=tr.color;
-  });
+function appendTranslationFinal(slotIdx, text, speaker, lineId, color) {
+  if (!translationStates[slotIdx]) translationStates[slotIdx] = { lines: [], lastSpeaker: null, color: color || '#FFD54F' };
+  const st = translationStates[slotIdx];
+  st.lines.push({ text, speaker, lineId, color });
+  while (st.lines.length > 200) st.lines.shift();
+  const inner = document.getElementById('tr-inner-' + slotIdx);
+  const interimEl = document.getElementById('tr-interim-' + slotIdx);
+  if (!inner || !interimEl) return;
+  const ref = { value: st.lastSpeaker };
+  const line = buildTranslationLine(text, speaker, lineId, color, st.color, ref);
+  st.lastSpeaker = ref.value;
+  inner.insertBefore(line, interimEl);
+  interimEl.style.display = 'none';
+  interimEl.innerHTML = '';
+  const finals = inner.querySelectorAll('.tr-line:not(.interim)');
+  if (finals.length > 200) finals[0].remove();
+  const sb = document.getElementById('tr-scroll-' + slotIdx);
+  if (sb) requestAnimationFrame(() => { sb.scrollTop = sb.scrollHeight; });
 }
 
-function slotKey(slot){return 'slot_'+slot}
+function setTranslationInterim(slotIdx, text, speaker, color) {
+  const st = translationStates[slotIdx];
+  const interimEl = document.getElementById('tr-interim-' + slotIdx);
+  if (!interimEl) return;
+  if (text) {
+    interimEl.innerHTML = '';
+    interimEl.style.color = (st && st.color) || color || '#FFD54F';
+    if (speaker && st && speaker !== st.lastSpeaker) {
+      const tag = document.createElement('span');
+      tag.className = 'lc-speaker-tag';
+      tag.textContent = speaker + ': ';
+      tag.style.color = color || (st && st.color) || '';
+      interimEl.appendChild(tag);
+    }
+    interimEl.appendChild(document.createTextNode(text));
+    interimEl.style.display = 'block';
+  } else {
+    interimEl.style.display = 'none';
+    interimEl.innerHTML = '';
+  }
+}
 
-function handleMsg(msg){
-  switch(msg.type){
+function correctTranslation(slotIdx, lineId, newText) {
+  const st = translationStates[slotIdx];
+  if (st) {
+    for (let i = st.lines.length - 1; i >= 0; i--) {
+      if (String(st.lines[i].lineId) === String(lineId)) {
+        st.lines[i].text = newText;
+        break;
+      }
+    }
+  }
+  const inner = document.getElementById('tr-inner-' + slotIdx);
+  if (!inner) return;
+  const lines = inner.querySelectorAll('.tr-line:not(.interim)');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (String(lines[i].dataset.lineId) === String(lineId)) {
+      const el = lines[i];
+      if (el._textNode) el._textNode.textContent = newText;
+      return;
+    }
+  }
+}
+
+// ── Style application ──
+function applyStyle(c) {
+  const r = document.documentElement.style;
+  if (c.bg_color) r.setProperty('--bg', c.bg_color);
+  if (c.font_size !== undefined) r.setProperty('--fs', c.font_size + 'px');
+  if (c.max_lines !== undefined) r.setProperty('--max-lines', c.max_lines);
+  if (c.font_css) r.setProperty('--font', c.font_css);
+  if (c.caption_color) r.setProperty('--caption-color', c.caption_color);
+  if (c.session_title) {
+    document.getElementById('title').textContent = c.session_title;
+    document.title = c.session_title;
+  }
+  const fw = document.getElementById('footerWrap'), fi = document.getElementById('footerImg');
+  if (c.footer_image) {
+    fi.src = '/uploads/' + c.footer_image + '?t=' + Date.now();
+    fw.classList.add('vis');
+  } else {
+    fw.classList.remove('vis');
+  }
+  if (c.footer_position !== undefined) {
+    const pos = Math.max(0, Math.min(100, c.footer_position));
+    fi.style.left = pos + '%';
+  }
+}
+
+// ── Status dot updates (only relevant when caption tile is in grid) ──
+function setCaptionDot(state) {
+  const dot = document.getElementById('lc-dot');
+  if (dot) dot.className = 'dot ' + state;
+}
+function setTranslationDot(slotIdx, state) {
+  const dot = document.getElementById('tr-dot-' + slotIdx);
+  if (dot) dot.className = 'dot ' + state;
+}
+
+// ── WebSocket message handler ──
+function handleMsg(msg) {
+  switch (msg.type) {
     case 'status':
-      if(msg.state==='speech') Object.values(slots).forEach(s=>s.dotEl.className='dot live');
-      else if(msg.state==='silence') Object.values(slots).forEach(s=>s.dotEl.className='dot conn');
-      else if(msg.state==='connected') Object.values(slots).forEach(s=>s.dotEl.className='dot conn');
+      if (msg.state === 'speech') setCaptionDot('live');
+      else if (msg.state === 'silence' || msg.state === 'connected') setCaptionDot('conn');
       break;
     case 'captioning_paused':
-      Object.values(slots).forEach(s=>{if(s.dotEl)s.dotEl.className=msg.paused?'dot paused':'dot live'});
+      setCaptionDot(msg.paused ? 'paused' : 'live');
       break;
     case 'interim':
-      setInterim('caption', msg.text||'', msg.speaker||'', msg.color);
-      if(slots['caption'])slots['caption'].dotEl.className='dot live';
+      setCaptionInterim(msg.text || '', msg.speaker || '', msg.color);
+      setCaptionDot('live');
+      // Fire to plugins (so plugin tiles in the grid see live data)
+      if (window.LinguaTaxi && window.LinguaTaxi.plugins) {
+        window.LinguaTaxi.plugins.fire('on_interim', { text: msg.text || '', speaker: msg.speaker || '' });
+      }
       break;
     case 'final':
-      setInterim('caption','');
-      if(msg.text) addFinalLine('caption', msg.text, msg.speaker||'', msg.line_id, msg.color);
+      setCaptionInterim('');
+      if (msg.text) appendCaptionFinal(msg.text, msg.speaker || '', msg.line_id, msg.color);
+      if (window.LinguaTaxi && window.LinguaTaxi.plugins) {
+        window.LinguaTaxi.plugins.fire('on_final', { text: msg.text, speaker: msg.speaker || '', line_id: msg.line_id, detected_lang: msg.detected_lang });
+      }
       break;
     case 'interim_translation':
-      if(msg.slot!==undefined){
-        const k=slotKey(msg.slot);
-        setInterim(k, msg.translated||'', msg.speaker||'', msg.color);
-        if(slots[k])slots[k].dotEl.className='dot live';
+      if (msg.slot !== undefined) {
+        setTranslationInterim(msg.slot, msg.translated || '', msg.speaker || '', msg.color);
+        setTranslationDot(msg.slot, 'live');
       }
       break;
     case 'final_translation':
-      if(msg.slot!==undefined){
-        const k=slotKey(msg.slot);
-        setInterim(k,'');
-        if(msg.translated)addFinalLine(k, msg.translated, msg.speaker||'', msg.line_id, msg.color);
+      if (msg.slot !== undefined) {
+        setTranslationInterim(msg.slot, '');
+        if (msg.translated) appendTranslationFinal(msg.slot, msg.translated, msg.speaker || '', msg.line_id, msg.color);
       }
       break;
     case 'correct_line':
-      if(msg.line_id!==undefined&&msg.text) correctLine('caption', msg.line_id, msg.text);
+      if (msg.line_id !== undefined && msg.text) correctCaption(msg.line_id, msg.text);
       break;
     case 'correct_translation':
-      if(msg.line_id!==undefined&&msg.slot!==undefined&&msg.translated)
-        correctLine(slotKey(msg.slot), msg.line_id, msg.translated);
+      if (msg.line_id !== undefined && msg.slot !== undefined && msg.translated)
+        correctTranslation(msg.slot, msg.line_id, msg.translated);
       break;
-    case 'speaker_change':
-      // Speaker labels appear inline in the scroll — no separate header needed.
-      // Backend handles buffer splitting with 0.5s retroactive offset.
+    case 'speaker_change': break;
+    case 'clear_captions':
+      clearCaptions();
+      Object.keys(translationStates).forEach(k => {
+        translationStates[k].lines = [];
+        translationStates[k].lastSpeaker = null;
+        const inner = document.getElementById('tr-inner-' + k);
+        if (inner) inner.querySelectorAll('.tr-line:not(.interim)').forEach(l => l.remove());
+      });
       break;
-    case 'clear_captions': clearAll(); break;
+    case 'fact_check_result':
+      if (window.LinguaTaxi && window.LinguaTaxi.plugins) {
+        window.LinguaTaxi.plugins.fire('on_fact_check_result', msg.result || msg);
+      }
+      break;
     case 'config_update':
       applyStyle(msg);
-      if(msg.ui_language) loadTranslations(msg.ui_language);
-      if(msg.all_translations!==undefined){
-        fetch('/api/config').then(r=>r.json()).then(c=>{cfg=c;buildSections(c);applyStyle(c)});
+      if (msg.ui_language) loadTranslations(msg.ui_language);
+      // Any translation-affecting config change → refetch full config + rebuild grid
+      // so translation_N tiles reflect new slot count, languages, and colors.
+      if (msg.all_translations !== undefined ||
+          msg.translations !== undefined ||
+          msg.translation_count !== undefined) {
+        fetch('/api/config').then(r => r.json()).then(c => { cfg = c; buildGrid(); applyStyle(c); });
+      }
+      break;
+    case 'display_grid_change':
+      // Operator updated the grid layout for our display target
+      if (msg.display === DISPLAY_TARGET && msg.grid) {
+        currentGrid = msg.grid;
+        buildGrid();
       }
       break;
     default: break;
   }
 }
 
-function connect(){
-  ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
-  ws.onopen=()=>{recon=0};
-  ws.onmessage=e=>{try{handleMsg(JSON.parse(e.data))}catch(err){}};
-  ws.onclose=()=>{
-    Object.values(slots).forEach(s=>{if(s.dotEl)s.dotEl.className='dot'});
-    if(recon<50)setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
-    else{const el=document.createElement('div');el.className='no-langs';el.textContent='Connection lost — please refresh the page';sectionsEl.appendChild(el)}
+// ── WebSocket lifecycle ──
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+  ws.onopen = () => { recon = 0; setCaptionDot('conn'); };
+  ws.onmessage = e => { try { handleMsg(JSON.parse(e.data)); } catch (err) {} };
+  ws.onclose = () => {
+    setCaptionDot('');
+    if (recon < 50) setTimeout(connect, Math.min(1000 * Math.pow(1.5, recon++), 10000));
   };
-  ws.onerror=()=>{ws.close()};
+  ws.onerror = () => { ws.close(); };
 }
-window.addEventListener('beforeunload',()=>{if(ws)ws.close()});
+window.addEventListener('beforeunload', () => { if (ws) ws.close(); });
 
-fetch('/api/config').then(r=>r.json()).then(c=>{
-  cfg=c; buildSections(c); applyStyle(c); if(c.ui_language) loadTranslations(c.ui_language); connect();
-}).catch(()=>connect());
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Init: fetch config + grid + start WS ──
+async function init() {
+  try {
+    const cfgResp = await fetch('/api/config');
+    if (cfgResp.ok) {
+      cfg = await cfgResp.json();
+      applyStyle(cfg);
+      if (cfg.ui_language) await loadTranslations(cfg.ui_language);
+    }
+  } catch (e) {}
+  try {
+    const gResp = await fetch('/api/display-grids');
+    if (gResp.ok) {
+      const grids = await gResp.json();
+      currentGrid = grids[DISPLAY_TARGET] || {};
+    }
+  } catch (e) {}
+  buildGrid();
+  connect();
+}
+init();
 </script>
+
+<!-- Plugin dispatcher (for plugin event delivery on the audience side) -->
+<script src="/static/plugin_dispatcher.js"></script>
+<!-- Plugin JS files (each plugin's panel.js gets injected here, registers with LinguaTaxi.plugins) -->
+<!-- PLUGIN_JS -->
 </body>
 </html>
