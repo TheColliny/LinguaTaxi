@@ -15,11 +15,83 @@ body{display:flex}
 
 /* ── Left panel ── */
 .ctrl{width:400px;flex-shrink:0;overflow-y:auto;padding:16px;border-right:1px solid var(--bdr);display:flex;flex-direction:column;gap:12px}
+
+/* ── Center: Plugin Grid (4x4 with drag/drop/resize + palette + profiles) ── */
+.plugin-grid-area{flex:1;display:flex;flex-direction:column;padding:10px;overflow:hidden;border-right:1px solid var(--bdr);min-width:500px}
+.pg-header{display:flex;align-items:center;gap:6px;padding:0 4px 8px;flex-shrink:0;flex-wrap:wrap}
+.pg-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.5);margin-right:4px}
+.pg-profile-sel{padding:4px 8px;border-radius:4px;border:1px solid var(--bdr);background:rgba(255,255,255,.04);color:#e0e0e0;font-size:11px;font-family:inherit;cursor:pointer;max-width:180px}
+.pg-btn{padding:4px 9px;border:1px solid var(--bdr);border-radius:4px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.55);font-size:10px;cursor:pointer;font-family:inherit;transition:.15s}
+.pg-btn:hover{background:rgba(255,255,255,.08);color:#fff}
+.pg-btn-p{background:rgba(79,195,247,.12);border-color:rgba(79,195,247,.3);color:#4FC3F7}
+.pg-btn-p:hover{background:rgba(79,195,247,.22)}
+.pg-btn-d{color:#F09595;border-color:rgba(163,45,45,.3)}
+.pg-btn-d:hover{background:rgba(163,45,45,.18)}
+.pg-unsaved-dot{color:#FFC107;font-size:14px;margin-left:2px}
+.pg-display-tab{display:flex;border:1px solid var(--bdr);border-radius:4px;overflow:hidden;margin-left:6px}
+.pg-display-tab button{padding:4px 10px;border:none;background:transparent;color:rgba(255,255,255,.4);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;font-family:inherit;transition:.15s}
+.pg-display-tab button:hover{color:rgba(255,255,255,.7)}
+.pg-display-tab button.act{background:rgba(79,195,247,.15);color:#4FC3F7}
+.pg-display-tab button + button{border-left:1px solid var(--bdr)}
+
+/* Main area: grid on left, palette on right */
+.pg-main{flex:1;display:flex;gap:8px;overflow:hidden;min-height:0}
+.pg-grid-wrap{flex:1;overflow:auto;min-height:0}
+.plugin-grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,minmax(130px,1fr));gap:6px;min-height:100%}
+.pg-cell{border:1px dashed rgba(255,255,255,.08);border-radius:7px;display:flex;flex-direction:column;overflow:hidden;background:rgba(0,0,0,.15);position:relative;transition:border-color .15s,background .15s}
+.pg-cell--empty{transition:background .15s,border-color .15s}
+.pg-cell--dragover{border:1px solid #4FC3F7;background:rgba(79,195,247,.08)}
+.pg-cell--occupied{border:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.3)}
+.pg-cell-header{display:flex;align-items:center;gap:5px;padding:5px 8px;background:rgba(255,255,255,.04);user-select:none;flex-shrink:0;cursor:move}
+.pg-cell-header:hover{background:rgba(255,255,255,.07)}
+.pg-cell-handle{cursor:grab;color:rgba(255,255,255,.25);font-size:10px;letter-spacing:-1px;line-height:1}
+.pg-cell-handle:active{cursor:grabbing}
+.pg-cell-title{font-size:10px;font-weight:600;color:rgba(255,255,255,.75);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.pg-cell-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.pg-cell-actions button{background:none;border:none;color:rgba(255,255,255,.35);cursor:pointer;padding:1px 4px;font-size:11px;line-height:1;font-family:inherit}
+.pg-cell-actions button:hover{color:#fff}
+.pg-toggle-btn{font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.04);color:rgba(255,255,255,.45);letter-spacing:.03em;font-weight:500;transition:background .15s,color .15s,border-color .15s}
+.pg-toggle-btn:hover{background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.35)}
+.pg-toggle-btn--on{border-color:rgba(239,159,39,.45);color:#EF9F27;background:rgba(239,159,39,.1)}
+.pg-toggle-btn--on:hover{background:rgba(239,159,39,.18);color:#FAC775;border-color:rgba(239,159,39,.6)}
+.pg-cell-body{flex:1;overflow-y:auto;padding:6px 8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.1) transparent;min-height:0}
+.pg-cell-body::-webkit-scrollbar{width:4px}
+.pg-cell-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+.pg-resize-handle{position:absolute;bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize;opacity:.35;transition:opacity .15s}
+.pg-resize-handle:hover{opacity:.9}
+.pg-resize-handle::before{content:'';position:absolute;bottom:2px;right:2px;width:8px;height:8px;background:linear-gradient(135deg,transparent 45%,rgba(255,255,255,.4) 45%,rgba(255,255,255,.4) 55%,transparent 55%,transparent 65%,rgba(255,255,255,.4) 65%,rgba(255,255,255,.4) 75%,transparent 75%)}
+.pg-empty-hint{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,.12);font-size:10px;text-align:center;padding:4px}
+
+/* Palette: vertical list of plugin tiles */
+.pg-palette{width:140px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;overflow-y:auto;padding:4px;border:1px solid var(--bdr);border-radius:7px;background:rgba(0,0,0,.12)}
+.pg-palette--hidden{display:none}
+.pg-palette-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.4);padding:4px 4px 2px;position:sticky;top:0;background:rgba(10,10,26,.9)}
+.pg-tile{padding:8px 10px;border-radius:5px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);cursor:grab;font-size:11px;color:rgba(255,255,255,.75);transition:.15s;user-select:none}
+.pg-tile:hover{background:rgba(255,255,255,.08);border-color:rgba(79,195,247,.3);color:#fff}
+.pg-tile:active{cursor:grabbing}
+.pg-tile--dragging{opacity:.3}
+.pg-tile-name{font-weight:600;margin-bottom:2px}
+.pg-tile-desc{font-size:9px;color:rgba(255,255,255,.35);line-height:1.3}
+.pg-palette-empty{font-size:10px;color:rgba(255,255,255,.2);text-align:center;padding:16px 8px;font-style:italic}
+
+/* Drag ghost visuals */
+.pg-cell--dragging{opacity:.4}
+.pg-cell-ghost{pointer-events:none;opacity:.5}
 .ptitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:var(--ac);display:flex;align-items:center;gap:6px}
 .ptitle .dot{width:8px;height:8px;border-radius:50%;background:#555}
 .ptitle .dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
 
 .card{background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+/* ── Collapsible sections ── */
+.coll-section{background:var(--card);border:1px solid var(--bdr);border-radius:8px;overflow:hidden}
+.coll-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:pointer;user-select:none;transition:background .15s}
+.coll-hdr:hover{background:rgba(255,255,255,.03)}
+.coll-hdr .coll-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.6)}
+.coll-hdr .coll-chevron{font-size:10px;color:rgba(255,255,255,.4);transition:transform .2s}
+.coll-section.collapsed .coll-chevron{transform:rotate(-90deg)}
+.coll-body{padding:12px;display:flex;flex-direction:column;gap:8px;transition:max-height .25s ease,padding .25s ease,opacity .2s ease;overflow:hidden}
+.coll-section.collapsed .coll-body{max-height:0;padding:0 12px;opacity:0;pointer-events:none}
+.coll-section:not(.collapsed) .coll-body{max-height:2000px;opacity:1}
 .clbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.6)}
 input[type="text"],input[type="password"],select{width:100%;padding:7px 9px;border-radius:5px;border:1px solid var(--bdr);background:rgba(255,255,255,.05);color:#fff;font-family:inherit;font-size:12px}
 input::placeholder{color:rgba(255,255,255,.4)}
@@ -63,6 +135,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .spbtn{padding:7px 5px;border:1px solid var(--bdr);border-radius:5px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.7);font-family:inherit;font-weight:600;font-size:11px;cursor:pointer;transition:.15s;text-align:center;position:relative}
 .spbtn:hover{background:rgba(255,255,255,.07)}
 .spbtn.act{background:rgba(79,195,247,.12);border-color:var(--ac);color:#fff}
+.sp-vid{display:inline-block;width:6px;height:6px;border-radius:50%;background:#4FC3F7;margin-right:4px;vertical-align:middle;box-shadow:0 0 4px rgba(79,195,247,.4)}
 .spbtn .hk{position:absolute;top:1px;right:3px;font-size:8px;color:rgba(255,255,255,.4)}
 .spwide{grid-column:1/-1}
 .sp-edit{grid-column:1/-1;display:flex;gap:4px;align-items:center;padding:6px 8px;background:rgba(79,195,247,.08);border:1px solid var(--ac);border-radius:5px}
@@ -78,7 +151,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .tslot-dest{font-size:9px;color:rgba(255,255,255,.45);font-style:italic}
 
 /* ── Right: Preview ── */
-.preview{flex:1;display:flex;flex-direction:column;padding:16px;overflow:hidden}
+.preview{width:360px;flex-shrink:0;display:flex;flex-direction:column;padding:16px;overflow:hidden}
 .prev-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.5);margin-bottom:8px}
 .prev-box{flex:1;border-radius:8px;padding:16px;overflow:hidden;display:flex;flex-direction:column;gap:8px;transition:background .3s}
 .prev-session{font-weight:800;font-size:16px;text-align:center;color:#fff;text-transform:uppercase}
@@ -131,6 +204,100 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 .cp-preview-swatch{width:32px;height:32px;border-radius:6px;border:1px solid #666}
 .cp-hex{color:#aaa;font-family:monospace;font-size:0.9em}
 .cp-btns{display:flex;gap:8px;justify-content:flex-end}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Operator Themes — class on <body> overrides default low-contrast styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Theme selector UI */
+.pg-theme-sel{padding:3px 6px;border-radius:4px;border:1px solid var(--bdr);background:rgba(255,255,255,.04);color:rgba(255,255,255,.7);font-size:10px;font-family:inherit;cursor:pointer}
+
+/* ── High Contrast ── */
+body.op-hc{color:#ececec}
+body.op-hc .pg-cell-title{color:#fff}
+body.op-hc .pg-cell-body{color:rgba(255,255,255,.92)}
+body.op-hc .pg-cell--occupied{border-color:rgba(255,255,255,.18);background:rgba(0,0,0,.35)}
+body.op-hc .pg-cell{border-color:rgba(255,255,255,.12)}
+body.op-hc .pg-cell-header{background:rgba(255,255,255,.07)}
+body.op-hc .pg-cell-actions button{color:rgba(255,255,255,.55)}
+body.op-hc .pg-title,body.op-hc .pg-palette-title{color:rgba(255,255,255,.7)}
+body.op-hc .pg-btn{color:rgba(255,255,255,.75)}
+body.op-hc .pg-tile{color:#fff;border-color:rgba(255,255,255,.15)}
+body.op-hc .pg-tile-desc{color:rgba(255,255,255,.5)}
+body.op-hc .pg-empty-hint{color:rgba(255,255,255,.22)}
+body.op-hc .clbl{color:rgba(255,255,255,.8)}
+body.op-hc .vd{color:rgba(255,255,255,.72)}
+body.op-hc .hint{color:rgba(255,255,255,.6)}
+body.op-hc .badge{color:rgba(255,255,255,.6)}
+body.op-hc .spbtn{color:rgba(255,255,255,.85)}
+body.op-hc .tslot{border-color:rgba(255,255,255,.12)}
+body.op-hc .tslot-num{color:rgba(255,255,255,.72)}
+body.op-hc .tslot-dest{color:rgba(255,255,255,.58)}
+body.op-hc .prev-line{color:rgba(255,255,255,.85)}
+body.op-hc .fc-statement{color:rgba(255,255,255,.95)}
+body.op-hc .fc-assessment{color:rgba(255,255,255,.75)}
+body.op-hc .fc-empty{color:rgba(255,255,255,.5)}
+body.op-hc .fc-speaker{color:rgba(255,255,255,.6)}
+body.op-hc .fc-card{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+body.op-hc .fc-signals{color:rgba(255,255,255,.45)}
+body.op-hc .fc-sources-title{color:rgba(255,255,255,.5)}
+body.op-hc .fc-src-link{color:rgba(255,255,255,.8)}
+body.op-hc .fc-meter-labels{color:rgba(255,255,255,.55)}
+body.op-hc .fc-queue-status{color:rgba(255,255,255,.5)}
+body.op-hc .fc-ff-header{color:rgba(255,255,255,.9)}
+body.op-hc .fc-ff-summary{color:rgba(255,255,255,.75)}
+body.op-hc .fc-ff-quote{color:rgba(255,255,255,.85)}
+body.op-hc .fc-magi-prov{color:rgba(255,255,255,.55)}
+body.op-hc .fc-magi-verdict{color:rgba(255,255,255,.8)}
+body.op-hc .fc-count{color:rgba(255,255,255,.6)}
+
+/* ── Midnight Blue ── */
+body.op-midnight{--bg:#0a1628;--card:#0f1d33;--bdr:rgba(100,160,255,.12);--ac:#64B5F6;color:#d6e4f5}
+body.op-midnight .pg-cell-title{color:#E3F2FD}
+body.op-midnight .pg-cell-body{color:rgba(227,242,253,.88)}
+body.op-midnight .pg-cell--occupied{border-color:rgba(100,160,255,.2);background:rgba(10,22,40,.7)}
+body.op-midnight .pg-cell{border-color:rgba(100,160,255,.1)}
+body.op-midnight .pg-cell-header{background:rgba(100,160,255,.06)}
+body.op-midnight .pg-title,body.op-midnight .pg-palette-title{color:rgba(100,181,246,.7)}
+body.op-midnight .pg-btn{color:rgba(227,242,253,.7);border-color:rgba(100,160,255,.15)}
+body.op-midnight .pg-palette{border-color:rgba(100,160,255,.12);background:rgba(10,22,40,.5)}
+body.op-midnight .pg-palette-title{background:rgba(10,22,40,.95)}
+body.op-midnight .pg-tile{color:#E3F2FD;border-color:rgba(100,160,255,.15)}
+body.op-midnight .clbl{color:rgba(227,242,253,.75)}
+body.op-midnight .vd{color:rgba(227,242,253,.65)}
+body.op-midnight .hint{color:rgba(100,181,246,.5)}
+body.op-midnight .spbtn{color:rgba(227,242,253,.8)}
+body.op-midnight .tslot{border-color:rgba(100,160,255,.12)}
+body.op-midnight .fc-statement{color:rgba(227,242,253,.92)}
+body.op-midnight .fc-assessment{color:rgba(227,242,253,.7)}
+body.op-midnight .fc-card{border-color:rgba(100,160,255,.12);background:rgba(15,29,51,.5)}
+body.op-midnight .fc-speaker{color:rgba(100,181,246,.6)}
+body.op-midnight .fc-ff-header{color:rgba(227,242,253,.85)}
+body.op-midnight .fc-ff-summary{color:rgba(227,242,253,.65)}
+
+/* ── Warm ── */
+body.op-warm{--bg:#1a1410;--card:#231c14;--bdr:rgba(255,200,120,.1);--ac:#FFB74D;color:#ede0d0}
+body.op-warm .pg-cell-title{color:#FFF3E0}
+body.op-warm .pg-cell-body{color:rgba(255,243,224,.88)}
+body.op-warm .pg-cell--occupied{border-color:rgba(255,200,120,.18);background:rgba(26,20,16,.7)}
+body.op-warm .pg-cell{border-color:rgba(255,200,120,.1)}
+body.op-warm .pg-cell-header{background:rgba(255,200,120,.05)}
+body.op-warm .pg-title,body.op-warm .pg-palette-title{color:rgba(255,183,77,.65)}
+body.op-warm .pg-btn{color:rgba(255,243,224,.7);border-color:rgba(255,200,120,.12)}
+body.op-warm .pg-palette{border-color:rgba(255,200,120,.1);background:rgba(26,20,16,.5)}
+body.op-warm .pg-palette-title{background:rgba(26,20,16,.95)}
+body.op-warm .pg-tile{color:#FFF3E0;border-color:rgba(255,200,120,.12)}
+body.op-warm .clbl{color:rgba(255,243,224,.72)}
+body.op-warm .vd{color:rgba(255,243,224,.62)}
+body.op-warm .hint{color:rgba(255,183,77,.5)}
+body.op-warm .spbtn{color:rgba(255,243,224,.8)}
+body.op-warm .tslot{border-color:rgba(255,200,120,.1)}
+body.op-warm .fc-statement{color:rgba(255,243,224,.92)}
+body.op-warm .fc-assessment{color:rgba(255,243,224,.7)}
+body.op-warm .fc-card{border-color:rgba(255,200,120,.1);background:rgba(35,28,20,.5)}
+body.op-warm .fc-speaker{color:rgba(255,183,77,.6)}
+body.op-warm .fc-ff-header{color:rgba(255,243,224,.85)}
+body.op-warm .fc-ff-summary{color:rgba(255,243,224,.65)}
 </style>
 <link rel="stylesheet" href="/static/plugin_panel.css">
 <!-- PLUGIN_CSS -->
@@ -250,8 +417,6 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
   </div>
   <button class="btn btn-d" onclick="clearCaptions()" style="width:100%" data-i18n="operator.clear_captions">Clear Captions (C)</button>
 
-  <!-- PLUGIN_PANELS -->
-
   <!-- Display Styling -->
   <div class="card">
     <span class="clbl" data-i18n="operator.background_label">Background</span>
@@ -296,6 +461,45 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
   <div class="badge" id="badge">—</div>
 </div>
 
+<!-- Center: Plugin Grid (4x4 with drag/drop/resize + palette + profiles) -->
+<div class="plugin-grid-area" id="pluginGridArea">
+  <div class="pg-header">
+    <span class="pg-title">Layout</span>
+    <select class="pg-profile-sel" id="pgProfileSel" onchange="loadProfile(this.value)"></select>
+    <span class="pg-unsaved-dot" id="pgUnsavedDot" style="display:none" title="Unsaved changes">●</span>
+    <button class="pg-btn pg-btn-p" onclick="saveCurrentProfile()" title="Save current layout">Save</button>
+    <button class="pg-btn" onclick="saveAsNewProfile()" title="Save as new profile">Save As…</button>
+    <button class="pg-btn pg-btn-d" onclick="deleteCurrentProfile()" title="Delete profile">Delete</button>
+    <div class="pg-display-tab" id="pgDisplayTab" title="Each display has its own grid layout">
+      <button class="act" data-display="main" onclick="setActiveDisplay('main')">Main</button>
+      <button data-display="extended" onclick="setActiveDisplay('extended')">Extended</button>
+    </div>
+    <select class="pg-theme-sel" id="pgThemeSel" onchange="setOpTheme(this.value)" title="Operator theme">
+      <option value="hc">High Contrast</option>
+      <option value="default">Standard</option>
+      <option value="midnight">Midnight Blue</option>
+      <option value="warm">Warm</option>
+    </select>
+    <button class="pg-btn" onclick="togglePalette()" id="pgPaletteToggle" style="margin-left:auto" title="Show/hide plugin palette">☷ Palette</button>
+    <button class="pg-btn" onclick="clearGrid()" title="Remove all plugins from grid">Clear</button>
+  </div>
+  <div class="pg-main">
+    <div class="pg-grid-wrap">
+      <div class="plugin-grid" id="pluginGrid">
+        <!-- 16 cells built dynamically by buildPluginGrid() -->
+      </div>
+    </div>
+    <div class="pg-palette" id="pgPalette">
+      <div class="pg-palette-title" style="display:flex;align-items:center;justify-content:space-between">Available plugins<button onclick="if(typeof refreshPluginPalette==='function')refreshPluginPalette()" style="background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:11px;padding:0 2px" title="Refresh available plugins">&#x21bb;</button></div>
+      <div id="pgPaletteItems"></div>
+    </div>
+  </div>
+  <!-- Hidden container: server injects plugin panel HTML here, grid JS relocates it -->
+  <div id="pluginPanelsHidden" style="display:none">
+    <!-- PLUGIN_PANELS -->
+  </div>
+</div>
+
 <!-- Right: Preview -->
 <div class="preview">
   <div class="prev-title" data-i18n="operator.preview_title">Live Preview (mirrors audience display) — right-click a line to correct</div>
@@ -308,8 +512,20 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;hei
 </div>
 
 <script>
+// ── Operator theme (apply immediately to avoid flash) ──
+const _themeClasses=['op-hc','op-midnight','op-warm'];
+function setOpTheme(t){
+  document.body.classList.remove(..._themeClasses);
+  if(t&&t!=='default') document.body.classList.add('op-'+t);
+  localStorage.setItem('lt_op_theme',t||'hc');
+  const sel=document.getElementById('pgThemeSel');
+  if(sel) sel.value=t||'hc';
+}
+(function(){const t=localStorage.getItem('lt_op_theme')||'hc';if(t&&t!=='default')document.body.classList.add('op-'+t)})();
+
 let ws=null, recon=0, cfg={};
 let speakers=[], activeSp=0, editingSpeakerIdx=-1;
+let voiceIdEnrolled=new Set(); // speaker names with voice enrollment
 let sources=[];  // [{id, name, speaker, color}]
 let focusedSourceId=0;
 let palette=[], bgOpts=[], fontOpts=[], srcLangs={}, tgtLangs={};
@@ -331,6 +547,40 @@ function esc(t){const d=document.createElement('div');d.textContent=t;return d.i
 function debounce(fn, ms) { let tid; return function(...args) { clearTimeout(tid); tid = setTimeout(() => fn.apply(this, args), ms); }; }
 const debouncedSaveAll = debounce(saveAll, 300);
 const debouncedMicSend = debounce(function(v) { if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'set_threshold',value:v/1000})); }, 300);
+
+// ── Collapsible sections ──
+let collapsedSections = [];
+
+function toggleSection(id) {
+  const el = document.getElementById('section-' + id);
+  if (!el) return;
+  const idx = collapsedSections.indexOf(id);
+  if (idx >= 0) {
+    collapsedSections.splice(idx, 1);
+    el.classList.remove('collapsed');
+  } else {
+    collapsedSections.push(id);
+    el.classList.add('collapsed');
+  }
+  saveCollapsedState();
+}
+
+function saveCollapsedState() {
+  const fd = new FormData();
+  fd.append('collapsed_sections', JSON.stringify(collapsedSections));
+  fetch('/api/config', {method: 'POST', body: fd});
+}
+
+function restoreCollapsedState() {
+  document.querySelectorAll('.coll-section').forEach(el => {
+    const id = el.id.replace('section-', '');
+    if (collapsedSections.includes(id)) {
+      el.classList.add('collapsed');
+    } else {
+      el.classList.remove('collapsed');
+    }
+  });
+}
 
 // ── Internationalization ──
 let _i18n = {};
@@ -372,15 +622,25 @@ function applyTranslations() {
 
 // ── Load config ──
 let cfgRetries=0;
-function loadCfg(){
-  fetch('/api/config').then(r=>{if(!r.ok)throw new Error('Config request failed: '+r.status);return r.json()}).then(c=>{
+async function loadCfg(){
+  try {
+    const r = await fetch('/api/config');
+    if(!r.ok) throw new Error('Config request failed: '+r.status);
+    const c = await r.json();
     cfgRetries=0;
     cfg=c;
+    collapsedSections = c.collapsed_sections || ['languages'];
     palette=c.color_palette||[];
     bgOpts=c.bg_options||[];
     fontOpts=c.font_options||[];
     srcLangs=c.source_langs||{};
     tgtLangs=c.target_langs||{};
+
+    // IMPORTANT: load locale before any dynamic UI is built. Otherwise
+    // every t() call inside buildTransSlots / buildSpeakerBtns / etc.
+    // resolves to the raw key (e.g. "operator.translation_slot") because
+    // _i18n/_i18nEn are still empty.
+    await loadTranslations(c.ui_language || 'EN');
 
     document.getElementById('iTitle').value=c.session_title||'';
     document.getElementById('iKey').value=c.deepl_api_key||'';
@@ -399,7 +659,6 @@ function loadCfg(){
     if(!c.has_api_key&&anyDeepL)document.getElementById('warn').style.display='block';
     else document.getElementById('warn').style.display='none';
     if(c.backend)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:c.backend});
-    if(c.ui_language) loadTranslations(c.ui_language);
     tunedModels=c.tuned_models||{};
     activeTunedLang=c.active_tuned_lang||'';
     isWhisper=!!c.is_whisper;
@@ -422,6 +681,12 @@ function loadCfg(){
     buildSpeakerBtns();
     updatePreview();
     applyPreviewStyle();
+    restoreCollapsedState();
+
+    // Set the Resume Translation button label correctly. Without this, the
+    // button keeps its static data-i18n="operator.resume_translation_credits"
+    // even when all translation slots are offline-only.
+    updateTranslationHint();
 
     if(c.footer_image){
       document.getElementById('footerPrevImg').src='/uploads/'+c.footer_image;
@@ -429,7 +694,7 @@ function loadCfg(){
       document.getElementById('pFooterImg').src='/uploads/'+c.footer_image;
       document.getElementById('pFooter').style.display='block';
     }
-  }).catch(e=>{
+  } catch(e) {
     console.error('Config load failed:',e);
     if(cfgRetries<3){
       cfgRetries++;
@@ -438,9 +703,10 @@ function loadCfg(){
     } else {
       document.getElementById('sTxt').textContent=t('operator.status_config_error',{error:e.message});
     }
-  });
+  }
 }
 loadCfg();
+{const _t=localStorage.getItem('lt_op_theme')||'hc';const _s=document.getElementById('pgThemeSel');if(_s)_s.value=_t}
 
 // ── Input language select ──
 function buildInputLangSelect(cur){
@@ -881,8 +1147,8 @@ function _showDownloadProgress(key, pct, msg){
     if(!el) continue;
     const mode=tr.mode||'deepl';
     const lang=tr.lang;
-    const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='auto');
-    const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='auto');
+    const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='offline-auto');
+    const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='offline-auto');
     if(matchesOpus||matchesM2m){
       const label = key.startsWith('opus-') ? 'OPUS-MT' : 'M2M-100';
       const bar = pct>0 ? '<div style="background:#333;border-radius:3px;height:6px;margin-top:3px;width:100%"><div style="background:var(--ac);height:6px;border-radius:3px;width:'+pct+'%"></div></div>' : '';
@@ -896,15 +1162,34 @@ function startOfflinePoll(key){
   if(offlinePollTimers[key]) return;
   offlinePollTimers[key]=setInterval(()=>{
     fetch('/api/offline-translate/progress/'+key).then(r=>r.json()).then(p=>{
-      if(p.status==='ready'||p.status==='error'){
+      if(p.status==='ready'){
         clearInterval(offlinePollTimers[key]);delete offlinePollTimers[key];
         refreshOfflineStatus();
+      } else if(p.status==='error'){
+        clearInterval(offlinePollTimers[key]);delete offlinePollTimers[key];
+        _showDownloadError(key, p.message||'Download failed');
       } else {
         // Show progress while downloading/converting
         _showDownloadProgress(key, p.pct||0, p.message||p.status||'');
       }
     }).catch(()=>{});
   },2000);
+}
+
+function _showDownloadError(key, msg){
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]; if(!tr) continue;
+    const el=document.getElementById('tslot_offline_'+i);
+    if(!el) continue;
+    const mode=tr.mode||'deepl';
+    const lang=tr.lang;
+    const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='offline-auto');
+    const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='offline-auto');
+    if(matchesOpus||matchesM2m){
+      el.innerHTML='<span style="color:#f44336">&#10007;</span> '+esc(msg);
+      el.style.display='block';
+    }
+  }
 }
 
 function refreshOfflineStatus(){
@@ -919,12 +1204,11 @@ function updateTranslationHint(){
   const btn=document.getElementById('pauseBtn');
   if(!btn||!translationPaused) return;
   // H13: renamed lambda param from t to tr
-  const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
-  if(allOffline){
-    btn.textContent=t('operator.resume_translation_offline');
-  } else {
-    btn.textContent=t('operator.resume_translation_credits');
-  }
+  const allOffline=transCount>0 && translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
+  const key = allOffline ? 'operator.resume_translation_offline' : 'operator.resume_translation_credits';
+  btn.textContent = t(key);
+  // Sync data-i18n so later applyTranslations() re-renders use the correct key
+  btn.setAttribute('data-i18n', key);
 }
 
 function onSlotLangChange(idx,lang){
@@ -1180,14 +1464,16 @@ function buildSpeakerBtns(){
       const opts=speakers.map((_,j)=>`<option value="${j+1}"${j+1===idx?' selected':''}>${t('operator.speaker_key_label',{num:j+1})}</option>`).join('');
       h+=`<div class="sp-edit">
         <input type="text" value="${esc(n)}" id="spEditName" placeholder="${t('operator.speaker_edit_placeholder')}"
-          onkeydown="if(event.key==='Enter')saveSpEdit(${idx});if(event.key==='Escape')cancelSpEdit()">
+          onkeydown="if(event.key==='Enter')saveSpEdit(${idx});else if(event.key==='Escape')cancelSpEdit()">
         <select id="spEditKey">${opts}</select>
         <button class="btn btn-p" onclick="saveSpEdit(${idx})" title="${t('operator.speaker_edit_save_title')}">&#10003;</button>
         <button class="btn btn-d" onclick="removeSp(${idx})" title="${t('operator.speaker_edit_remove_title')}">&#10005;</button>
         <button class="btn btn-g" onclick="cancelSpEdit()" title="${t('operator.speaker_edit_cancel_title')}">Esc</button>
       </div>`;
     } else {
-      h+=`<button class="spbtn${activeSp===idx?' act':''}" onclick="setSp(${idx})" ondblclick="startSpEdit(event,${idx})">${esc(n)}${hk}</button>`;
+      const enrolled = voiceIdEnrolled.has(n);
+      const vidBadge = enrolled ? '<span class="sp-vid" title="Voice enrolled"></span>' : '';
+      h+=`<button class="spbtn${activeSp===idx?' act':''}" onclick="setSp(${idx})" ondblclick="startSpEdit(event,${idx})">${vidBadge}${esc(n)}${hk}</button>`;
       if(bidirEnabled){
         const spLang=speakerLangs[n]||'';
         let langOpts=`<option value="">${t('operator.auto_detect')}</option>`;
@@ -1244,7 +1530,31 @@ function saveSpEdit(idx){
   if(!newName){removeSp(idx);return} // Empty name = remove
   const newKey=parseInt(keySelect.value);
   const arrayIdx=idx-1;
+  const oldName=speakers[arrayIdx];
   speakers[arrayIdx]=newName;
+  // Migrate speaker lang mapping when name changes (purely client-side)
+  if(oldName && oldName!==newName){
+    if(speakerLangs && speakerLangs[oldName]!==undefined){
+      speakerLangs[newName]=speakerLangs[oldName];
+      delete speakerLangs[oldName];
+    }
+    // Voice ID handling: if the old name had an enrolled voiceprint, warn the
+    // operator that they'll need to re-enroll under the new name. We do NOT
+    // call /api/voice-id/unenroll here because the server has no rename
+    // endpoint — calling unenroll would silently delete the voice profile.
+    if(voiceIdEnrolled.has(oldName)){
+      const ok = confirm('"' + oldName + '" has an enrolled voiceprint.\n\n' +
+        'Renaming to "' + newName + '" will keep the OLD voice profile under "' + oldName + '" on the server.\n' +
+        'You will need to re-enroll "' + newName + '" by selecting that speaker while they are talking.\n\n' +
+        'Continue with rename?');
+      if(!ok){
+        speakers[arrayIdx]=oldName;  // revert
+        return;
+      }
+      voiceIdEnrolled.delete(oldName);
+      // Don't add newName to voiceIdEnrolled — there's no server-side enrollment for it yet
+    }
+  }
   // If key changed, swap speakers at the two positions
   if(newKey!==idx){
     const newArrayIdx=newKey-1;
@@ -1624,9 +1934,20 @@ function connect(){
       if(m.line_id!==undefined&&m.slot!==undefined&&m.translated)
         prevCorrectLine('trans_'+m.slot, m.line_id, m.translated);
     }
+    else if(m.type==='offline_translate_error'){
+      // Surface offline-translation failures in the slot's status line
+      const el=document.getElementById('tslot_offline_'+m.slot);
+      if(el){
+        el.style.display='block';
+        el.innerHTML='<span style="color:#f44336">&#10007;</span> '+
+                     t('operator.offline_error_prefix')+': '+esc(m.reason||'');
+      }
+      console.warn('[offline]',m.lang,m.mode,m.reason);
+    }
     else if(m.type==='config_update'){
       document.getElementById('pTitle').textContent=m.session_title||t('operator.preview_default_title');
       if(m.ui_language) loadTranslations(m.ui_language);
+      if(typeof window.refreshPluginPalette==='function') window.refreshPluginPalette();
     }
     else if(m.type==='translation_paused'){
       translationPaused=m.paused;
@@ -1683,6 +2004,23 @@ function connect(){
         }
         buildSourceList();
       }
+      // Auto-detected speaker change — update active speaker button
+      if(m.auto && m.speaker){
+        const spIdx=speakers.indexOf(m.speaker);
+        if(spIdx>=0){
+          activeSp=spIdx+1;
+          document.getElementById('pSpeaker').textContent=m.speaker;
+          buildSpeakerBtns();
+        }
+      }
+      // Fire plugin event for auto speaker changes
+      if(m.auto && window.LinguaTaxi && window.LinguaTaxi.plugins){
+        LinguaTaxi.plugins.fire('on_auto_speaker_change',{speaker:m.speaker,previous:m.previous||'',confidence:m.confidence||0});
+      }
+    }
+    else if(m.type==='voice_id_enrolled'){
+      if(m.speaker) voiceIdEnrolled.add(m.speaker);
+      buildSpeakerBtns();
     }
   };
   ws.onclose=()=>{
@@ -1730,6 +2068,7 @@ document.addEventListener('keydown',e=>{
   </div>
 </div>
 <script src="/static/plugin_dispatcher.js"></script>
+<script src="/static/plugin_grid.js"></script>
 <!-- PLUGIN_JS -->
 </body>
 </html>
