@@ -202,7 +202,7 @@ config = load_config()
 # ── Plugin System ──
 PLUGINS_DIR = BASE_DIR / "plugins"
 PLUGINS_DIR.mkdir(exist_ok=True)
-plugin_dispatcher = PluginDispatcher(PLUGINS_DIR, config, save_callback=save_config)
+plugin_dispatcher = PluginDispatcher(PLUGINS_DIR, config)
 
 def _save_speaker_config():
     """Save speaker names, colors, assignments to config."""
