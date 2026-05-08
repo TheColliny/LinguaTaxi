@@ -1,23 +1,68 @@
 {
   "id": "fact_checker",
   "name": "Fact Checker",
-  "version": "1.0.0",
-  "description": "Real-time political statement fact-checking with Claude AI and web search",
+  "version": "1.4.0",
+  "description": "Real-time fact-checking with MBFC source credibility, MAGI multi-provider consensus, and flip-flop detection against cached speaker dossiers.",
   "author": "LinguaTaxi",
-  "hooks": ["on_final", "on_config_change", "on_shutdown"],
+  "hooks": ["on_config_change", "on_speaker_enrolled", "on_shutdown"],
   "has_routes": true,
   "has_panel": true,
   "route_prefix": "/api/fact-check",
   "settings_schema": {
+    "provider": {
+      "type": "text",
+      "label": "Provider: gemini (free), groq (free), claude (paid), or magi (all — weighted consensus)",
+      "default": "gemini"
+    },
+    "claude_model": {
+      "type": "text",
+      "label": "Claude model: sonnet (fast, 0.75 weight) or opus (best, 1.0 weight)",
+      "default": "sonnet"
+    },
     "anthropic_api_key": {
       "type": "password",
-      "label": "Anthropic API Key",
+      "label": "Anthropic API Key (Claude — paid)",
+      "default": ""
+    },
+    "gemini_api_key": {
+      "type": "password",
+      "label": "Google AI API Key (Gemini — free at aistudio.google.com, 0.70 weight)",
+      "default": ""
+    },
+    "groq_api_key": {
+      "type": "password",
+      "label": "Groq API Key (free at groq.com, 0.30 weight)",
+      "default": ""
+    },
+    "brave_api_key": {
+      "type": "password",
+      "label": "Brave Search API Key (required for Groq — free at brave.com/search/api)",
       "default": ""
     },
     "rate_limit": {
       "type": "number",
       "label": "Max checks per minute",
       "default": 10
+    },
+    "credibility_threshold": {
+      "type": "number",
+      "label": "MBFC credibility threshold (0-100)",
+      "default": 32
+    },
+    "flip_flop_enabled": {
+      "type": "text",
+      "label": "Flip-Flop Detection: compare statements to speaker's past positions (true/false, requires upfront dossier prefetch)",
+      "default": "false"
+    },
+    "mode": {
+      "type": "text",
+      "label": "Mode: auto (check every statement) or manual (operator triggers checks)",
+      "default": "auto"
+    },
+    "local_filter": {
+      "type": "text",
+      "label": "Local pre-filter: filters non-claims locally before API calls (true/false, requires model download)",
+      "default": "true"
     }
   }
 }

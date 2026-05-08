@@ -71,8 +71,8 @@ body{display:flex;flex-direction:column}
     <span class="ptt-key" id="pttKeyDisplay">none</span>
     <button class="btn" id="pttBtn" onclick="startCapture()" style="padding:3px 8px;font-size:10px" data-i18n="dictation.ptt_set">Set</button>
   </div>
-  <span class="status" id="status" data-i18n="dictation.status_connecting">Connecting...</span>
-  <span class="wordcount" id="wordcount" data-i18n="dictation.word_count">0 words</span>
+  <span class="status" id="status">Connecting...</span>
+  <span class="wordcount" id="wordcount">0 words</span>
   <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard" data-i18n="dictation.copy_btn">Copy</button>
   <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file" data-i18n="dictation.save_btn">Save</button>
   <button class="btn btn-danger" onclick="clearAll()" title="Clear all text" data-i18n="dictation.clear_btn">Clear</button>
@@ -106,6 +106,14 @@ let pttDisplayName = localStorage.getItem('lt_ptt_key_display') || '';
 let capturing = false;
 let graceTimer = null;
 const GRACE_MS = 750;
+
+// i18n helpers — must be declared before any code that calls t()
+let _i18n={}, _i18nEn={};
+function t(key,vars){
+    let s=_i18n[key]||_i18nEn[key]||key;
+    if(vars)Object.entries(vars).forEach(([k,v])=>{s=s.replaceAll('{'+k+'}',v)});
+    return s;
+}
 
 let BLOCKED_KEYS = {};
 function rebuildBlockedKeys() {
@@ -207,12 +215,6 @@ function startCapture() {
   document.addEventListener('keydown', onCapture, true);
 }
 
-let _i18n={}, _i18nEn={};
-function t(key,vars){
-    let s=_i18n[key]||_i18nEn[key]||key;
-    if(vars)Object.entries(vars).forEach(([k,v])=>{s=s.replaceAll('{'+k+'}',v)});
-    return s;
-}
 async function loadTranslations(lang){
     try{
         if(!Object.keys(_i18nEn).length){const r=await fetch('/api/locales/en');if(r.ok)_i18nEn=await r.json()}

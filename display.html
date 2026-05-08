@@ -48,9 +48,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 .plugin-shell{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
 .plugin-shell .plugin-body{flex:1;overflow-y:auto;padding:1vh 1.2vw;color:rgba(255,255,255,.85)}
 
-.footer-banner{flex-shrink:0;padding:.6vh 0 0;display:none;position:relative;height:6vh;min-height:30px}
+.footer-banner{flex-shrink:0;padding:.6vh 0 0;display:none;position:relative;height:6vh;min-height:30px;overflow:hidden}
 .footer-banner.vis{display:flex;align-items:center}
 .footer-banner img{height:auto;max-height:100%;max-width:min(95%,1000px);object-fit:contain;border-radius:5px;position:absolute;transform:translateX(-50%);transition:left .3s ease}
+.footer-banner .footer-text{position:absolute;transform:translateX(-50%);transition:left .3s ease;font-size:clamp(12px,1.5vh,20px);color:rgba(255,255,255,.7);white-space:nowrap;font-weight:600;letter-spacing:.03em}
 </style>
 <link rel="stylesheet" href="/static/plugin_panel.css">
 <!-- PLUGIN_CSS -->
@@ -62,7 +63,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
     <div class="bar"></div>
   </div>
   <div class="aud-grid" id="audGrid"></div>
-  <div class="footer-banner" id="footerWrap"><img id="footerImg" src="" alt=""></div>
+  <div class="footer-banner" id="footerWrap"><img id="footerImg" src="" alt=""><span class="footer-text" id="footerText"></span></div>
 </div>
 
 <!-- Hidden container for plugin panels (audience-side, used by audience grid renderer) -->
@@ -458,15 +459,29 @@ function applyStyle(c) {
     document.title = c.session_title;
   }
   const fw = document.getElementById('footerWrap'), fi = document.getElementById('footerImg');
-  if (c.footer_image) {
+  const ft = document.getElementById('footerText');
+  const hasImage = !!c.footer_image;
+  const hasText = !!(c.footer_text && c.footer_text.trim());
+  if (hasImage) {
     fi.src = '/uploads/' + c.footer_image + '?t=' + Date.now();
-    fw.classList.add('vis');
+    fi.style.display = '';
   } else {
-    fw.classList.remove('vis');
+    fi.style.display = 'none';
   }
+  if (hasText) {
+    ft.textContent = c.footer_text;
+    ft.style.display = '';
+  } else {
+    ft.textContent = '';
+    ft.style.display = 'none';
+  }
+  if (hasImage || hasText) { fw.classList.add('vis'); } else { fw.classList.remove('vis'); }
   if (c.footer_position !== undefined) {
-    const pos = Math.max(0, Math.min(100, c.footer_position));
-    fi.style.left = pos + '%';
+    const pct = Math.max(0, Math.min(100, c.footer_position));
+    const pad = 2;
+    const left = pad + (pct / 100) * (100 - 2 * pad);
+    fi.style.left = left + '%';
+    ft.style.left = left + '%';
   }
 }
 

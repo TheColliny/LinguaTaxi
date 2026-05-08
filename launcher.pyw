@@ -4,18 +4,19 @@ LinguaTaxi — Live Caption & Translation
 Desktop launcher with server management and browser integration.
 """
 
-import json, os, platform, queue, re, shutil, signal, subprocess, sys, threading, time, webbrowser
+import atexit, json, os, platform, queue, re, shutil, signal, subprocess, sys, threading, time, webbrowser
 import urllib.request, urllib.error
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
+import customtkinter as ctk
 
 # ── Version & Paths ──
 
 APP_NAME = "LinguaTaxi"
 APP_FULL = "LinguaTaxi — Live Caption & Translation"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -188,15 +189,72 @@ def list_mics():
         return []
 
 
+# ── Windows Job Object (auto-kill server when launcher dies) ──
+
+def _create_win_job(proc):
+    """Create a Windows Job Object that auto-kills the child when we die."""
+    if not IS_WIN or not proc:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [("ReadOperationCount", ctypes.c_uint64),
+                        ("WriteOperationCount", ctypes.c_uint64),
+                        ("OtherOperationCount", ctypes.c_uint64),
+                        ("ReadTransferCount", ctypes.c_uint64),
+                        ("WriteTransferCount", ctypes.c_uint64),
+                        ("OtherTransferCount", ctypes.c_uint64)]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                        ("IoInfo", IO_COUNTERS),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+        h = k32.OpenProcess(0x1FFFFF, False, proc.pid)  # PROCESS_ALL_ACCESS
+        if h:
+            k32.AssignProcessToJobObject(job, h)
+            k32.CloseHandle(h)
+        return job
+    except Exception:
+        return None
+
+
 # ══════════════════════════════════════════════
 # MAIN APPLICATION
 # ══════════════════════════════════════════════
 
-class LinguaTaxiApp(tk.Tk):
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
+class LinguaTaxiApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.settings = load_settings()
         self.server_proc = None
+        self._server_job = None
         self.log_queue = queue.Queue()
         self._server_running = False
         self._server_ready = False
@@ -230,7 +288,7 @@ class LinguaTaxiApp(tk.Tk):
 
     def _setup_window(self):
         self.title(_t("app.full_name"))
-        self.minsize(520, 620)
+        self.minsize(620, 660)
         self.resizable(True, True)
 
         # Restore geometry
@@ -239,9 +297,9 @@ class LinguaTaxiApp(tk.Tk):
             try:
                 self.geometry(geo)
             except Exception:
-                self.geometry("560x700")
+                self.geometry("680x740")
         else:
-            self.geometry("560x700")
+            self.geometry("680x740")
 
         # Center on screen if no saved position
         if not geo:
@@ -250,121 +308,32 @@ class LinguaTaxiApp(tk.Tk):
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
             self.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
-        # Dark theme colors
-        self.BG = "#1a1a2e"
-        self.BG2 = "#16213e"
-        self.BG3 = "#0f3460"
-        self.FG = "#e8e8e8"
-        self.FG2 = "#8899aa"
+        # Theme colors
+        self.BG = "#0d0d1a"
+        self.BG2 = "#12122a"
+        self.BG3 = "#1f1f2e"
+        self.FG = "#ffffff"
+        self.FG2 = "#a0a0a0"
         self.ACCENT = "#4FC3F7"
-        self.GREEN = "#4CAF50"
-        self.RED = "#f44336"
+        self.GREEN = "#8BC34A"
+        self.RED = "#ff6b6b"
         self.ORANGE = "#FF9800"
         self.YELLOW = "#FFD54F"
 
-        self.configure(bg=self.BG)
-
-        # Configure ttk styles
-        style = ttk.Style()
-        style.theme_use("clam")
-
-        style.configure(".", background=self.BG, foreground=self.FG,
-                         fieldbackground=self.BG2, borderwidth=0)
-        style.configure("TFrame", background=self.BG)
-        style.configure("Card.TFrame", background=self.BG2)
-        style.configure("TLabel", background=self.BG, foreground=self.FG, font=("Segoe UI", 10))
-        style.configure("Title.TLabel", font=("Segoe UI", 20, "bold"), foreground=self.ACCENT)
-        style.configure("Subtitle.TLabel", font=("Segoe UI", 10), foreground=self.FG2)
-        style.configure("Status.TLabel", font=("Segoe UI", 10, "bold"), foreground=self.FG2)
-        style.configure("Section.TLabel", font=("Segoe UI", 10, "bold"),
-                         foreground=self.ACCENT, background=self.BG)
-
-        style.configure("TButton", padding=(12, 6), font=("Segoe UI", 10),
-                         background=self.BG3, foreground=self.FG)
-        style.map("TButton",
-                   background=[("active", self.ACCENT), ("disabled", "#333")],
-                   foreground=[("active", "#000"), ("disabled", "#666")])
-
-        style.configure("Start.TButton", font=("Segoe UI", 11, "bold"),
-                         background=self.GREEN, foreground="#fff", padding=(16, 10))
-        style.map("Start.TButton",
-                   background=[("active", "#66BB6A"), ("disabled", "#333")])
-
-        style.configure("Stop.TButton", font=("Segoe UI", 11, "bold"),
-                         background=self.RED, foreground="#fff", padding=(16, 10))
-        style.map("Stop.TButton",
-                   background=[("active", "#EF5350"), ("disabled", "#333")])
-
-        style.configure("Browser.TButton", font=("Segoe UI", 10),
-                         background=self.BG3, foreground=self.ACCENT, padding=(10, 7))
-        style.map("Browser.TButton",
-                   background=[("active", self.ACCENT)],
-                   foreground=[("active", "#000"), ("disabled", "#555")])
-
-        style.configure("TCombobox", fieldbackground=self.BG2, foreground=self.FG,
-                         selectbackground=self.BG2, selectforeground=self.FG,
-                         arrowcolor=self.FG, font=("Segoe UI", 10))
-        style.map("TCombobox",
-                   fieldbackground=[("readonly", self.BG2), ("disabled", "#333")],
-                   foreground=[("readonly", self.FG), ("disabled", "#666")],
-                   selectbackground=[("readonly", self.BG2)],
-                   selectforeground=[("readonly", self.FG)],
-                   arrowcolor=[("readonly", self.FG), ("disabled", "#666")])
-
-        # Style the dropdown popup listbox (not reachable via ttk.Style)
-        self.option_add("*TCombobox*Listbox.background", self.BG2)
-        self.option_add("*TCombobox*Listbox.foreground", self.FG)
-        self.option_add("*TCombobox*Listbox.selectBackground", self.ACCENT)
-        self.option_add("*TCombobox*Listbox.selectForeground", "#000")
-        self.option_add("*TCombobox*Listbox.font", ("Segoe UI", 10))
-
-        style.configure("TLabelframe", background=self.BG, foreground=self.ACCENT)
-        style.configure("TLabelframe.Label", background=self.BG,
-                         foreground=self.ACCENT, font=("Segoe UI", 10, "bold"))
-
-        style.configure("Update.TCheckbutton", background=self.BG, foreground=self.FG2,
-                         font=("Segoe UI", 8))
-        style.map("Update.TCheckbutton",
-                   background=[("active", self.BG)],
-                   foreground=[("active", self.FG)])
+        self.configure(fg_color=self.BG)
 
     # ── Build UI ──
 
     def _build_ui(self):
         # Scrollable main container
-        outer = ttk.Frame(self)
-        outer.pack(fill="both", expand=True)
-
-        self._canvas = tk.Canvas(outer, bg=self.BG, highlightthickness=0)
-        self._scrollbar = ttk.Scrollbar(outer, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
-
-        self._scrollbar.pack(side="right", fill="y")
-        self._canvas.pack(side="left", fill="both", expand=True)
-
-        main = ttk.Frame(self._canvas, padding=16)
-        self._canvas.create_window((0, 0), window=main, anchor="nw", tags="main_frame")
-
-        def _on_main_configure(event):
-            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        main.bind("<Configure>", _on_main_configure)
-
-        def _on_canvas_configure(event):
-            self._canvas.itemconfig("main_frame", width=event.width)
-        self._canvas.bind("<Configure>", _on_canvas_configure)
-
-        def _on_mousewheel(event):
-            # Only scroll if content exceeds visible area
-            if self._canvas.bbox("all") and self._canvas.bbox("all")[3] > self._canvas.winfo_height():
-                self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        self._main_mousewheel = _on_mousewheel
-        self._bind_main_mousewheel()
+        main = ctk.CTkScrollableFrame(self, fg_color=self.BG)
+        main.pack(fill="both", expand=True, padx=16, pady=16)
 
         # ── Language Selector ──
-        lang_row = ttk.Frame(main)
+        lang_row = ctk.CTkFrame(main, fg_color="transparent")
         lang_row.pack(fill="x", pady=(0, 4))
 
-        ttk.Label(lang_row, text="\U0001F310", font=("Segoe UI", 14)).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(lang_row, text="\U0001F310", font=("Segoe UI", 14)).pack(side="left", padx=(0, 6))
 
         lang_values = []
         self._lang_codes = []
@@ -375,230 +344,300 @@ class LinguaTaxiApp(tk.Tk):
             self._lang_codes.append(code)
 
         self._lang_var = tk.StringVar()
-        self._lang_combo = ttk.Combobox(lang_row, textvariable=self._lang_var,
-                                         values=lang_values, state="readonly",
-                                         font=("Segoe UI", 10), width=25)
-        self._lang_combo.pack(side="left")
-        self._lang_combo.bind("<<ComboboxSelected>>", self._on_language_changed)
-
+        current_lang_display = ""
         if self._current_lang in self._lang_codes:
-            self._lang_combo.current(self._lang_codes.index(self._current_lang))
+            current_lang_display = lang_values[self._lang_codes.index(self._current_lang)]
+
+        self._lang_combo = ctk.CTkComboBox(lang_row, variable=self._lang_var,
+                                            values=lang_values, state="readonly",
+                                            width=220, font=("Segoe UI", 12),
+                                            fg_color=self.BG2, border_color=self.BG3,
+                                            button_color=self.BG3, button_hover_color=self.ACCENT,
+                                            dropdown_fg_color=self.BG2, dropdown_hover_color=self.BG3,
+                                            command=self._on_language_changed)
+        self._lang_combo.pack(side="left")
+        if current_lang_display:
+            self._lang_combo.set(current_lang_display)
 
         # ── Header ──
-        hdr = ttk.Frame(main)
+        hdr = ctk.CTkFrame(main, fg_color="transparent")
         hdr.pack(fill="x", pady=(0, 12))
 
-        # Left side — title and subtitle
-        hdr_left = ttk.Frame(hdr)
+        hdr_left = ctk.CTkFrame(hdr, fg_color="transparent")
         hdr_left.pack(side="left", fill="both", expand=True)
 
         if EDITION != "Dev":
             title_text = _t("launcher.title_edition", edition=EDITION)
         else:
             title_text = _t("launcher.title_dev")
-        self._title_lbl = ttk.Label(hdr_left, text=title_text,
-                  style="Title.TLabel")
+        self._title_lbl = ctk.CTkLabel(hdr_left, text=title_text,
+                  font=("Segoe UI", 20, "bold"), text_color=self.ACCENT)
         self._title_lbl.pack(anchor="w")
-        self._subtitle_lbl = ttk.Label(hdr_left, text=_t("app.subtitle"),
-                  style="Subtitle.TLabel")
+        self._subtitle_lbl = ctk.CTkLabel(hdr_left, text=_t("app.subtitle"),
+                  font=("Segoe UI", 10), text_color=self.FG2)
         self._subtitle_lbl.pack(anchor="w")
 
-        # Right side — update controls
-        hdr_right = ttk.Frame(hdr)
+        hdr_right = ctk.CTkFrame(hdr, fg_color="transparent")
         hdr_right.pack(side="right", anchor="ne")
 
-        self._update_btn = ttk.Button(hdr_right, text=_t("launcher.check_for_updates"),
-                   command=self._check_for_updates_manual)
+        self._update_btn = ctk.CTkButton(hdr_right, text=_t("launcher.check_for_updates"),
+                   command=self._check_for_updates_manual, width=140,
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG)
         self._update_btn.pack(anchor="e")
 
         self.update_check_var = tk.BooleanVar(
             value=self.settings.get("check_for_updates", True))
-        self._update_chk = ttk.Checkbutton(hdr_right, text=_t("launcher.check_on_startup"),
+        self._update_chk = ctk.CTkCheckBox(hdr_right, text=_t("launcher.check_on_startup"),
                         variable=self.update_check_var,
-                        style="Update.TCheckbutton",
+                        font=("Segoe UI", 11), text_color=self.FG2,
+                        fg_color=self.ACCENT, hover_color=self.BG3,
+                        border_color=self.BG3,
                         command=self._on_update_check_toggled)
         self._update_chk.pack(anchor="e", pady=(4, 0))
 
         self.close_tray_var = tk.BooleanVar(
             value=self.settings.get("close_to_tray", True))
-        self._close_tray_chk = ttk.Checkbutton(hdr_right,
+        self._close_tray_chk = ctk.CTkCheckBox(hdr_right,
                         text="Minimize to tray on close",
                         variable=self.close_tray_var,
-                        style="Update.TCheckbutton")
+                        font=("Segoe UI", 11), text_color=self.FG2,
+                        fg_color=self.ACCENT, hover_color=self.BG3,
+                        border_color=self.BG3)
         self._close_tray_chk.pack(anchor="e", pady=(2, 0))
 
         # ── Server Control ──
-        self._srv_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_frame") + "  ", padding=12)
+        ctk.CTkLabel(main, text=_t("launcher.server_frame"),
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        self._srv_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                        border_width=1, border_color=self.BG3)
         self._srv_frame.pack(fill="x", pady=(0, 10))
 
-        status_row = ttk.Frame(self._srv_frame)
+        srv_inner = ctk.CTkFrame(self._srv_frame, fg_color="transparent")
+        srv_inner.pack(fill="x", padx=12, pady=12)
+
+        status_row = ctk.CTkFrame(srv_inner, fg_color="transparent")
         status_row.pack(fill="x", pady=(0, 8))
 
         self.status_dot = tk.Canvas(status_row, width=12, height=12,
-                                     bg=self.BG, highlightthickness=0)
+                                     bg=self.BG2, highlightthickness=0)
         self.status_dot.pack(side="left", padx=(0, 6))
         self._draw_dot("#666")
 
-        self.status_label = ttk.Label(status_row, text=_t("launcher.status_stopped"),
-                                       style="Status.TLabel")
+        self.status_label = ctk.CTkLabel(status_row, text=_t("launcher.status_stopped"),
+                                          font=("Segoe UI", 10, "bold"), text_color=self.FG2)
         self.status_label.pack(side="left")
 
-        self.backend_label = ttk.Label(status_row, text="",
-                                        style="Subtitle.TLabel")
+        self.backend_label = ctk.CTkLabel(status_row, text="",
+                                           font=("Segoe UI", 10), text_color=self.FG2)
         self.backend_label.pack(side="right")
 
-        btn_row = ttk.Frame(self._srv_frame)
+        btn_row = ctk.CTkFrame(srv_inner, fg_color="transparent")
         btn_row.pack(fill="x")
 
-        self.start_btn = ttk.Button(btn_row, text=_t("launcher.start_server"),
-                                     style="Start.TButton", command=self._start_server)
+        self.start_btn = ctk.CTkButton(btn_row, text=_t("launcher.start_server"),
+                                        fg_color=self.GREEN, hover_color="#9CCC65",
+                                        text_color="#000", font=("Segoe UI", 12, "bold"),
+                                        height=40, command=self._start_server)
         self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
 
-        self.stop_btn = ttk.Button(btn_row, text=_t("launcher.stop_server"),
-                                    style="Stop.TButton", command=self._stop_server,
-                                    state="disabled")
+        self.stop_btn = ctk.CTkButton(btn_row, text=_t("launcher.stop_server"),
+                                       fg_color=self.RED, hover_color="#EF5350",
+                                       text_color="#fff", font=("Segoe UI", 12, "bold"),
+                                       height=40, command=self._stop_server, state="disabled")
         self.stop_btn.pack(side="right", expand=True, fill="x", padx=(4, 0))
 
-        # ── Browser Buttons ──
-        self._browser_frame = ttk.LabelFrame(main, text="  " + _t("launcher.browser_frame") + "  ", padding=12)
+        # ── Main Controls ──
+        ctk.CTkLabel(main, text="Main Controls",
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        self._browser_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                            border_width=1, border_color=self.BG3)
         self._browser_frame.pack(fill="x", pady=(0, 10))
 
-        self.op_btn = ttk.Button(self._browser_frame, text=_t("launcher.operator_controls"),
-                                  style="Browser.TButton", command=self._open_operator,
-                                  state="disabled")
+        browser_inner = ctk.CTkFrame(self._browser_frame, fg_color="transparent")
+        browser_inner.pack(fill="x", padx=12, pady=12)
+
+        self.op_btn = ctk.CTkButton(browser_inner, text=_t("launcher.operator_controls"),
+                                     fg_color=self.BG3, hover_color=self.ACCENT,
+                                     text_color=self.ACCENT, font=("Segoe UI", 11),
+                                     height=34, command=self._open_operator, state="disabled")
         self.op_btn.pack(fill="x", pady=(0, 5))
 
-        disp_row = ttk.Frame(self._browser_frame)
+        disp_row = ctk.CTkFrame(browser_inner, fg_color="transparent")
         disp_row.pack(fill="x")
 
-        self.main_btn = ttk.Button(disp_row, text=_t("launcher.main_display"),
-                                    style="Browser.TButton", command=self._open_main,
-                                    state="disabled")
+        self.main_btn = ctk.CTkButton(disp_row, text=_t("launcher.main_display"),
+                                       fg_color=self.BG3, hover_color=self.ACCENT,
+                                       text_color=self.ACCENT, font=("Segoe UI", 11),
+                                       height=34, command=self._open_main, state="disabled")
         self.main_btn.pack(side="left", expand=True, fill="x", padx=(0, 3))
 
-        self.ext_btn = ttk.Button(disp_row, text=_t("launcher.extended_display"),
-                                   style="Browser.TButton", command=self._open_extended,
-                                   state="disabled")
+        self.ext_btn = ctk.CTkButton(disp_row, text=_t("launcher.extended_display"),
+                                      fg_color=self.BG3, hover_color=self.ACCENT,
+                                      text_color=self.ACCENT, font=("Segoe UI", 11),
+                                      height=34, command=self._open_extended, state="disabled")
         self.ext_btn.pack(side="right", expand=True, fill="x", padx=(3, 0))
 
-        self.dict_btn = ttk.Button(self._browser_frame, text=_t("launcher.dictation"),
-                                    style="Browser.TButton", command=self._open_dictation,
-                                    state="disabled")
-        self.dict_btn.pack(fill="x", pady=(5, 0))
+        # ── Extended Features ──
+        ctk.CTkLabel(main, text="Extended Features",
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        self._ext_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                        border_width=1, border_color=self.BG3)
+        self._ext_frame.pack(fill="x", pady=(0, 10))
 
-        self.bidir_btn = ttk.Button(self._browser_frame, text=_t("launcher.bidirectional_display"),
-                                     style="Browser.TButton", command=self._open_bidirectional,
-                                     state="disabled")
-        self.bidir_btn.pack(fill="x", pady=(5, 0))
+        ext_inner = ctk.CTkFrame(self._ext_frame, fg_color="transparent")
+        ext_inner.pack(fill="x", padx=12, pady=12)
+
+        ext_row = ctk.CTkFrame(ext_inner, fg_color="transparent")
+        ext_row.pack(fill="x")
+
+        self.dict_btn = ctk.CTkButton(ext_row, text=_t("launcher.dictation"),
+                                       fg_color=self.BG3, hover_color=self.ACCENT,
+                                       text_color=self.ACCENT, font=("Segoe UI", 11),
+                                       height=34, command=self._open_dictation, state="disabled")
+        self.dict_btn.pack(side="left", expand=True, fill="x", padx=(0, 3))
+
+        self.bidir_btn = ctk.CTkButton(ext_row, text=_t("launcher.bidirectional_display"),
+                                        fg_color=self.BG3, hover_color=self.ACCENT,
+                                        text_color=self.ACCENT, font=("Segoe UI", 11),
+                                        height=34, command=self._open_bidirectional, state="disabled")
+        self.bidir_btn.pack(side="right", expand=True, fill="x", padx=(3, 0))
 
         # ── Settings ──
-        self._settings_frame = ttk.LabelFrame(main, text="  " + _t("launcher.settings_frame") + "  ", padding=12)
+        ctk.CTkLabel(main, text=_t("launcher.settings_frame"),
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        self._settings_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                             border_width=1, border_color=self.BG3)
         self._settings_frame.pack(fill="x", pady=(0, 10))
 
-        # Transcript directory
-        self._tfiles_lbl = ttk.Label(self._settings_frame, text=_t("launcher.transcript_files"),
-                  style="Section.TLabel")
-        self._tfiles_lbl.pack(anchor="w")
-        tdir_row = ttk.Frame(self._settings_frame)
-        tdir_row.pack(fill="x", pady=(2, 8))
-
-        self.tdir_var = tk.StringVar(value=self.settings.get("transcripts_dir",
-                                     str(DEFAULT_TRANSCRIPTS)))
-        self.tdir_entry = ttk.Entry(tdir_row, textvariable=self.tdir_var,
-                                     font=("Segoe UI", 10))
-        self.tdir_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
-
-        self._browse_btn = ttk.Button(tdir_row, text=_t("launcher.browse"),
-                   command=self._browse_tdir)
-        self._browse_btn.pack(side="right")
+        settings_inner = ctk.CTkFrame(self._settings_frame, fg_color="transparent")
+        settings_inner.pack(fill="x", padx=12, pady=12)
 
         # Audio Sources
-        self._audio_lbl = ttk.Label(self._settings_frame, text=_t("launcher.audio_sources"),
-                  style="Section.TLabel")
+        self._audio_lbl = ctk.CTkLabel(settings_inner, text=_t("launcher.audio_sources"),
+                  font=("Segoe UI", 10, "bold"), text_color=self.ACCENT)
         self._audio_lbl.pack(anchor="w")
-        self._source_frames = []  # list of (frame, combo, var) tuples
-        self._sources_container = ttk.Frame(self._settings_frame)
+        self._source_frames = []
+        self._sources_container = ctk.CTkFrame(settings_inner, fg_color="transparent")
         self._sources_container.pack(fill="x", pady=(2, 4))
         self._mic_devices = []
 
-        # Initialize from settings
         for idx in self.settings.get("source_indices", [-1]):
             self._add_source_row(idx)
 
-        self._add_source_btn = ttk.Button(self._settings_frame, text=_t("launcher.add_source"),
-                                           command=lambda: self._add_source_row())
+        self._add_source_btn = ctk.CTkButton(settings_inner, text=_t("launcher.add_source"),
+                                              fg_color=self.BG3, hover_color=self.ACCENT,
+                                              text_color=self.FG, height=30,
+                                              command=lambda: self._add_source_row())
         self._add_source_btn.pack(fill="x", pady=(0, 8))
 
         # Backend
-        self._backend_lbl = ttk.Label(self._settings_frame, text=_t("launcher.speech_backend"),
-                  style="Section.TLabel")
+        self._backend_lbl = ctk.CTkLabel(settings_inner, text=_t("launcher.speech_backend"),
+                  font=("Segoe UI", 10, "bold"), text_color=self.ACCENT)
         self._backend_lbl.pack(anchor="w")
         self._backend_labels = {"auto": _t("launcher.backend_auto"),
                                  "whisper": _t("launcher.backend_whisper"),
                                  "vosk": _t("launcher.backend_vosk"),
                                  "mlx": _t("launcher.backend_mlx")}
         self._backend_from_label = {v: k for k, v in self._backend_labels.items()}
-        stored_backend = self.settings.get("backend", "auto")
+        default_backend = "whisper" if EDITION == "Full" else "auto"
+        stored_backend = self.settings.get("backend", default_backend)
         self.backend_var = tk.StringVar(value=self._backend_labels.get(stored_backend, stored_backend))
         backend_values = [_t("launcher.backend_auto"), _t("launcher.backend_whisper"),
                           _t("launcher.backend_vosk")]
         if IS_MAC:
             backend_values.append(_t("launcher.backend_mlx"))
-        self._backend_combo = ttk.Combobox(self._settings_frame, textvariable=self.backend_var,
-                                      state="readonly", font=("Segoe UI", 10),
-                                      values=backend_values)
+        self._backend_combo = ctk.CTkComboBox(settings_inner, variable=self.backend_var,
+                                               values=backend_values, state="readonly",
+                                               font=("Segoe UI", 11),
+                                               fg_color=self.BG, border_color=self.BG3,
+                                               button_color=self.BG3, button_hover_color=self.ACCENT,
+                                               dropdown_fg_color=self.BG, dropdown_hover_color=self.BG3)
         self._backend_combo.pack(fill="x", pady=(2, 8))
 
-        self._tuned_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_tuned_models"),
-                   command=self._show_tuned_models_dialog)
-        self._tuned_btn.pack(fill="x", pady=(0, 4))
+        model_grid = ctk.CTkFrame(settings_inner, fg_color="transparent")
+        model_grid.pack(fill="x", pady=(4, 0))
+        model_grid.columnconfigure(0, weight=1)
+        model_grid.columnconfigure(1, weight=1)
 
-        self._offline_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_offline_models"),
-                   command=self._show_offline_translate_dialog)
-        self._offline_btn.pack(fill="x", pady=(0, 4))
+        self._tuned_btn = ctk.CTkButton(model_grid, text=_t("launcher.download_tuned_models"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   height=30, command=self._show_tuned_models_dialog)
+        self._tuned_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=(0, 4))
 
-        self._delete_btn = ttk.Button(self._settings_frame, text=_t("launcher.delete_installed_models"),
-                   command=self._show_model_manager_dialog)
-        self._delete_btn.pack(fill="x", pady=(0, 4))
+        self._offline_btn = ctk.CTkButton(model_grid, text=_t("launcher.download_offline_models"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   height=30, command=self._show_offline_translate_dialog)
+        self._offline_btn.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
 
-        self._vosk_btn = ttk.Button(self._settings_frame, text=_t("launcher.download_vosk_models"),
-                   command=self._show_vosk_models_dialog)
-        self._vosk_btn.pack(fill="x", pady=(4, 0))
+        self._vosk_btn = ctk.CTkButton(model_grid, text=_t("launcher.download_vosk_models"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   height=30, command=self._show_vosk_models_dialog)
+        self._vosk_btn.grid(row=1, column=0, sticky="ew", padx=(0, 3))
+
+        self._delete_btn = ctk.CTkButton(model_grid, text=_t("launcher.delete_installed_models"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   height=30, command=self._show_model_manager_dialog)
+        self._delete_btn.grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
         # ── Log Area ──
-        self._log_frame = ttk.LabelFrame(main, text="  " + _t("launcher.server_log_frame") + "  ", padding=(8, 6))
-        self._log_frame.pack(fill="both", expand=True, pady=(0, 8))
+        ctk.CTkLabel(main, text=_t("launcher.server_log_frame"),
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        log_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                  border_width=1, border_color=self.BG3)
+        log_frame.pack(fill="both", expand=True, pady=(0, 8))
 
-        log_scroll = ttk.Scrollbar(self._log_frame, orient="vertical")
-        self.log_text = tk.Text(self._log_frame, height=8, wrap="word",
-                                 bg="#0a0a1a", fg="#7fdbca", insertbackground="#7fdbca",
-                                 font=("Consolas" if IS_WIN else "Menlo", 10),
-                                 relief="flat", padx=8, pady=6,
-                                 state="disabled",
-                                 yscrollcommand=log_scroll.set)
-        log_scroll.configure(command=self.log_text.yview)
-        log_scroll.pack(side="right", fill="y")
-        self.log_text.pack(side="left", fill="both", expand=True)
+        self.log_text = ctk.CTkTextbox(log_frame, height=180,
+                                        fg_color="#0a0a1a", text_color="#7fdbca",
+                                        font=("Consolas" if IS_WIN else "Menlo", 11),
+                                        corner_radius=6, border_width=0,
+                                        state="disabled")
+        self.log_text.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # Configure log colors
-        self.log_text.tag_configure("info", foreground="#7fdbca")
-        self.log_text.tag_configure("warn", foreground="#FFD54F")
-        self.log_text.tag_configure("error", foreground="#ff6b6b")
-        self.log_text.tag_configure("system", foreground="#4FC3F7")
+        # Configure log colors via internal textbox
+        self.log_text._textbox.tag_configure("info", foreground="#7fdbca")
+        self.log_text._textbox.tag_configure("warn", foreground="#FFD54F")
+        self.log_text._textbox.tag_configure("error", foreground="#ff6b6b")
+        self.log_text._textbox.tag_configure("system", foreground="#4FC3F7")
+
+        # ── Transcript Location ──
+        ctk.CTkLabel(main, text=_t("launcher.transcript_files"),
+                     font=("Segoe UI", 11, "bold"), text_color=self.ACCENT).pack(anchor="w", pady=(0, 4))
+        tdir_frame = ctk.CTkFrame(main, fg_color=self.BG2, corner_radius=8,
+                                   border_width=1, border_color=self.BG3)
+        tdir_frame.pack(fill="x", pady=(0, 8))
+
+        tdir_row = ctk.CTkFrame(tdir_frame, fg_color="transparent")
+        tdir_row.pack(fill="x", padx=12, pady=10)
+
+        self.tdir_var = tk.StringVar(value=self.settings.get("transcripts_dir",
+                                     str(DEFAULT_TRANSCRIPTS)))
+        self.tdir_entry = ctk.CTkEntry(tdir_row, textvariable=self.tdir_var,
+                                        font=("Segoe UI", 11), fg_color=self.BG,
+                                        border_color=self.BG3, text_color=self.FG)
+        self.tdir_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        self._browse_btn = ctk.CTkButton(tdir_row, text=_t("launcher.browse"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   width=70, height=28, command=self._browse_tdir)
+        self._browse_btn.pack(side="left", padx=(0, 4))
+
+        self.open_tdir_btn = ctk.CTkButton(tdir_row, text=_t("launcher.open_transcripts"),
+                                            fg_color=self.BG3, hover_color=self.ACCENT,
+                                            text_color=self.FG, width=110, height=28,
+                                            command=self._open_transcripts_dir)
+        self.open_tdir_btn.pack(side="right")
 
         # ── Footer ──
-        footer = ttk.Frame(main)
+        footer = ctk.CTkFrame(main, fg_color="transparent")
         footer.pack(fill="x")
 
-        self.open_tdir_btn = ttk.Button(footer, text=_t("launcher.open_transcripts"),
-                                         command=self._open_transcripts_dir)
-        self.open_tdir_btn.pack(side="left")
+        self._about_btn = ctk.CTkButton(footer, text=_t("launcher.about"),
+                   fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                   width=80, height=28, command=self._show_about)
+        self._about_btn.pack(side="left")
 
-        self._about_btn = ttk.Button(footer, text=_t("launcher.about"),
-                   command=self._show_about)
-        self._about_btn.pack(side="left", padx=(6, 0))
-
-        ttk.Label(footer, text=f"v{VERSION}", style="Subtitle.TLabel").pack(side="right")
+        ctk.CTkLabel(footer, text=f"v{VERSION}", font=("Segoe UI", 10),
+                     text_color=self.FG2).pack(side="right")
 
         # Welcome message
         self._log_system(_t("launcher.log_welcome_version", version=VERSION))
@@ -606,10 +645,9 @@ class LinguaTaxiApp(tk.Tk):
         self._log_system(_t("launcher.log_transcripts", path=self.tdir_var.get()))
         self._log_system(_t("launcher.log_ready"))
 
-    def _bind_main_mousewheel(self):
-        """Bind mousewheel scrolling to the main canvas (hover-scoped)."""
-        self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._main_mousewheel))
-        self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
+    @staticmethod
+    def _block_combo_scroll(combo):
+        pass  # CTkComboBox handles this internally
 
     # ── Drawing ──
 
@@ -623,23 +661,31 @@ class LinguaTaxiApp(tk.Tk):
         """Add an audio source row to the settings."""
         if len(self._source_frames) >= 8:
             return
-        row = ttk.Frame(self._sources_container)
+        row = ctk.CTkFrame(self._sources_container, fg_color="transparent")
         row.pack(fill="x", pady=1)
 
         num = len(self._source_frames) + 1
-        lbl = ttk.Label(row, text=_t("launcher.source_label", num=num), width=9)
+        lbl = ctk.CTkLabel(row, text=_t("launcher.source_label", num=num),
+                            width=70, font=("Segoe UI", 11), text_color=self.FG2)
         lbl.pack(side="left")
 
         var = tk.StringVar(value=_t("launcher.system_default"))
-        combo = ttk.Combobox(row, textvariable=var, state="readonly",
-                              font=("Segoe UI", 10))
+        combo = ctk.CTkComboBox(row, variable=var, state="readonly",
+                                 font=("Segoe UI", 11), width=300,
+                                 fg_color=self.BG, border_color=self.BG3,
+                                 button_color=self.BG3, button_hover_color=self.ACCENT,
+                                 dropdown_fg_color=self.BG, dropdown_hover_color=self.BG3,
+                                 command=lambda v, c=None: None)
         combo.pack(side="left", fill="x", expand=True, padx=(4, 4))
-        combo.bind("<ButtonPress-1>", lambda e, c=combo: self._refresh_source_combo(c))
+        # Refresh values on dropdown click
+        combo.configure(command=lambda v, c=combo: self._refresh_source_combo(c))
 
         rm_btn = None
-        if len(self._source_frames) > 0:  # Can't remove Source 1
-            rm_btn = ttk.Button(row, text="X", width=3,
-                                 command=lambda r=row: self._remove_source_row(r))
+        if len(self._source_frames) > 0:
+            rm_btn = ctk.CTkButton(row, text="X", width=30, height=28,
+                                    fg_color=self.RED, hover_color="#EF5350",
+                                    text_color="#fff",
+                                    command=lambda r=row: self._remove_source_row(r))
             rm_btn.pack(side="right")
 
         self._source_frames.append((row, combo, var))
@@ -650,7 +696,7 @@ class LinguaTaxiApp(tk.Tk):
             mics = list_mics()
             for j, (i, name, _) in enumerate(mics):
                 if i == device_index:
-                    combo.current(j + 1)  # +1 for "System Default"
+                    combo.set(f"[{i}] {name}")
                     break
 
         self._update_add_button()
@@ -662,7 +708,7 @@ class LinguaTaxiApp(tk.Tk):
         # Renumber labels
         for i, (r, c, v) in enumerate(self._source_frames):
             for child in r.winfo_children():
-                if isinstance(child, ttk.Label):
+                if isinstance(child, ctk.CTkLabel):
                     child.configure(text=_t("launcher.source_label", num=i + 1))
                     break
         self._update_add_button()
@@ -691,11 +737,10 @@ class LinguaTaxiApp(tk.Tk):
             values.extend(loopback)
         elif IS_WIN:
             values.append(_t("launcher.no_system_audio"))
-        combo["values"] = values
+        combo.configure(values=values)
 
     def _get_source_indices(self):
         """Get device indices for all configured audio sources."""
-        # Refresh device list to avoid stale data
         try:
             self._mic_devices = list_mics()
         except Exception:
@@ -703,13 +748,17 @@ class LinguaTaxiApp(tk.Tk):
         indices = []
         for _, combo, var in self._source_frames:
             text = var.get()
-            if text == _t("launcher.system_default") or combo.current() <= 0:
+            if text == _t("launcher.system_default") or not text:
                 indices.append(-1)
             else:
+                matched = False
                 for i, name, _ in self._mic_devices:
                     if f"[{i}] {name}" == text:
                         indices.append(i)
+                        matched = True
                         break
+                if not matched:
+                    indices.append(-1)
         return indices
 
     # ── Server Management ──
@@ -761,11 +810,11 @@ class LinguaTaxiApp(tk.Tk):
 
     def _download_models(self):
         """Show a progress dialog while downloading speech models."""
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_first_time_title"))
         dlg.geometry("480x220")
         dlg.resizable(False, False)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
         dlg.protocol("WM_DELETE_WINDOW", lambda: None)  # prevent close during download
@@ -776,25 +825,25 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 220) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=24)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_downloading_model"),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_downloading_model"),
                   font=("Segoe UI", 12, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 8))
 
         status_var = tk.StringVar(value=_t("launcher.dialog_preparing_download"))
-        status_lbl = ttk.Label(f, textvariable=status_var,
-                               style="Subtitle.TLabel", wraplength=420)
+        status_lbl = ctk.CTkLabel(f, textvariable=status_var,
+                               wraplength=420)
         status_lbl.pack(pady=(0, 12))
 
-        progress = ttk.Progressbar(f, mode="indeterminate", length=420)
+        progress = ctk.CTkProgressBar(f, width=420, mode="indeterminate")
         progress.pack(pady=(0, 12))
         progress.start(15)
 
-        hint = ttk.Label(f,
+        hint = ctk.CTkLabel(f,
                          text=_t("launcher.dialog_first_time_hint"),
-                         style="Subtitle.TLabel", wraplength=420)
+                         wraplength=420)
         hint.pack()
 
         download_done = [False]
@@ -879,12 +928,12 @@ class LinguaTaxiApp(tk.Tk):
                 parent=self)
             return
 
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_tuned_title"))
         dlg.geometry("520x480")
         dlg.minsize(400, 300)
         dlg.resizable(True, True)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -894,15 +943,15 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 480) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=20)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_tuned_heading"),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_tuned_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        ttk.Label(f, text=_t("launcher.dialog_tuned_description"),
-                  style="Subtitle.TLabel", justify="center",
+        ctk.CTkLabel(f, text=_t("launcher.dialog_tuned_description"),
+                  justify="center",
                   wraplength=460).pack(pady=(0, 12))
 
         # Get current status
@@ -921,8 +970,8 @@ class LinguaTaxiApp(tk.Tk):
 
         # Scrollable checkbox area
         cb_canvas = tk.Canvas(f, bg=self.BG, highlightthickness=0)
-        cb_scrollbar = ttk.Scrollbar(f, orient="vertical", command=cb_canvas.yview)
-        cb_frame = ttk.Frame(cb_canvas)
+        cb_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=cb_canvas.yview)
+        cb_frame = ctk.CTkFrame(cb_canvas)
         cb_frame.bind("<Configure>",
                       lambda e: cb_canvas.configure(scrollregion=cb_canvas.bbox("all")))
         cb_canvas.create_window((0, 0), window=cb_frame, anchor="nw",
@@ -954,7 +1003,7 @@ class LinguaTaxiApp(tk.Tk):
             avail = info.get("available", False)
 
             if avail:
-                row = ttk.Frame(cb_frame)
+                row = ctk.CTkFrame(cb_frame)
                 row.pack(anchor="w", pady=2, fill="x")
                 tk.Label(row, text=" \u2713 ", fg="#66BB6A", bg=self.BG,
                          font=("Segoe UI", 10, "bold")).pack(side="left")
@@ -966,38 +1015,37 @@ class LinguaTaxiApp(tk.Tk):
                 cb_widgets[lang] = None
             else:
                 text = f"{name} \u2014 ~{size} GB"
-                cb = ttk.Checkbutton(cb_frame, text=text, variable=var)
+                cb = ctk.CTkCheckBox(cb_frame, text=text, variable=var)
                 cb.pack(anchor="w", pady=2)
                 cb_widgets[lang] = cb
 
         # Buttons (fixed at bottom)
-        btn_frame = ttk.Frame(f)
+        btn_frame = ctk.CTkFrame(f)
         btn_frame.pack(fill="x", pady=(0, 8))
 
-        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
-                            style="Start.TButton",
-                            command=lambda: _start_download())
+        dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
+                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
-        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
+        close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
                                command=dlg.destroy)
         close_btn.pack(side="right")
 
         # Progress area (fixed at bottom)
-        prog_frame = ttk.Frame(f)
+        prog_frame = ctk.CTkFrame(f)
         prog_frame.pack(fill="x", pady=(8, 0))
 
-        progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
+        progress_bar = ctk.CTkProgressBar(prog_frame, mode="determinate", width=400)
         progress_bar.pack_forget()
 
         status_var = tk.StringVar(value=_t("launcher.dialog_tuned_select_prompt"))
-        status_label = ttk.Label(prog_frame, textvariable=status_var,
-                                 style="Subtitle.TLabel", wraplength=460)
+        status_label = ctk.CTkLabel(prog_frame, textvariable=status_var,
+                                 wraplength=460)
         status_label.pack(fill="x")
 
-        hint_label = ttk.Label(prog_frame,
+        hint_label = ctk.CTkLabel(prog_frame,
                                text=_t("launcher.dialog_tuned_hint"),
-                               style="Subtitle.TLabel", wraplength=460)
+                               wraplength=460)
         hint_label.pack(fill="x", pady=(8, 0))
 
         dl_queue = queue.Queue()
@@ -1017,7 +1065,7 @@ class LinguaTaxiApp(tk.Tk):
                 if cb:
                     cb.configure(state="disabled")
             progress_bar.pack(fill="x", pady=(0, 4))
-            progress_bar["value"] = 0
+            progress_bar.set(0)
             status_var.set(_t("launcher.dialog_tuned_starting"))
 
             python = self._find_python()
@@ -1100,7 +1148,7 @@ class LinguaTaxiApp(tk.Tk):
                     while True:
                         msg_type, val, msg = dl_queue.get_nowait()
                         if msg_type == "progress":
-                            progress_bar["value"] = val
+                            progress_bar.set(val / 100)
                             status_var.set(msg)
                         elif msg_type == "status":
                             status_var.set(msg)
@@ -1114,13 +1162,13 @@ class LinguaTaxiApp(tk.Tk):
                             status_var.set(f"[{lang_code}] Error: {msg}")
                         elif msg_type in ("finished", "finished_err", "finished_partial"):
                             if msg_type == "finished":
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(_t("launcher.dialog_tuned_download_complete"))
                             elif msg_type == "finished_err":
-                                progress_bar["value"] = 0
+                                progress_bar.set(0)
                                 status_var.set(msg)
                             else:
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(msg)
                             dl_btn.configure(state="normal")
                             close_btn.configure(state="normal")
@@ -1144,28 +1192,28 @@ class LinguaTaxiApp(tk.Tk):
     def _show_vosk_models_dialog(self):
         """Show dialog for downloading Vosk language models."""
         VOSK_MODELS = {
-            "en": {"name": "English (US)", "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip", "dir": "vosk-model-small-en-us-0.15", "size": "40 MB"},
-            "de": {"name": "German", "url": "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip", "dir": "vosk-model-small-de-0.15", "size": "45 MB"},
-            "fr": {"name": "French", "url": "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip", "dir": "vosk-model-small-fr-0.22", "size": "41 MB"},
-            "es": {"name": "Spanish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip", "dir": "vosk-model-small-es-0.42", "size": "39 MB"},
-            "ru": {"name": "Russian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip", "dir": "vosk-model-small-ru-0.22", "size": "45 MB"},
-            "it": {"name": "Italian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip", "dir": "vosk-model-small-it-0.22", "size": "48 MB"},
-            "ja": {"name": "Japanese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip", "dir": "vosk-model-small-ja-0.22", "size": "48 MB"},
-            "zh": {"name": "Chinese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip", "dir": "vosk-model-small-cn-0.22", "size": "42 MB"},
-            "ar": {"name": "Arabic", "url": "https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip", "dir": "vosk-model-ar-mgb2-0.4", "size": "318 MB"},
-            "pt": {"name": "Portuguese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip", "dir": "vosk-model-small-pt-0.3", "size": "31 MB"},
-            "tr": {"name": "Turkish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-tr-0.3.zip", "dir": "vosk-model-small-tr-0.3", "size": "35 MB"},
-            "ko": {"name": "Korean", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ko-0.22.zip", "dir": "vosk-model-small-ko-0.22", "size": "82 MB"},
+            "en": {"name": "English (US)", "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip", "dir": "vosk-model-small-en-us-0.15", "size": "~40 MB download, ~68 MB on disk"},
+            "de": {"name": "German", "url": "https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip", "dir": "vosk-model-small-de-0.15", "size": "~45 MB download, ~77 MB on disk"},
+            "fr": {"name": "French", "url": "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip", "dir": "vosk-model-small-fr-0.22", "size": "~41 MB download, ~70 MB on disk"},
+            "es": {"name": "Spanish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip", "dir": "vosk-model-small-es-0.42", "size": "~39 MB download, ~67 MB on disk"},
+            "ru": {"name": "Russian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip", "dir": "vosk-model-small-ru-0.22", "size": "~45 MB download, ~77 MB on disk"},
+            "it": {"name": "Italian", "url": "https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip", "dir": "vosk-model-small-it-0.22", "size": "~48 MB download, ~82 MB on disk"},
+            "ja": {"name": "Japanese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip", "dir": "vosk-model-small-ja-0.22", "size": "~48 MB download, ~82 MB on disk"},
+            "zh": {"name": "Chinese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip", "dir": "vosk-model-small-cn-0.22", "size": "~42 MB download, ~72 MB on disk"},
+            "ar": {"name": "Arabic", "url": "https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip", "dir": "vosk-model-ar-mgb2-0.4", "size": "~318 MB download, ~543 MB on disk"},
+            "pt": {"name": "Portuguese", "url": "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip", "dir": "vosk-model-small-pt-0.3", "size": "~31 MB download, ~53 MB on disk"},
+            "tr": {"name": "Turkish", "url": "https://alphacephei.com/vosk/models/vosk-model-small-tr-0.3.zip", "dir": "vosk-model-small-tr-0.3", "size": "~35 MB download, ~60 MB on disk"},
+            "ko": {"name": "Korean", "url": "https://alphacephei.com/vosk/models/vosk-model-small-ko-0.22.zip", "dir": "vosk-model-small-ko-0.22", "size": "~82 MB download, ~140 MB on disk"},
         }
 
         models_dir = APP_DIR / "models"
 
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_vosk_title"))
         dlg.geometry("520x500")
         dlg.minsize(400, 320)
         dlg.resizable(True, True)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -1175,21 +1223,21 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 500) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=20)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_vosk_heading"),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_vosk_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        ttk.Label(f, text=_t("launcher.dialog_vosk_description"),
-                  style="Subtitle.TLabel", justify="center",
+        ctk.CTkLabel(f, text=_t("launcher.dialog_vosk_description"),
+                  justify="center",
                   wraplength=460).pack(pady=(0, 12))
 
         # Scrollable checkbox area
         cb_canvas = tk.Canvas(f, bg=self.BG, highlightthickness=0)
-        cb_scrollbar = ttk.Scrollbar(f, orient="vertical", command=cb_canvas.yview)
-        cb_frame = ttk.Frame(cb_canvas)
+        cb_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=cb_canvas.yview)
+        cb_frame = ctk.CTkFrame(cb_canvas)
         cb_frame.bind("<Configure>",
                       lambda e: cb_canvas.configure(scrollregion=cb_canvas.bbox("all")))
         cb_canvas.create_window((0, 0), window=cb_frame, anchor="nw", tags="inner")
@@ -1219,7 +1267,7 @@ class LinguaTaxiApp(tk.Tk):
             check_vars[lang] = var
 
             if installed:
-                row = ttk.Frame(cb_frame)
+                row = ctk.CTkFrame(cb_frame)
                 row.pack(anchor="w", pady=2, fill="x")
                 tk.Label(row, text=" \u2713 ", fg="#66BB6A", bg=self.BG,
                          font=("Segoe UI", 10, "bold")).pack(side="left")
@@ -1231,38 +1279,37 @@ class LinguaTaxiApp(tk.Tk):
                 cb_widgets[lang] = None
             else:
                 text = f"{info['name']} \u2014 {info['size']}"
-                cb = ttk.Checkbutton(cb_frame, text=text, variable=var)
+                cb = ctk.CTkCheckBox(cb_frame, text=text, variable=var)
                 cb.pack(anchor="w", pady=2)
                 cb_widgets[lang] = cb
 
         # Buttons (fixed at bottom)
-        btn_frame = ttk.Frame(f)
+        btn_frame = ctk.CTkFrame(f)
         btn_frame.pack(fill="x", pady=(0, 8))
 
-        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
-                            style="Start.TButton",
-                            command=lambda: _start_download())
+        dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
+                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
-        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
+        close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
                                command=dlg.destroy)
         close_btn.pack(side="right")
 
         # Progress area (fixed at bottom)
-        prog_frame = ttk.Frame(f)
+        prog_frame = ctk.CTkFrame(f)
         prog_frame.pack(fill="x", pady=(8, 0))
 
-        progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
+        progress_bar = ctk.CTkProgressBar(prog_frame, mode="determinate", width=400)
         progress_bar.pack_forget()
 
         status_var = tk.StringVar(value=_t("launcher.dialog_vosk_select_prompt"))
-        status_label = ttk.Label(prog_frame, textvariable=status_var,
-                                 style="Subtitle.TLabel", wraplength=460)
+        status_label = ctk.CTkLabel(prog_frame, textvariable=status_var,
+                                 wraplength=460)
         status_label.pack(fill="x")
 
-        hint_label = ttk.Label(prog_frame,
+        hint_label = ctk.CTkLabel(prog_frame,
                                text=_t("launcher.dialog_vosk_hint"),
-                               style="Subtitle.TLabel", wraplength=460)
+                               wraplength=460)
         hint_label.pack(fill="x", pady=(8, 0))
 
         dl_queue = queue.Queue()
@@ -1282,7 +1329,7 @@ class LinguaTaxiApp(tk.Tk):
                 if cb:
                     cb.configure(state="disabled")
             progress_bar.pack(fill="x", pady=(0, 4))
-            progress_bar["value"] = 0
+            progress_bar.set(0)
             status_var.set(_t("launcher.dialog_vosk_starting"))
 
             total = len(selected)
@@ -1343,7 +1390,7 @@ class LinguaTaxiApp(tk.Tk):
                     while True:
                         msg_type, val, msg = dl_queue.get_nowait()
                         if msg_type == "progress":
-                            progress_bar["value"] = val
+                            progress_bar.set(val / 100)
                             status_var.set(msg)
                         elif msg_type == "status":
                             status_var.set(msg)
@@ -1354,13 +1401,13 @@ class LinguaTaxiApp(tk.Tk):
                             status_var.set(f"[{lang_code.upper()}] Error: {msg}")
                         elif msg_type in ("finished", "finished_err", "finished_partial"):
                             if msg_type == "finished":
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(_t("launcher.dialog_vosk_download_complete"))
                             elif msg_type == "finished_err":
-                                progress_bar["value"] = 0
+                                progress_bar.set(0)
                                 status_var.set(msg)
                             else:
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(msg)
                             dl_btn.configure(state="normal")
                             close_btn.configure(state="normal")
@@ -1404,12 +1451,12 @@ class LinguaTaxiApp(tk.Tk):
                 parent=self)
             return
 
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_offline_title"))
         dlg.geometry("560x580")
         dlg.minsize(440, 350)
         dlg.resizable(True, True)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -1418,15 +1465,15 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 580) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=20)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_offline_heading"),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_offline_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
-        ttk.Label(f, text=_t("launcher.dialog_offline_description"),
-                  style="Subtitle.TLabel", justify="center",
+        ctk.CTkLabel(f, text=_t("launcher.dialog_offline_description"),
+                  justify="center",
                   wraplength=500).pack(pady=(0, 12))
 
         model_info = self._get_offline_translate_info()
@@ -1449,8 +1496,8 @@ class LinguaTaxiApp(tk.Tk):
 
         # Scrollable model list area
         ol_canvas = tk.Canvas(f, bg=self.BG, highlightthickness=0)
-        ol_scrollbar = ttk.Scrollbar(f, orient="vertical", command=ol_canvas.yview)
-        ol_inner = ttk.Frame(ol_canvas)
+        ol_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=ol_canvas.yview)
+        ol_inner = ctk.CTkFrame(ol_canvas)
         ol_inner.bind("<Configure>",
                       lambda e: ol_canvas.configure(scrollregion=ol_canvas.bbox("all")))
         ol_canvas.create_window((0, 0), window=ol_inner, anchor="nw", tags="inner")
@@ -1470,10 +1517,10 @@ class LinguaTaxiApp(tk.Tk):
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # OPUS-MT section
-        ttk.Label(ol_inner, text=_t("launcher.dialog_offline_opus_section"),
-                  style="Section.TLabel").pack(anchor="w", pady=(4, 2))
+        ctk.CTkLabel(ol_inner, text=_t("launcher.dialog_offline_opus_section"),
+                  ).pack(anchor="w", pady=(4, 2))
 
-        opus_frame = ttk.Frame(ol_inner)
+        opus_frame = ctk.CTkFrame(ol_inner)
         opus_frame.pack(fill="x", pady=(0, 8))
 
         opus_vars = {}
@@ -1490,7 +1537,7 @@ class LinguaTaxiApp(tk.Tk):
             avail = info.get("available", False)
 
             if avail:
-                row = ttk.Frame(opus_frame)
+                row = ctk.CTkFrame(opus_frame)
                 row.pack(anchor="w", pady=1, fill="x")
                 tk.Label(row, text=" \u2713 ", fg="#66BB6A", bg=self.BG,
                          font=("Segoe UI", 9, "bold")).pack(side="left")
@@ -1502,15 +1549,15 @@ class LinguaTaxiApp(tk.Tk):
                 opus_cbs[lang] = None
             else:
                 text = f"{name} ({lang}) \u2014 ~{size} MB download"
-                cb = ttk.Checkbutton(opus_frame, text=text, variable=var)
+                cb = ctk.CTkCheckBox(opus_frame, text=text, variable=var)
                 cb.pack(anchor="w", pady=1)
                 opus_cbs[lang] = cb
 
         # M2M-100 section
-        ttk.Label(ol_inner, text=_t("launcher.dialog_offline_m2m_section"),
-                  style="Section.TLabel").pack(anchor="w", pady=(8, 2))
+        ctk.CTkLabel(ol_inner, text=_t("launcher.dialog_offline_m2m_section"),
+                  ).pack(anchor="w", pady=(8, 2))
 
-        m2m_frame = ttk.Frame(ol_inner)
+        m2m_frame = ctk.CTkFrame(ol_inner)
         m2m_frame.pack(fill="x", pady=(0, 8))
 
         m2m_var = tk.BooleanVar(value=False)
@@ -1520,7 +1567,7 @@ class LinguaTaxiApp(tk.Tk):
         m2m_avail = m2m_info.get("available", False)
         m2m_cb = None
         if m2m_avail:
-            row = ttk.Frame(m2m_frame)
+            row = ctk.CTkFrame(m2m_frame)
             row.pack(anchor="w", fill="x")
             tk.Label(row, text=" \u2713 ", fg="#66BB6A", bg=self.BG,
                      font=("Segoe UI", 9, "bold")).pack(side="left")
@@ -1531,37 +1578,36 @@ class LinguaTaxiApp(tk.Tk):
                      font=("Segoe UI", 9, "bold")).pack(side="left")
         else:
             m2m_text = f"{m2m_name} \u2014 ~{m2m_size_str} download (covers Arabic, Japanese, Chinese, Korean, etc.)"
-            m2m_cb = ttk.Checkbutton(m2m_frame, text=m2m_text, variable=m2m_var)
+            m2m_cb = ctk.CTkCheckBox(m2m_frame, text=m2m_text, variable=m2m_var)
             m2m_cb.pack(anchor="w")
 
         # Buttons (fixed at bottom)
-        btn_frame = ttk.Frame(f)
+        btn_frame = ctk.CTkFrame(f)
         btn_frame.pack(fill="x", pady=(8, 4))
 
-        dl_btn = ttk.Button(btn_frame, text=_t("launcher.download_selected"),
-                            style="Start.TButton",
-                            command=lambda: _start_download())
+        dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
+                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
-        close_btn = ttk.Button(btn_frame, text=_t("launcher.close"),
+        close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
                                command=dlg.destroy)
         close_btn.pack(side="right")
 
         # Progress (fixed at bottom)
-        prog_frame = ttk.Frame(f)
+        prog_frame = ctk.CTkFrame(f)
         prog_frame.pack(fill="x", pady=(8, 0))
 
-        progress_bar = ttk.Progressbar(prog_frame, mode="determinate")
+        progress_bar = ctk.CTkProgressBar(prog_frame, mode="determinate", width=400)
         progress_bar.pack_forget()
 
         status_var = tk.StringVar(value=_t("launcher.dialog_offline_select_prompt"))
-        status_label = ttk.Label(prog_frame, textvariable=status_var,
-                                 style="Subtitle.TLabel", wraplength=500)
+        status_label = ctk.CTkLabel(prog_frame, textvariable=status_var,
+                                 wraplength=500)
         status_label.pack(fill="x")
 
-        ttk.Label(prog_frame,
+        ctk.CTkLabel(prog_frame,
                   text=_t("launcher.dialog_offline_hint"),
-                  style="Subtitle.TLabel", wraplength=500).pack(fill="x", pady=(8, 0))
+                  wraplength=500).pack(fill="x", pady=(8, 0))
 
         dl_queue = queue.Queue()
 
@@ -1585,7 +1631,7 @@ class LinguaTaxiApp(tk.Tk):
             if m2m_cb:
                 m2m_cb.configure(state="disabled")
             progress_bar.pack(fill="x", pady=(0, 4))
-            progress_bar["value"] = 0
+            progress_bar.set(0)
             status_var.set(_t("launcher.dialog_offline_starting"))
 
             python = self._find_python()
@@ -1690,7 +1736,7 @@ class LinguaTaxiApp(tk.Tk):
                     while True:
                         msg_type, val, msg = dl_queue.get_nowait()
                         if msg_type == "progress":
-                            progress_bar["value"] = val
+                            progress_bar.set(val / 100)
                             status_var.set(msg)
                         elif msg_type == "status":
                             status_var.set(msg)
@@ -1700,13 +1746,13 @@ class LinguaTaxiApp(tk.Tk):
                             status_var.set(f"[{val}] Error: {msg}")
                         elif msg_type in ("finished", "finished_err", "finished_partial"):
                             if msg_type == "finished":
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(_t("launcher.dialog_offline_download_complete"))
                             elif msg_type == "finished_err":
-                                progress_bar["value"] = 0
+                                progress_bar.set(0)
                                 status_var.set(msg)
                             else:
-                                progress_bar["value"] = 100
+                                progress_bar.set(1.0)
                                 status_var.set(msg)
                             dl_btn.configure(state="normal")
                             close_btn.configure(state="normal")
@@ -1739,12 +1785,12 @@ class LinguaTaxiApp(tk.Tk):
 
     def _show_model_manager_dialog(self):
         """Show dialog to view, update, and delete installed models."""
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_models_title"))
         dlg.geometry("680x620")
         dlg.minsize(500, 350)
         dlg.resizable(True, True)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -1753,22 +1799,22 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 620) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=16)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_models_heading"),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_models_heading"),
                   font=("Segoe UI", 13, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
 
         status_var = tk.StringVar(value=_t("launcher.dialog_models_loading"))
-        status_lbl = ttk.Label(f, textvariable=status_var,
-                               style="Subtitle.TLabel", wraplength=560)
+        status_lbl = ctk.CTkLabel(f, textvariable=status_var,
+                               wraplength=560)
         status_lbl.pack(fill="x", pady=(0, 8))
 
         # Scrollable list
         canvas = tk.Canvas(f, bg=self.BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(f, orient="vertical", command=canvas.yview)
-        list_frame = ttk.Frame(canvas)
+        scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=canvas.yview)
+        list_frame = ctk.CTkFrame(canvas)
 
         list_frame.bind("<Configure>",
                         lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -1791,16 +1837,16 @@ class LinguaTaxiApp(tk.Tk):
         dlg.bind("<Destroy>", lambda e: self._bind_main_mousewheel() if e.widget == dlg else None)
 
         # Button frame
-        btn_frame = ttk.Frame(f)
+        btn_frame = ctk.CTkFrame(f)
         btn_frame.pack(fill="x", pady=(8, 0))
 
         total_var = tk.StringVar(value="")
-        ttk.Label(btn_frame, textvariable=total_var,
-                  style="Subtitle.TLabel").pack(side="left")
+        ctk.CTkLabel(btn_frame, textvariable=total_var,
+                  ).pack(side="left")
 
-        ttk.Button(btn_frame, text=_t("launcher.dialog_models_refresh"),
+        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_models_refresh"),
                    command=lambda: _populate()).pack(side="right", padx=(8, 0))
-        ttk.Button(btn_frame, text=_t("launcher.close"),
+        ctk.CTkButton(btn_frame, text=_t("launcher.close"),
                    command=dlg.destroy).pack(side="right")
 
         python = self._find_python()
@@ -1904,7 +1950,7 @@ class LinguaTaxiApp(tk.Tk):
             lbl = tk.Label(parent, text=text, fg=self.ACCENT, bg=self.BG,
                            font=("Segoe UI", 11, "bold"), anchor="w")
             lbl.pack(fill="x", pady=(8, 2))
-            sep = ttk.Separator(parent, orient="horizontal")
+            sep = ctk.CTkFrame(parent, height=1, fg_color=self.BG3)
             sep.pack(fill="x", pady=(0, 4))
 
         def _add_model_row(parent, name, size_str, model_type, key):
@@ -2078,6 +2124,7 @@ class LinguaTaxiApp(tk.Tk):
                      "LINGUATAXI_TRANSCRIPTS": self.tdir_var.get().strip()},
                 **kwargs,
             )
+            self._server_job = _create_win_job(self.server_proc)
 
             self._server_running = True
             self._server_ready = False
@@ -2100,20 +2147,30 @@ class LinguaTaxiApp(tk.Tk):
             return
 
         self._log_system(_t("launcher.log_stopping_server"))
+        pid = self.server_proc.pid
+
+        # Try graceful shutdown via HTTP first (releases mic cleanly)
+        try:
+            req = urllib.request.Request(
+                f"http://localhost:{self.settings.get('operator_port', 3001)}/api/shutdown",
+                method="POST", data=b"", headers={"Content-Length": "0"})
+            urllib.request.urlopen(req, timeout=2)
+        except Exception:
+            pass
 
         try:
-            if IS_WIN:
-                # Graceful shutdown on Windows
-                self.server_proc.terminate()
-            else:
-                self.server_proc.send_signal(signal.SIGINT)
-
-            # Wait up to 5 seconds
             try:
                 self.server_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.server_proc.kill()
-                self.server_proc.wait(timeout=3)
+                if IS_WIN:
+                    self.server_proc.terminate()
+                else:
+                    self.server_proc.send_signal(signal.SIGINT)
+                try:
+                    self.server_proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.server_proc.kill()
+                    self.server_proc.wait(timeout=3)
         except Exception as e:
             self._log_error(_t("launcher.error_stop_server", error=e))
             try:
@@ -2121,9 +2178,20 @@ class LinguaTaxiApp(tk.Tk):
             except Exception:
                 pass
 
+        # Kill any orphan child processes (Windows process tree)
+        if IS_WIN and pid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
+
         self._server_running = False
         self._server_ready = False
         self.server_proc = None
+        self._server_job = None
         self._update_ui_state(running=False)
         self._log_system(_t("launcher.log_server_stopped"))
 
@@ -2179,7 +2247,7 @@ class LinguaTaxiApp(tk.Tk):
                     if not self._server_ready:
                         self._server_ready = True
                         self._draw_dot(self.GREEN)
-                        self.status_label.configure(text=_t("launcher.status_running"), foreground=self.GREEN)
+                        self.status_label.configure(text=_t("launcher.status_running"), text_color=self.GREEN)
                         self._log_system(_t("launcher.log_server_ready"))
                         # Now enable browser buttons
                         for btn in (self.op_btn, self.main_btn, self.ext_btn, self.dict_btn, self.bidir_btn):
@@ -2215,7 +2283,7 @@ class LinguaTaxiApp(tk.Tk):
             self.dict_btn.configure(state=btn_state)
             self.bidir_btn.configure(state=btn_state)
             self._draw_dot(self.ORANGE)
-            self.status_label.configure(text=_t("launcher.status_starting"), foreground=self.ORANGE)
+            self.status_label.configure(text=_t("launcher.status_starting"), text_color=self.ORANGE)
             self.backend_label.configure(text=_t("launcher.status_detecting"))
         else:
             self.start_btn.configure(state="normal")
@@ -2226,7 +2294,7 @@ class LinguaTaxiApp(tk.Tk):
             self.dict_btn.configure(state="disabled")
             self.bidir_btn.configure(state="disabled")
             self._draw_dot("#666")
-            self.status_label.configure(text=_t("launcher.status_stopped"), foreground=self.FG2)
+            self.status_label.configure(text=_t("launcher.status_stopped"), text_color=self.FG2)
             self.backend_label.configure(text="")
 
     # ── Server Readiness ──
@@ -2371,12 +2439,12 @@ class LinguaTaxiApp(tk.Tk):
     def _append_log(self, text, tag="info"):
         self.log_text.configure(state="normal")
         ts = time.strftime("%H:%M:%S")
-        self.log_text.insert("end", f"[{ts}] {text}\n", tag)
+        self.log_text._textbox.insert("end", f"[{ts}] {text}\n", tag)
         self.log_text.see("end")
         # Trim to 500 lines
-        lines = int(self.log_text.index("end-1c").split(".")[0])
+        lines = int(self.log_text._textbox.index("end-1c").split(".")[0])
         if lines > 500:
-            self.log_text.delete("1.0", f"{lines - 500}.0")
+            self.log_text._textbox.delete("1.0", f"{lines - 500}.0")
         self.log_text.configure(state="disabled")
 
     def _log_system(self, text):
@@ -2388,27 +2456,30 @@ class LinguaTaxiApp(tk.Tk):
     # ── About ──
 
     def _show_about(self):
-        about = tk.Toplevel(self)
+        about = ctk.CTkToplevel(self)
         about.title(_t("launcher.dialog_about_title"))
         about.geometry("400x320")
         about.resizable(False, False)
-        about.configure(bg=self.BG)
+        about.configure(fg_color=self.BG)
         about.transient(self)
         about.grab_set()
 
-        f = ttk.Frame(about, padding=24)
+        f = ctk.CTkFrame(about, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_about_heading"), style="Title.TLabel").pack(pady=(0, 4))
-        ttk.Label(f, text=_t("app.subtitle"),
-                  style="Subtitle.TLabel").pack()
-        ttk.Label(f, text=f"Version {VERSION}",
-                  style="Subtitle.TLabel").pack(pady=(8, 16))
+        ctk.CTkLabel(f, text=_t("launcher.dialog_about_heading"),
+                     font=("Segoe UI", 20, "bold"), text_color=self.ACCENT).pack(pady=(20, 4))
+        ctk.CTkLabel(f, text=_t("app.subtitle"),
+                     font=("Segoe UI", 11), text_color=self.FG2).pack()
+        ctk.CTkLabel(f, text=f"Version {VERSION}",
+                     font=("Segoe UI", 10), text_color=self.FG2).pack(pady=(8, 16))
 
-        ttk.Label(f, text=_t("launcher.dialog_about_description"), justify="center",
-                  style="Subtitle.TLabel").pack()
+        ctk.CTkLabel(f, text=_t("launcher.dialog_about_description"), justify="center",
+                     font=("Segoe UI", 10), text_color=self.FG2).pack()
 
-        ttk.Button(f, text=_t("launcher.close"), command=about.destroy).pack(pady=(16, 0))
+        ctk.CTkButton(f, text=_t("launcher.close"),
+                      fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+                      command=about.destroy).pack(pady=(16, 0))
 
     # ── Update Checking ──
 
@@ -2498,11 +2569,11 @@ class LinguaTaxiApp(tk.Tk):
         """Show dialog offering to download a new version."""
         version = tag.lstrip("v")
 
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_update_available_title"))
         dlg.geometry("440x200")
         dlg.resizable(False, False)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -2511,16 +2582,16 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 200) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=24)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
-        ttk.Label(f, text=_t("launcher.dialog_update_available_heading", version=version),
+        ctk.CTkLabel(f, text=_t("launcher.dialog_update_available_heading", version=version),
                   font=("Segoe UI", 12, "bold"),
                   foreground=self.ACCENT, background=self.BG).pack(pady=(0, 4))
-        ttk.Label(f, text=_t("launcher.dialog_update_current_version", version=VERSION),
-                  style="Subtitle.TLabel").pack(pady=(0, 16))
+        ctk.CTkLabel(f, text=_t("launcher.dialog_update_current_version", version=VERSION),
+                  ).pack(pady=(0, 16))
 
-        btn_frame = ttk.Frame(f)
+        btn_frame = ctk.CTkFrame(f)
         btn_frame.pack(fill="x")
 
         def _download_now():
@@ -2535,11 +2606,10 @@ class LinguaTaxiApp(tk.Tk):
             save_settings(self.settings)
             dlg.destroy()
 
-        ttk.Button(btn_frame, text=_t("launcher.dialog_update_download_now"), style="Start.TButton",
-                   command=_download_now).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_frame, text=_t("launcher.dialog_update_remind_later"),
+        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_download_now"), fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=_download_now).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_remind_later"),
                    command=_remind_later).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_frame, text=_t("launcher.dialog_update_dont_remind"),
+        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_dont_remind"),
                    command=_dont_remind).pack(side="left")
 
         self.wait_window(dlg)
@@ -2576,11 +2646,11 @@ class LinguaTaxiApp(tk.Tk):
 
     def _show_download_progress(self, url, save_path):
         """Show progress dialog while downloading the installer."""
-        dlg = tk.Toplevel(self)
+        dlg = ctk.CTkToplevel(self)
         dlg.title(_t("launcher.dialog_download_title"))
         dlg.geometry("460x160")
         dlg.resizable(False, False)
-        dlg.configure(bg=self.BG)
+        dlg.configure(fg_color=self.BG)
         dlg.transient(self)
         dlg.grab_set()
 
@@ -2589,13 +2659,13 @@ class LinguaTaxiApp(tk.Tk):
         py = self.winfo_y() + (self.winfo_height() - 160) // 2
         dlg.geometry(f"+{px}+{py}")
 
-        f = ttk.Frame(dlg, padding=20)
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True)
 
         status_var = tk.StringVar(value=_t("launcher.dialog_download_connecting"))
-        ttk.Label(f, textvariable=status_var, style="Subtitle.TLabel").pack(pady=(0, 8))
+        ctk.CTkLabel(f, textvariable=status_var, ).pack(pady=(0, 8))
 
-        progress = ttk.Progressbar(f, mode="determinate", length=400)
+        progress = ctk.CTkProgressBar(f, mode="determinate", width=400)
         progress.pack(pady=(0, 12))
 
         cancelled = [False]
@@ -2603,7 +2673,7 @@ class LinguaTaxiApp(tk.Tk):
         def _cancel():
             cancelled[0] = True
 
-        cancel_btn = ttk.Button(f, text=_t("launcher.dialog_download_cancel"), command=_cancel)
+        cancel_btn = ctk.CTkButton(f, text=_t("launcher.dialog_download_cancel"), command=_cancel)
         cancel_btn.pack()
 
         def _worker():
@@ -2661,7 +2731,7 @@ class LinguaTaxiApp(tk.Tk):
             progress.configure(value=100)
             cancel_btn.destroy()
 
-            btn_frame = ttk.Frame(f)
+            btn_frame = ctk.CTkFrame(f)
             btn_frame.pack(pady=(4, 0))
 
             def _open_folder():
@@ -2673,12 +2743,12 @@ class LinguaTaxiApp(tk.Tk):
                     subprocess.Popen(["xdg-open", str(save_path.parent)])
                 dlg.destroy()
 
-            ttk.Button(btn_frame, text=_t("launcher.dialog_download_open_folder"), command=_open_folder).pack(side="left", padx=(0, 8))
-            ttk.Button(btn_frame, text=_t("launcher.close"), command=dlg.destroy).pack(side="left")
+            ctk.CTkButton(btn_frame, text=_t("launcher.dialog_download_open_folder"), command=_open_folder).pack(side="left", padx=(0, 8))
+            ctk.CTkButton(btn_frame, text=_t("launcher.close"), command=dlg.destroy).pack(side="left")
 
             # Reminder
-            ttk.Label(f, text=_t("launcher.dialog_download_close_reminder"),
-                      style="Subtitle.TLabel").pack(pady=(8, 0))
+            ctk.CTkLabel(f, text=_t("launcher.dialog_download_close_reminder"),
+                      ).pack(pady=(8, 0))
 
         threading.Thread(target=_worker, daemon=True).start()
         self.wait_window(dlg)
@@ -2687,8 +2757,18 @@ class LinguaTaxiApp(tk.Tk):
 
     def _on_language_changed(self, event=None):
         """Handle language selection change."""
-        idx = self._lang_combo.current()
-        if idx < 0:
+        selected = self._lang_combo.get()
+        if not selected:
+            return
+        # Find matching language code
+        lang_values = []
+        for code, info in sorted(self._languages.items(), key=lambda x: x[1].get("native", "")):
+            flag = info.get("flag", "")
+            native = info.get("native", info.get("name", code))
+            lang_values.append(f"{flag} {native}")
+        try:
+            idx = lang_values.index(selected)
+        except ValueError:
             return
         lang = self._lang_codes[idx]
         if lang == self._current_lang:
@@ -2715,7 +2795,7 @@ class LinguaTaxiApp(tk.Tk):
         """Re-apply all translated strings to UI widgets."""
         # Close any open dialogs first (skip those with active downloads)
         for w in list(self.winfo_children()):
-            if isinstance(w, tk.Toplevel):
+            if isinstance(w, ctk.CTkToplevel):
                 if getattr(w, '_has_active_download', False):
                     continue
                 w.destroy()
@@ -2734,8 +2814,7 @@ class LinguaTaxiApp(tk.Tk):
         self._update_btn.configure(text=_t("launcher.check_for_updates"))
         self._update_chk.configure(text=_t("launcher.check_on_startup"))
 
-        # Server frame
-        self._srv_frame.configure(text="  " + _t("launcher.server_frame") + "  ")
+        # Server buttons
         self.start_btn.configure(text=_t("launcher.start_server"))
         self.stop_btn.configure(text=_t("launcher.stop_server"))
 
@@ -2747,17 +2826,14 @@ class LinguaTaxiApp(tk.Tk):
         else:
             self.status_label.configure(text=_t("launcher.status_stopped"))
 
-        # Browser frame
-        self._browser_frame.configure(text="  " + _t("launcher.browser_frame") + "  ")
+        # Browser buttons
         self.op_btn.configure(text=_t("launcher.operator_controls"))
         self.main_btn.configure(text=_t("launcher.main_display"))
         self.ext_btn.configure(text=_t("launcher.extended_display"))
         self.dict_btn.configure(text=_t("launcher.dictation"))
         self.bidir_btn.configure(text=_t("launcher.bidirectional_display"))
 
-        # Settings frame
-        self._settings_frame.configure(text="  " + _t("launcher.settings_frame") + "  ")
-        self._tfiles_lbl.configure(text=_t("launcher.transcript_files"))
+        # Settings
         self._browse_btn.configure(text=_t("launcher.browse"))
         self._audio_lbl.configure(text=_t("launcher.audio_sources"))
         self._add_source_btn.configure(text=_t("launcher.add_source"))
@@ -2780,7 +2856,7 @@ class LinguaTaxiApp(tk.Tk):
         # Source row labels
         for i, (r, c, v) in enumerate(self._source_frames):
             for child in r.winfo_children():
-                if isinstance(child, ttk.Label):
+                if isinstance(child, ctk.CTkLabel):
                     child.configure(text=_t("launcher.source_label", num=i + 1))
                     break
 
@@ -2789,9 +2865,6 @@ class LinguaTaxiApp(tk.Tk):
         self._offline_btn.configure(text=_t("launcher.download_offline_models"))
         self._delete_btn.configure(text=_t("launcher.delete_installed_models"))
         self._vosk_btn.configure(text=_t("launcher.download_vosk_models"))
-
-        # Log frame
-        self._log_frame.configure(text="  " + _t("launcher.server_log_frame") + "  ")
 
         # Footer
         self.open_tdir_btn.configure(text=_t("launcher.open_transcripts"))
@@ -2857,9 +2930,15 @@ class LinguaTaxiApp(tk.Tk):
         def _run_tray_bg():
             self._tray_running = True
             try:
-                self._tray_icon.run()
-            except Exception:
-                pass
+                self._tray_icon.run(setup=lambda icon: None)
+            except Exception as e:
+                try:
+                    with open(str(SETTINGS_DIR / "tray_error.log"), "w") as f:
+                        import traceback
+                        f.write(f"Tray icon failed: {e}\n")
+                        traceback.print_exc(file=f)
+                except Exception:
+                    pass
             self._tray_running = False
 
         threading.Thread(target=_run_tray_bg, daemon=True).start()
@@ -2870,6 +2949,7 @@ class LinguaTaxiApp(tk.Tk):
             return False
         self.withdraw()
         self._tray_icon.visible = True
+        self._tray_icon.notify("LinguaTaxi is still running", "LinguaTaxi")
         return True
 
     def _restore_from_tray(self):
@@ -2897,7 +2977,7 @@ class LinguaTaxiApp(tk.Tk):
         self._closing = True
         self._save_current_settings()
 
-        if self.settings.get("close_to_tray", True) and self._server_running:
+        if self.settings.get("close_to_tray", True):
             if self._minimize_to_tray():
                 self._closing = False
                 return
@@ -2919,5 +2999,20 @@ class LinguaTaxiApp(tk.Tk):
 # ══════════════════════════════════════════════
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LinguaTaxi.Launcher")
     app = LinguaTaxiApp()
+
+    def _atexit_cleanup():
+        if app._server_running and app.server_proc:
+            try:
+                app._stop_server()
+            except Exception:
+                try:
+                    app.server_proc.kill()
+                except Exception:
+                    pass
+
+    atexit.register(_atexit_cleanup)
     app.mainloop()

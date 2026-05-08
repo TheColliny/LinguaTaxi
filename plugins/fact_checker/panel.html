@@ -1,3 +1,15 @@
+<div class="fc-status-row">
+  <span class="fc-count" id="fc-count"></span>
+  <div class="fc-mode-toggle" id="fc-mode-toggle">
+    <button class="fc-mode-btn fc-mode-btn--active" id="fc-mode-auto" onclick="window._fcSetMode('auto')">Auto</button>
+    <button class="fc-mode-btn" id="fc-mode-manual" onclick="window._fcSetMode('manual')">Manual</button>
+  </div>
+  <div class="fc-provider-badge" id="fc-provider-badge"></div>
+</div>
+<div class="fc-manual-controls" id="fc-manual-controls" style="display:none">
+  <button class="fc-manual-btn" id="fc-check-last" onclick="window._fcCheckLast()">Check Last Statement</button>
+  <button class="fc-manual-btn" id="fc-check-30s" onclick="window._fcCheck30s()">Check Last 30s</button>
+</div>
 <div class="fc-empty" id="fc-empty">Fact checker is off. Click Enable to analyze statements as they are transcribed.</div>
 <div class="fc-results" id="fc-results"></div>
 <div class="fc-queue-status" id="fc-queue-status"></div>

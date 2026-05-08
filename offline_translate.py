@@ -260,6 +260,7 @@ def download_opus_model(models_dir, lang_code, on_complete=None):
         return None
 
     def _worker():
+        hf_cache = None  # init so the except handler can reference it safely
         try:
             missing = _check_converter_deps()
             if missing:
@@ -278,11 +279,29 @@ def download_opus_model(models_dir, lang_code, on_complete=None):
             # Use short cache path to avoid Windows MAX_PATH (260 char) errors
             hf_cache = _short_hf_cache()
 
-            hf_local = snapshot_download(
-                repo_id=info["hf_repo"],
-                cache_dir=hf_cache,
-                allow_patterns=_HF_ALLOW_OPUS,
-            )
+            # Pick up an HF token if the user has set one (handles rate limits + gated models)
+            hf_token = (os.environ.get("HUGGING_FACE_HUB_TOKEN")
+                        or os.environ.get("HF_TOKEN")
+                        or None)
+
+            try:
+                hf_local = snapshot_download(
+                    repo_id=info["hf_repo"],
+                    cache_dir=hf_cache,
+                    allow_patterns=_HF_ALLOW_OPUS,
+                    token=hf_token,
+                )
+            except Exception as dl_err:
+                err_str = str(dl_err)
+                if "401" in err_str or "403" in err_str or "Unauthorized" in err_str:
+                    raise RuntimeError(
+                        f"HuggingFace blocked the download (401/403). This usually means "
+                        f"rate limiting or a gated model. Workaround: create a free HuggingFace "
+                        f"account at huggingface.co/join, generate a read token at "
+                        f"huggingface.co/settings/tokens, then set the environment variable "
+                        f"HF_TOKEN=<your_token> and restart LinguaTaxi. Original error: {err_str[:120]}"
+                    )
+                raise
 
             _set_progress(key, "converting", 60,
                           "Converting to CTranslate2 (int8)...")
@@ -294,7 +313,8 @@ def download_opus_model(models_dir, lang_code, on_complete=None):
             try:
                 from ctranslate2.converters import OpusMTConverter
                 converter = OpusMTConverter(hf_local)
-            except (ImportError, Exception):
+            except Exception:
+                # OpusMTConverter not available in newer ctranslate2 — fall back
                 from ctranslate2.converters import TransformersConverter
                 converter = TransformersConverter(
                     hf_local, copy_files=["source.spm", "target.spm"])
@@ -364,6 +384,7 @@ def download_m2m_model(models_dir, on_complete=None):
         return None
 
     def _worker():
+        hf_cache = None  # init so the except handler can reference it safely
         try:
             missing = _check_converter_deps()
             if missing:
@@ -383,11 +404,29 @@ def download_m2m_model(models_dir, on_complete=None):
             # Use short cache path to avoid Windows MAX_PATH (260 char) errors
             hf_cache = _short_hf_cache()
 
-            hf_local = snapshot_download(
-                repo_id=M2M_MODEL["hf_repo"],
-                cache_dir=hf_cache,
-                allow_patterns=_HF_ALLOW_M2M,
-            )
+            # Pick up an HF token if the user has set one (handles rate limits + gated models)
+            hf_token = (os.environ.get("HUGGING_FACE_HUB_TOKEN")
+                        or os.environ.get("HF_TOKEN")
+                        or None)
+
+            try:
+                hf_local = snapshot_download(
+                    repo_id=M2M_MODEL["hf_repo"],
+                    cache_dir=hf_cache,
+                    allow_patterns=_HF_ALLOW_M2M,
+                    token=hf_token,
+                )
+            except Exception as dl_err:
+                err_str = str(dl_err)
+                if "401" in err_str or "403" in err_str or "Unauthorized" in err_str:
+                    raise RuntimeError(
+                        f"HuggingFace blocked the download (401/403). This usually means "
+                        f"rate limiting or a gated model. Workaround: create a free HuggingFace "
+                        f"account at huggingface.co/join, generate a read token at "
+                        f"huggingface.co/settings/tokens, then set the environment variable "
+                        f"HF_TOKEN=<your_token> and restart LinguaTaxi. Original error: {err_str[:120]}"
+                    )
+                raise
 
             _set_progress(key, "converting", 50,
                           "Converting to CTranslate2 (int8) — this may take 10-20 min...")
@@ -397,20 +436,29 @@ def download_m2m_model(models_dir, on_complete=None):
             output_path.mkdir(parents=True, exist_ok=True)
 
             # M2M100Converter was removed in ctranslate2 >=4.x; use TransformersConverter
+            # NOTE: facebook/m2m100_1.2B ships the tokenizer as `sentencepiece.bpe.model`,
+            # not `sentencepiece.model`. Passing the wrong filename causes
+            # "Not found: sentencepiece.model: No such file or directory" during convert.
             try:
                 from ctranslate2.converters import M2M100Converter
                 converter = M2M100Converter(hf_local)
             except ImportError:
                 from ctranslate2.converters import TransformersConverter
                 converter = TransformersConverter(
-                    hf_local, copy_files=["sentencepiece.model"])
+                    hf_local, copy_files=["sentencepiece.bpe.model"])
             converter.convert(str(output_path), quantization="int8", force=True)
 
-            # Ensure sentencepiece.model is in output (some converters don't copy it)
-            sp_src = Path(hf_local) / "sentencepiece.model"
+            # Normalize tokenizer filename to `sentencepiece.model` so the
+            # inference loader (_load_m2m_model) finds it regardless of which
+            # converter was used or what it named the copied file.
             sp_dst = output_path / "sentencepiece.model"
-            if sp_src.exists() and not sp_dst.exists():
-                shutil.copy2(str(sp_src), str(sp_dst))
+            if not sp_dst.exists():
+                sp_dst_bpe = output_path / "sentencepiece.bpe.model"
+                sp_src_bpe = Path(hf_local) / "sentencepiece.bpe.model"
+                if sp_dst_bpe.exists():
+                    shutil.move(str(sp_dst_bpe), str(sp_dst))
+                elif sp_src_bpe.exists():
+                    shutil.copy2(str(sp_src_bpe), str(sp_dst))
 
             if not (output_path / "model.bin").exists():
                 _set_progress(key, "error", 0, "Conversion produced no model.bin")
@@ -548,6 +596,65 @@ def _translate_m2m(text, source_lang, target_lang, model_path):
     return sp.Decode(output_tokens)
 
 
+# Last offline translation failure reason, keyed by (src, tgt, engine).
+# Read by server.py to surface diagnostic info to the operator UI when a
+# translation silently returns "". Thread-safe via _last_error_lock.
+_last_error: dict = {}
+_last_error_lock = threading.Lock()
+
+
+def _record_error(source_upper, target_upper, engine, reason):
+    key = (source_upper, target_upper, engine)
+    with _last_error_lock:
+        _last_error[key] = reason
+    log.warning(f"Offline translate ({engine}) {source_upper}->{target_upper}: {reason}")
+
+
+def get_last_offline_error(source_lang, target_lang, engine="auto"):
+    """Return the most recent failure reason for this src/tgt/engine, or ''."""
+    src = source_lang.upper().split("-")[0]
+    tgt = target_lang.upper()
+    with _last_error_lock:
+        return _last_error.get((src, tgt, engine), "")
+
+
+def diagnose_offline(source_lang, target_lang, models_dir, engine="auto"):
+    """Return a user-readable reason why offline translation would fail for
+    this pair, or '' if everything looks OK. Does NOT translate."""
+    src = source_lang.upper().split("-")[0]
+    tgt = target_lang.upper()
+    missing = _check_converter_deps()
+    # ctranslate2 + sentencepiece are required for inference, not just conversion
+    try:
+        import sentencepiece  # noqa: F401
+    except ImportError:
+        missing.append("sentencepiece")
+    if "ctranslate2" in missing or "sentencepiece" in missing:
+        return (f"Required packages missing: "
+                f"{', '.join(x for x in missing if x in ('ctranslate2','sentencepiece'))}. "
+                f"Run: pip install ctranslate2 sentencepiece")
+    if engine == "opus-mt":
+        if src != "EN":
+            return f"OPUS-MT only supports English source, got {src}"
+        if tgt not in OPUS_MODELS:
+            return f"No OPUS-MT model registered for target {tgt}"
+        if not is_opus_available(models_dir, tgt):
+            return f"OPUS-MT model for {tgt} is not downloaded"
+    elif engine == "m2m100":
+        if not is_m2m_available(models_dir):
+            return "M2M-100 model is not downloaded"
+    else:  # auto
+        opus_ok = src == "EN" and tgt in OPUS_MODELS and is_opus_available(models_dir, tgt)
+        m2m_ok = is_m2m_available(models_dir)
+        if not (opus_ok or m2m_ok):
+            hint = []
+            if src == "EN" and tgt in OPUS_MODELS:
+                hint.append(f"OPUS-MT {tgt}")
+            hint.append("M2M-100")
+            return f"No offline model available for {src}->{tgt}. Download one of: {', '.join(hint)}"
+    return ""
+
+
 def translate_offline(text, source_lang, target_lang, models_dir, engine="auto"):
     """Translate text using a local model.
 
@@ -559,7 +666,8 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
         engine: "auto", "opus-mt", or "m2m100"
 
     Returns:
-        Translated text, or "" on failure
+        Translated text, or "" on failure. Callers can inspect the reason via
+        get_last_offline_error(source, target, engine).
     """
     if not text.strip():
         return ""
@@ -575,8 +683,13 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
 
         if engine == "opus-mt":
             if source_upper != "EN":
-                log.warning(f"OPUS-MT only supports EN source, got {source_upper}; falling back")
+                _record_error(source_upper, target_upper, engine,
+                              f"OPUS-MT only supports EN source, got {source_upper}; falling back to M2M-100")
                 use_m2m = is_m2m_available(models_dir)
+                if not use_m2m:
+                    _record_error(source_upper, target_upper, engine,
+                                  "M2M-100 not downloaded (required fallback for non-EN source)")
+                    return ""
             else:
                 use_opus = True
         elif engine == "m2m100":
@@ -603,6 +716,8 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
                     use_opus = False
                     use_m2m = True
                 else:
+                    _record_error(source_upper, target_upper, engine,
+                                  f"OPUS-MT model for {target_upper} not downloaded and M2M-100 unavailable")
                     return ""
 
         if use_opus and model_path:
@@ -610,12 +725,23 @@ def translate_offline(text, source_lang, target_lang, models_dir, engine="auto")
         elif use_m2m:
             model_path = get_m2m_model_path(models_dir)
             if not (model_path / "model.bin").exists():
+                _record_error(source_upper, target_upper, engine,
+                              "M2M-100 model not downloaded")
                 return ""
             return _translate_m2m(text, source_upper, target_upper, model_path)
         else:
+            _record_error(source_upper, target_upper, engine,
+                          f"No offline model available for {source_upper}->{target_upper} "
+                          f"(auto mode found neither OPUS-MT nor M2M-100)")
             return ""
 
+    except ImportError as e:
+        _record_error(source_upper, target_upper, engine,
+                      f"Missing Python package: {e}. Run: pip install ctranslate2 sentencepiece")
+        log.error(f"Offline translation import error ({target_lang}): {e}")
+        return ""
     except Exception as e:
+        _record_error(source_upper, target_upper, engine, str(e)[:200])
         log.error(f"Offline translation error ({target_lang}): {e}")
         return ""
 

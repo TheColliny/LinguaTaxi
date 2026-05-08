@@ -10,6 +10,13 @@ window.LinguaTaxi.plugins = (() => {
 
   function register(pluginId, handlers) {
     _registry[pluginId] = handlers;
+    // Auto-fire on_enabled: a loaded plugin is active by default.
+    // The grid system will fire on_disabled if the operator removes it.
+    if (typeof handlers.on_enabled === 'function') {
+      try { handlers.on_enabled({ pluginId }); } catch (e) {
+        console.error(`Plugin '${pluginId}' error on auto on_enabled:`, e);
+      }
+    }
   }
 
   function fire(eventName, data) {

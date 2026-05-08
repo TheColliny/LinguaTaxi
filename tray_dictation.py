@@ -6,7 +6,7 @@ Connects to the LinguaTaxi server's dictation WebSocket and injects
 transcribed text into the focused application using OS keystroke simulation.
 """
 
-import json, os, subprocess, sys, threading, time
+import atexit, json, logging, os, subprocess, sys, threading, time
 from pathlib import Path
 
 # ── Paths (same as launcher.pyw) ──
@@ -91,6 +91,7 @@ def _init_icons():
 # ── Server Auto-Start ──
 
 _server_proc = None
+_server_job = None  # Windows Job Object handle
 
 def _find_python():
     """Find python executable — same logic as launcher."""
@@ -111,8 +112,58 @@ def _is_server_running():
     except Exception:
         return False
 
+def _create_win_job(proc):
+    """Create a Windows Job Object that auto-kills the server when we die."""
+    if not IS_WIN:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [("ReadOperationCount", ctypes.c_uint64),
+                        ("WriteOperationCount", ctypes.c_uint64),
+                        ("OtherOperationCount", ctypes.c_uint64),
+                        ("ReadTransferCount", ctypes.c_uint64),
+                        ("WriteTransferCount", ctypes.c_uint64),
+                        ("OtherTransferCount", ctypes.c_uint64)]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                        ("IoInfo", IO_COUNTERS),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+        h = k32.OpenProcess(0x1FFFFF, False, proc.pid)  # PROCESS_ALL_ACCESS
+        if h:
+            k32.AssignProcessToJobObject(job, h)
+            k32.CloseHandle(h)
+        return job
+    except Exception:
+        return None
+
 def start_server_if_needed():
-    global _server_proc
+    global _server_proc, _server_job
     if _is_server_running():
         return True
 
@@ -149,6 +200,7 @@ def start_server_if_needed():
                  "LINGUATAXI_TRANSCRIPTS": tdir},
             **kwargs,
         )
+        _server_job = _create_win_job(_server_proc)
         # Wait for server to become ready
         for _ in range(30):
             time.sleep(1)
@@ -158,18 +210,46 @@ def start_server_if_needed():
     except Exception:
         return False
 
+def _request_server_shutdown():
+    """Ask the server to shut down gracefully via HTTP."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:{DICTATION_PORT}/api/shutdown", method="POST",
+            data=b"", headers={"Content-Length": "0"})
+        urllib.request.urlopen(req, timeout=3)
+        return True
+    except Exception:
+        return False
+
 def stop_server():
-    global _server_proc
+    global _server_proc, _server_job
     if _server_proc:
+        pid = _server_proc.pid
+        _request_server_shutdown()
         try:
-            _server_proc.terminate()
             _server_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                _server_proc.kill()
+            except Exception:
+                pass
         except Exception:
             try:
                 _server_proc.kill()
             except Exception:
                 pass
+        # Kill any orphan child processes (Windows process tree)
+        if IS_WIN and pid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
         _server_proc = None
+        _server_job = None
 
 # ── Tray App ──
 
@@ -216,6 +296,11 @@ def _on_quit(icon, item):
         _grace_timer.cancel()
     if _hotkey_listener:
         _hotkey_listener.stop()
+    if _ws:
+        try:
+            _ws.close()
+        except Exception:
+            pass
     if _overlay_tk:
         _overlay_tk.after(0, _overlay_tk.quit)
     stop_server()
@@ -238,10 +323,14 @@ def _update_tray_icon(state):
 
 def run_tray():
     import pystray
+    import logging
+    _log = logging.getLogger("tray")
     global _tray_icon
 
+    _log.info("Initializing icons")
     _init_icons()
 
+    _log.info("Creating pystray.Icon")
     _tray_icon = pystray.Icon(
         "LinguaTaxi Dictation",
         ICON_GREY,
@@ -250,20 +339,36 @@ def run_tray():
     )
 
     def _startup(icon):
-        icon.visible = True
-        # Always start hotkey listener and overlay (they don't need the server)
+        try:
+            _log.info("_startup: setting visible=True")
+            icon.visible = True
+            _log.info("_startup: icon visible set OK")
+        except Exception:
+            _log.exception("_startup: icon.visible failed")
+
+        try:
+            icon.notify("LinguaTaxi Dictation is running", "Global Dictation")
+        except Exception:
+            _log.exception("_startup: icon.notify failed")
+
+        _log.info("_startup: starting hotkey listener")
         _start_hotkey_listener()
         threading.Thread(target=_run_overlay_mainloop, daemon=True).start()
 
+        _log.info("_startup: checking server")
         started = start_server_if_needed()
+        _log.info(f"_startup: server ready={started}")
         if started:
             _update_tray_icon("idle")
             threading.Thread(target=_ws_loop, daemon=True).start()
         else:
             _update_tray_icon("disconnected")
             threading.Thread(target=_reconnect_loop, daemon=True).start()
+        _log.info("_startup: complete")
 
+    _log.info("Calling icon.run()")
     _tray_icon.run(setup=_startup)
+    _log.info("icon.run() returned (should not happen normally)")
 
 def _reconnect_loop():
     """Periodically try to connect if server wasn't available at startup."""
@@ -282,14 +387,19 @@ def _on_ws_open(ws):
     global _ws_connected
     _ws_connected = True
     _update_tray_icon("idle")
+    logging.getLogger("tray").info("Websocket connected")
 
 def _on_ws_message(ws, message):
+    _log = logging.getLogger("tray")
     try:
         msg = json.loads(message)
     except Exception:
         return
 
+    _log.debug(f"WS recv: {msg.get('type')} | {str(message)[:200]}")
+
     if msg.get("type") == "final" and msg.get("text"):
+        _log.info(f"FINAL text received: {msg['text'][:100]}")
         _inject_text(msg["text"])
     elif msg.get("type") == "dictation_active":
         global _dictation_active
@@ -310,7 +420,7 @@ def _on_ws_close(ws, close_status_code, close_msg):
     _update_tray_icon("disconnected")
 
 def _on_ws_error(ws, error):
-    pass
+    logging.getLogger("tray").error(f"WS error: {error}")
 
 def _send_ws(msg_dict):
     """Send a JSON message to the server WebSocket."""
@@ -348,17 +458,23 @@ _kb_controller = None
 
 def _inject_text(text):
     """Inject text word-by-word into the currently focused application."""
+    _log = logging.getLogger("tray")
     global _kb_controller
     if _kb_controller is None:
         from pynput.keyboard import Controller
         _kb_controller = Controller()
 
-    words = text.split()
-    for i, word in enumerate(words):
-        if i > 0:
-            _kb_controller.type(" ")
-        _kb_controller.type(word)
-    _kb_controller.type(" ")
+    _log.info(f"_inject_text called: '{text[:100]}' | words={len(text.split())}")
+    try:
+        words = text.split()
+        for i, word in enumerate(words):
+            if i > 0:
+                _kb_controller.type(" ")
+            _kb_controller.type(word)
+        _kb_controller.type(" ")
+        _log.info("_inject_text completed OK")
+    except Exception as e:
+        _log.error(f"_inject_text FAILED: {e}", exc_info=True)
 
 _overlay_tk = None
 _overlay_win = None
@@ -664,4 +780,25 @@ def _show_hotkey_dialog():
 # ── Entry Point ──
 
 if __name__ == "__main__":
-    run_tray()
+    import logging
+    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s",
+        filename=str(SETTINGS_DIR / "tray_debug.log"), filemode="w",
+    )
+    _log = logging.getLogger("tray")
+
+    atexit.register(stop_server)
+
+    if IS_WIN:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LinguaTaxi.Dictation")
+        _log.info("AppUserModelID set to LinguaTaxi.Dictation")
+
+    try:
+        run_tray()
+    except Exception:
+        _log.exception("run_tray crashed")
+        raise
+    finally:
+        stop_server()

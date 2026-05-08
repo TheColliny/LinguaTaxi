@@ -59,6 +59,7 @@ import tuned_models
 import offline_translate
 import voice_id
 from plugin_loader import PluginDispatcher
+from plugin_registry import PluginRegistry
 
 # ── Paths ──
 BASE_DIR = Path(__file__).parent
@@ -161,6 +162,7 @@ DEFAULT_CONFIG = {
     "translations": [{"lang": "ES", "color": "#FFD54F"}],
     "speakers": [],
     "footer_image": None,
+    "footer_text": "",
     "font_size": 42,
     "max_lines": 3,
     "bg_color": "#00004D",
@@ -302,6 +304,7 @@ silence_threshold = SILENCE_THRESHOLD
 translation_paused = True
 captioning_paused = True
 dictation_active = False
+_dictation_loop = None  # asyncio loop for dictation app (set during startup)
 save_transcripts = True
 _session_stamp = time.strftime("%Y%m%d_%H%M%S")
 _line_id = 0               # monotonic counter for final lines
@@ -310,6 +313,25 @@ _model_lock = threading.RLock()     # protects stt_backend._model hot-swap
 _recent_lines = collections.deque(maxlen=50)  # last N final lines
 _RECENT_LINES_MAX = 50
 _translate_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="translate")
+
+# ── Plugin Registry (marketplace) ──
+_plugin_registry = None
+_edition_file = BASE_DIR / "edition.txt"
+EDITION = _edition_file.read_text().strip() if _edition_file.exists() else "Dev"
+
+def _get_registry():
+    """Lazy-initialize the plugin registry singleton."""
+    global _plugin_registry
+    if _plugin_registry is None:
+        plugins_dir = BASE_DIR / "plugins"
+        _version_data = json.loads((BASE_DIR / "version.json").read_text())
+        _plugin_registry = PluginRegistry(
+            plugins_dir=plugins_dir,
+            github_repo="TheColliny/linguataxi-plugins",
+            app_version=_version_data.get("version", "0.0.0"),
+            edition=EDITION,
+        )
+    return _plugin_registry
 
 
 # ── Multi-Source Audio ──
@@ -983,15 +1005,19 @@ class MLXWhisperBackend(SpeechBackend):
 def _bc(loop, msg):
     """Broadcast to appropriate clients based on mode.
     In dictation-only mode (captioning paused but dictation active),
-    only send to dictation clients."""
+    only send to dictation clients.
+    Dictation clients always use _dictation_loop to avoid cross-loop corruption."""
     if captioning_paused and dictation_active:
-        asyncio.run_coroutine_threadsafe(broadcast_dictation(msg), loop)
+        dl = _dictation_loop or loop
+        asyncio.run_coroutine_threadsafe(broadcast_dictation(msg), dl)
     else:
         asyncio.run_coroutine_threadsafe(broadcast_all(msg), loop)
+        if dictation_clients and _dictation_loop:
+            asyncio.run_coroutine_threadsafe(broadcast_dictation(msg), _dictation_loop)
 
 async def broadcast_all(msg):
     data = json.dumps(msg)
-    for cs in [display_clients, extended_clients, operator_clients, dictation_clients]:
+    for cs in [display_clients, extended_clients, operator_clients]:
         dead = set()
         for ws in list(cs):  # iterate over copy to avoid RuntimeError
             try: await ws.send_text(data)
@@ -1041,10 +1067,11 @@ def _broadcast_final(text, loop, source=None, detected_lang=None):
     lid = _next_line_id()
     if captioning_paused and dictation_active:
         # Dictation-only mode: just send final text to dictation clients
+        dl = _dictation_loop or loop
         asyncio.run_coroutine_threadsafe(
             broadcast_dictation({"type":"final","text":text,"speaker":speaker,
                                  "color":color,"source_id":source_id,"line_id":lid,
-                                 "detected_lang":detected_lang}), loop)
+                                 "detected_lang":detected_lang}), dl)
         log.info(f"   DICTATION: {text}")
         return
     _bc(loop, {"type":"final","text":text,"speaker":speaker,"color":color,
@@ -1250,6 +1277,7 @@ def _style_config():
         "input_lang": config.get("input_lang", "EN"),
         "input_lang_name": DEEPL_SOURCE_LANGS.get(config.get("input_lang","EN"), "English"),
         "footer_image": config.get("footer_image"),
+        "footer_text": config.get("footer_text", ""),
         "footer_position": config.get("footer_position", 50),
         "font_size": config.get("font_size", 42),
         "max_lines": config.get("max_lines", 3),
@@ -1593,6 +1621,13 @@ async def o_status():
         "translation_paused": translation_paused,
     })
 
+@operator_app.post("/api/shutdown")
+async def o_shutdown():
+    """Graceful server shutdown — closes audio streams and exits."""
+    log.info("Shutdown requested via operator API")
+    threading.Thread(target=_shutdown_and_exit, daemon=True).start()
+    return JSONResponse({"status": "shutting_down"})
+
 @operator_app.get("/api/locales/{lang}")
 async def o_get_locale(lang: str):
     """Serve translation JSON for a language."""
@@ -1620,6 +1655,7 @@ async def o_update(
     speaker_langs: str = Form(None),
     collapsed_sections: str = Form(None),
     footer_position: int = Form(None),
+    footer_text: str = Form(None),
 ):
     if session_title is not None: config["session_title"] = session_title
     if deepl_api_key is not None: config["deepl_api_key"] = deepl_api_key
@@ -1689,6 +1725,8 @@ async def o_update(
             pass
     if footer_position is not None:
         config["footer_position"] = max(0, min(100, footer_position))
+    if footer_text is not None:
+        config["footer_text"] = footer_text
 
     save_config(config)
 
@@ -2096,6 +2134,97 @@ async def voice_id_clear():
     return {"status": "cleared"}
 
 
+# ── Plugin Marketplace API ──
+
+@operator_app.get("/api/plugins/registry")
+async def api_plugins_registry():
+    """Fetch full plugin registry from GitHub."""
+    loop = asyncio.get_running_loop()
+    try:
+        reg = _get_registry()
+        entries = await loop.run_in_executor(None, reg.fetch_registry)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch registry: {e}")
+    installed = reg.get_installed()
+    for entry in entries:
+        entry["installed"] = entry["id"] in installed
+        entry["installed_version"] = installed.get(entry["id"])
+        entry["compatible"] = reg.is_compatible(entry)
+    return {"plugins": entries, "cached": reg.is_cached()}
+
+@operator_app.get("/api/plugins/updates")
+async def api_plugins_updates():
+    """Return available updates for installed plugins."""
+    loop = asyncio.get_running_loop()
+    try:
+        reg = _get_registry()
+        updates = await loop.run_in_executor(None, reg.check_updates)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Failed to check updates: {e}")
+    return {"updates": updates}
+
+@operator_app.post("/api/plugins/install/{plugin_id}")
+async def api_plugins_install(plugin_id: str):
+    """Download and install a plugin from the registry."""
+    loop = asyncio.get_running_loop()
+    reg = _get_registry()
+
+    if not reg.is_cached():
+        try:
+            await loop.run_in_executor(None, reg.fetch_registry)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Cannot reach registry: {e}")
+
+    entry = reg.find_plugin(plugin_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not found in registry")
+
+    if reg.is_installed(plugin_id):
+        raise HTTPException(status_code=409, detail=f"Plugin '{plugin_id}' is already installed")
+
+    if not reg.is_compatible(entry):
+        raise HTTPException(status_code=409, detail=f"Plugin '{plugin_id}' is not compatible with this version")
+
+    try:
+        path = await loop.run_in_executor(None, reg.install_plugin, plugin_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Download/install failed: {e}")
+
+    return {"status": "installed", "path": str(path)}
+
+@operator_app.post("/api/plugins/update/{plugin_id}")
+async def api_plugins_update(plugin_id: str):
+    """Update an installed plugin to latest version."""
+    loop = asyncio.get_running_loop()
+    reg = _get_registry()
+
+    if not reg.is_installed(plugin_id):
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' is not installed")
+
+    try:
+        path = await loop.run_in_executor(None, reg.update_plugin, plugin_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Update failed: {e}")
+
+    return {"status": "updated", "path": str(path)}
+
+@operator_app.delete("/api/plugins/uninstall/{plugin_id}")
+async def api_plugins_uninstall(plugin_id: str):
+    """Uninstall a plugin."""
+    loop = asyncio.get_running_loop()
+    reg = _get_registry()
+
+    if not reg.is_installed(plugin_id):
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' is not installed")
+
+    try:
+        await loop.run_in_executor(None, reg.uninstall_plugin, plugin_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Uninstall failed: {e}")
+
+    return {"status": "uninstalled"}
+
+
 # ── Display grids (operator pushes layout, audience displays subscribe) ──
 
 def _snapshot_display_grids() -> dict:
@@ -2283,6 +2412,13 @@ async def o_ws(ws: WebSocket):
 @dictation_app.get("/")
 async def dict_index(): return FileResponse(BASE_DIR / "dictation.html")
 
+@dictation_app.post("/api/shutdown")
+async def dict_shutdown():
+    """Graceful server shutdown — closes audio streams and exits."""
+    log.info("Shutdown requested via dictation API")
+    threading.Thread(target=_shutdown_and_exit, daemon=True).start()
+    return JSONResponse({"status": "shutting_down"})
+
 @dictation_app.get("/api/dictation-config")
 async def dict_config():
     d = config.get("dictation_dir", str(TRANSCRIPTS_DIR))
@@ -2362,6 +2498,9 @@ async def dict_ws(ws: WebSocket):
 def setup_events(app, role):
     @app.on_event("startup")
     async def startup():
+        if role == "dictation":
+            global _dictation_loop
+            _dictation_loop = asyncio.get_event_loop()
         if role == "display":
             loop = asyncio.get_event_loop()
             # Start capture threads for all registered sources
@@ -2581,6 +2720,49 @@ def main():
     for t in threads: t.start()
     try:
         while True: time.sleep(1)
-    except KeyboardInterrupt: print("\n  Shutting down..."); shutdown_event.set()
+    except KeyboardInterrupt: print("\n  Shutting down..."); _graceful_shutdown()
+
+def _graceful_shutdown():
+    """Clean up all resources: audio streams, thread pool, then exit."""
+    shutdown_event.set()
+    # Close all audio streams so the microphone is released
+    with _sources_lock:
+        for src in _sources:
+            src.active = False
+            src.restart_event.set()
+            if src.stream:
+                try:
+                    src.stream.stop()
+                    src.stream.close()
+                except Exception:
+                    pass
+                src.stream = None
+            # Drain the audio queue to unblock any waiting threads
+            if hasattr(src, 'audio_queue'):
+                try:
+                    while not src.audio_queue.empty():
+                        src.audio_queue.get_nowait()
+                except Exception:
+                    pass
+    # Stop all sounddevice activity globally (releases PortAudio resources)
+    try:
+        sd.stop()
+    except Exception:
+        pass
+    _translate_pool.shutdown(wait=False)
+    plugin_dispatcher.shutdown()
+    log.info("Graceful shutdown complete")
+
+def _shutdown_and_exit():
+    """Called from /api/shutdown — clean up then force-exit the process."""
+    # Start a watchdog that force-exits after 8s no matter what
+    def _force_exit():
+        time.sleep(8)
+        os._exit(1)
+    threading.Thread(target=_force_exit, daemon=True).start()
+
+    _graceful_shutdown()
+    time.sleep(0.5)
+    os._exit(0)
 
 if __name__ == "__main__": main()
