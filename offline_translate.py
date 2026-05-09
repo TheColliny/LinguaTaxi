@@ -23,6 +23,34 @@ import tempfile
 import threading
 from pathlib import Path
 
+
+def get_default_cores():
+    """Default CPU cores for translation: system cores / 4, min 1."""
+    return max(1, (os.cpu_count() or 4) // 4)
+
+def get_max_cores():
+    """Maximum allowed cores for translation: system cores - 1, min 1."""
+    return max(1, (os.cpu_count() or 4) - 1)
+
+
+_intra_threads = get_default_cores()
+
+
+def set_threads(n):
+    """Set the number of intra-op threads for translation models.
+    Clears the model cache so the next call re-creates translators."""
+    global _intra_threads
+    _intra_threads = max(1, min(n, get_max_cores()))
+    reload_models()
+
+
+def reload_models():
+    """Clear cached models so they reload with current thread settings."""
+    with _models_lock:
+        _loaded_models.clear()
+    log.info(f"Offline translation models unloaded (will reload with intra_threads={_intra_threads})")
+
+
 log = logging.getLogger("livecaption")
 
 # CLI mode flag — when True, _set_progress also prints machine-parseable lines
@@ -522,7 +550,9 @@ def _load_opus_model(model_path):
             return _loaded_models[model_path]
 
         translator = ctranslate2.Translator(model_path, device="cpu",
-                                             compute_type="int8")
+                                             compute_type="int8",
+                                             inter_threads=1,
+                                             intra_threads=_intra_threads)
         sp_path = os.path.join(model_path, "source.spm")
         sp = spm.SentencePieceProcessor()
         sp.Load(sp_path)
@@ -550,7 +580,9 @@ def _load_m2m_model(model_path):
             return _loaded_models[model_path]
 
         translator = ctranslate2.Translator(model_path, device="cpu",
-                                             compute_type="int8")
+                                             compute_type="int8",
+                                             inter_threads=1,
+                                             intra_threads=_intra_threads)
         sp_path = os.path.join(model_path, "sentencepiece.model")
         sp = spm.SentencePieceProcessor()
         sp.Load(sp_path)
