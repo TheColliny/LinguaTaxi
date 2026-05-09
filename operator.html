@@ -58,9 +58,6 @@ body{display:flex}
 .pg-cell-body{flex:1;overflow-y:auto;padding:6px 8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.1) transparent;min-height:0}
 .pg-cell-body::-webkit-scrollbar{width:4px}
 .pg-cell-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
-.pg-resize-handle{position:absolute;bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize;opacity:.35;transition:opacity .15s}
-.pg-resize-handle:hover{opacity:.9}
-.pg-resize-handle::before{content:'';position:absolute;bottom:2px;right:2px;width:8px;height:8px;background:linear-gradient(135deg,transparent 45%,rgba(255,255,255,.4) 45%,rgba(255,255,255,.4) 55%,transparent 55%,transparent 65%,rgba(255,255,255,.4) 65%,rgba(255,255,255,.4) 75%,transparent 75%)}
 .pg-empty-hint{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,.12);font-size:10px;text-align:center;padding:4px}
 
 /* Palette: vertical list of plugin tiles */
@@ -100,11 +97,21 @@ body{display:flex}
 .gle-avail-item{padding:8px 10px;border-radius:5px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);cursor:grab;font-size:11px;color:rgba(255,255,255,.75);transition:.15s;user-select:none}
 .gle-avail-item:hover{background:rgba(255,255,255,.08);border-color:rgba(79,195,247,.3);color:#fff}
 .gle-avail-item:active{cursor:grabbing}
-.gle-size-row{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:5px;border:1px solid var(--bdr)}
-.gle-size-row label{font-size:9px;color:rgba(255,255,255,.5);white-space:nowrap}
-.gle-size-row select{padding:3px 6px;border-radius:3px;border:1px solid var(--bdr);background:rgba(255,255,255,.05);color:#fff;font-size:10px;font-family:inherit}
+.gle-resize-handle{position:absolute;bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize;opacity:.4;transition:opacity .15s;z-index:2;touch-action:none}
+.gle-resize-handle:hover{opacity:1}
+.gle-resize-handle::before{content:'';position:absolute;bottom:2px;right:2px;width:8px;height:8px;background:linear-gradient(135deg,transparent 45%,rgba(255,255,255,.5) 45%,rgba(255,255,255,.5) 55%,transparent 55%,transparent 65%,rgba(255,255,255,.5) 65%,rgba(255,255,255,.5) 75%,transparent 75%)}
 .gle-footer{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
 .gle-footer button{padding:6px 16px;border-radius:5px;border:none;font-weight:700;font-family:inherit;font-size:11px;cursor:pointer}
+.gle-section{margin-top:10px;padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px}
+.gle-section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.4);margin-bottom:8px}
+.gle-pos-btn{padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);cursor:pointer;font-size:10px;flex:1;text-align:center;font-family:inherit}
+.gle-pos-btn:hover{background:rgba(79,195,247,.15);border-color:rgba(79,195,247,.3);color:#fff}
+.gle-avail-item--placed{opacity:.35;border-style:dashed;cursor:default}
+.gle-avail-item--placed:hover{background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.5)}
+.gle-footer-img-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.gle-footer-img-row img{max-height:28px;border-radius:3px}
+.gle-footer-img-row .gle-rm-img{background:none;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.5);cursor:pointer;font-size:9px;padding:2px 6px;border-radius:3px}
+.gle-footer-img-row .gle-rm-img:hover{color:#f44336;border-color:#f44336}
 .ptitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:var(--ac);display:flex;align-items:center;gap:6px}
 .ptitle .dot{width:8px;height:8px;border-radius:50%;background:#555}
 .ptitle .dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
@@ -457,6 +464,15 @@ body.op-warm .fc-ff-summary{color:rgba(255,243,224,.65)}
       </div>
       <div id="transSlots"></div>
       <div id="extNote" class="hint" style="display:none" data-i18n="operator.ext_note">Translations 3+ appear on the Extended display (port 3002)</div>
+      <div id="translateCoresRow" style="margin-top:10px;display:none">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px">CPU Cores for Translation</span>
+          <span id="translateCoresInfo" title="" style="cursor:help;font-size:11px;width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.3);display:inline-flex;align-items:center;justify-content:center;color:rgba(255,255,255,.5)">i</span>
+        </div>
+        <input type="number" id="iTranslateCores" min="1" max="1" value="1"
+               onchange="onTranslateCoresChange(this.value)"
+               style="width:60px;margin-top:4px">
+      </div>
     </div>
   </div>
 
@@ -638,6 +654,9 @@ let tunedModels={}, activeTunedLang='', isWhisper=false;
 let tunedPollTimer=null;
 let offlineStatus={}; // {opus:{...}, m2m100:{...}}
 let offlinePollTimers={}; // {key: timer}
+let systemCpuCount=4;
+let translateCores=0;
+let translateCoresDefault=1;
 let bidirEnabled=false;
 let bidirLangs=[];  // [langA, langB]
 let bidirTunedSwap=false;
@@ -766,6 +785,9 @@ async function loadCfg(){
     activeTunedLang=c.active_tuned_lang||'';
     isWhisper=!!c.is_whisper;
     offlineStatus=c.offline_translate||{opus:{},m2m100:{}};
+    systemCpuCount=c.system_cpu_count||4;
+    translateCores=c.translate_cores||0;
+    translateCoresDefault=c.translate_cores_default||Math.max(1,Math.floor(systemCpuCount/4));
 
     // Bi-directional state
     bidirEnabled=!!c.bidirectional_enabled;
@@ -1162,6 +1184,23 @@ function buildTransSlots(){
       updateSlotOfflineStatus(i);
     }
   }
+  const coresRow=document.getElementById('translateCoresRow');
+  const hasOffline=translations.some(tr=>tr.mode&&tr.mode.startsWith('offline'));
+  if(coresRow){
+    coresRow.style.display=hasOffline?'block':'none';
+    const inp=document.getElementById('iTranslateCores');
+    const maxCores=Math.max(1,systemCpuCount-1);
+    const effective=translateCores>0?translateCores:translateCoresDefault;
+    if(inp){
+      inp.min=1;
+      inp.max=maxCores;
+      inp.value=effective;
+    }
+    const infoEl=document.getElementById('translateCoresInfo');
+    if(infoEl){
+      infoEl.title='How many CPU cores to use for translation. Default is '+translateCoresDefault+'. Increase if translation is lagging behind real-time. Decrease if translation is causing system lag.';
+    }
+  }
 }
 
 function onSlotModeChange(idx,mode){
@@ -1169,6 +1208,19 @@ function onSlotModeChange(idx,mode){
   updateSlotOfflineStatus(idx);
   updateTranslationHint();
   saveAll();
+}
+function onTranslateCoresChange(val){
+  const n=parseInt(val,10);
+  if(isNaN(n)||n<1) return;
+  const maxCores=Math.max(1,systemCpuCount-1);
+  const clamped=Math.min(n,maxCores);
+  translateCores=clamped;
+  const inp=document.getElementById('iTranslateCores');
+  if(inp) inp.value=clamped;
+  const fd=new FormData();
+  fd.append('translate_cores',clamped);
+  fetch('/api/config',{method:'POST',body:fd});
+  fetch('/api/offline-translate/reload',{method:'POST'});
 }
 
 function updateSlotOfflineStatus(idx){
@@ -2376,20 +2428,26 @@ function escPs(s) {
 
 // ── Grid Layout Editor ──
 function openGridLayoutEditor() {
-  if (document.getElementById('gleOverlay')) return;
+  let overlay = document.getElementById('gleOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'gle-overlay';
+    overlay.id = 'gleOverlay';
+    overlay.onclick = e => { if (e.target === overlay) closeGridLayoutEditor(); };
+    document.body.appendChild(overlay);
+  }
+  gleRefreshContent();
+}
 
-  // Read current grid state from plugin_grid.js
+function gleRefreshContent() {
+  const overlay = document.getElementById('gleOverlay');
+  if (!overlay) return;
+
   const currentGrid = (typeof window._pgGetGridState === 'function') ? window._pgGetGridState() : {};
   const availPlugins = (typeof window._pgGetAvailablePlugins === 'function') ? window._pgGetAvailablePlugins() : [];
 
-  const overlay = document.createElement('div');
-  overlay.className = 'gle-overlay';
-  overlay.id = 'gleOverlay';
-  overlay.onclick = e => { if (e.target === overlay) closeGridLayoutEditor(); };
-
-  // Build occupied cell map
-  const occupied = {}; // "r-c" -> {pluginId, name, rowSpan, colSpan, isOrigin}
-  const spanned = {};  // "r-c" -> originKey
+  const occupied = {};
+  const spanned = {};
   for (const [key, info] of Object.entries(currentGrid)) {
     const rs = info.rowSpan || 1, cs = info.colSpan || 1;
     occupied[key] = { pluginId: info.pluginId, name: info.name || info.pluginId, rowSpan: rs, colSpan: cs };
@@ -2401,70 +2459,84 @@ function openGridLayoutEditor() {
     }
   }
 
-  // Track which plugins are placed
   const placedIds = new Set(Object.values(occupied).map(o => o.pluginId));
 
-  let html = '<div class="gle-modal"><div class="gle-title"><span>Adjust Grid Layout</span><button onclick="closeGridLayoutEditor()">&times;</button></div>';
+  let html = '<div class="gle-modal"><div class="gle-title"><span>Adjust Grid Layout <small style="opacity:.4;font-weight:400">(p9)</small></span><button onclick="closeGridLayoutEditor()">&times;</button></div>';
   html += '<div class="gle-body">';
 
-  // Grid minimap
   html += '<div style="flex:1"><div class="gle-grid" id="gleGrid">';
   for (let r = 0; r < 4; r++) {
     for (let c = 0; c < 4; c++) {
       const key = r + '-' + c;
-      if (spanned[key]) {
-        // Part of a multi-cell span — skip rendering
-        continue;
-      }
+      if (spanned[key]) continue;
       const occ = occupied[key];
       if (occ) {
         const rs = occ.rowSpan || 1, cs = occ.colSpan || 1;
         const style = (rs > 1 || cs > 1)
           ? ` style="grid-row:span ${rs};grid-column:span ${cs}"`
           : '';
-        html += `<div class="gle-cell gle-cell--occupied" data-key="${key}" draggable="true"${style}>`
+        html += `<div class="gle-cell gle-cell--occupied" data-key="${key}" data-plugin-id="${esc(occ.pluginId)}"${style}>`
           + `<span>${esc(occ.name)}</span>`
           + `<button class="gle-rm" onclick="gleRemove('${key}')" title="Remove">&times;</button>`
+          + `<div class="gle-resize-handle"></div>`
           + `</div>`;
       } else {
         html += `<div class="gle-cell" data-key="${key}"><span>+</span></div>`;
       }
     }
   }
-  html += '</div>';
+  html += '</div></div>';
 
-  // Size controls for selected plugin
-  html += '<div id="gleSizeControls"></div>';
-  html += '</div>';
-
-  // Available plugins sidebar
   html += '<div class="gle-avail"><div class="gle-avail-title">Available Plugins</div>';
-  const unplaced = availPlugins.filter(p => !placedIds.has(p.id));
-  // Always show built-in caption tiles
-  const builtins = [
-    {id:'__live_captions__', name:'Live Captions'},
-    {id:'__translations__', name:'Translations'}
-  ];
-  const all = [...builtins.filter(b => !placedIds.has(b.id)), ...unplaced];
-  if (all.length === 0) {
-    html += '<div style="font-size:10px;color:rgba(255,255,255,.2);padding:8px;font-style:italic">All plugins placed</div>';
+  if (availPlugins.length === 0) {
+    html += '<div style="font-size:10px;color:rgba(255,255,255,.2);padding:8px;font-style:italic">No plugins found</div>';
   } else {
-    for (const p of all) {
-      html += `<div class="gle-avail-item" draggable="true" data-plugin-id="${esc(p.id)}" data-plugin-name="${esc(p.name)}">${esc(p.name)}</div>`;
+    for (const p of availPlugins) {
+      const placed = placedIds.has(p.id);
+      const cls = placed ? 'gle-avail-item gle-avail-item--placed' : 'gle-avail-item';
+      const badge = placed ? ' <span style="float:right;font-size:9px;opacity:.6">&#10003;</span>' : '';
+      html += `<div class="${cls}" ${placed?'':'draggable="true" '}data-plugin-id="${esc(p.id)}" data-plugin-name="${esc(p.name)}">${esc(p.name)}${badge}</div>`;
     }
   }
   html += '</div></div>';
 
-  // Footer with Apply button
+  // Footer controls
+  const curFooterText = document.getElementById('iFooterText')?.value || '';
+  const curFooterPos = document.getElementById('iFooterPos')?.value || '50';
+  const curFooterImg = document.getElementById('footerPrevImg')?.src || '';
+  const hasFooterImg = curFooterImg && !curFooterImg.endsWith('/') && document.getElementById('footerPrev')?.style.display !== 'none';
+  html += '<div class="gle-section"><div class="gle-section-title">Footer</div>';
+  html += '<div style="display:flex;gap:6px;align-items:center">';
+  html += `<input type="text" id="gleFooterText" value="${escPs(curFooterText)}" placeholder="Footer text (e.g. company name)" oninput="gleUpdateFooterText()" style="flex:1;padding:4px 8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:#fff;font-size:11px">`;
+  html += '</div>';
+  // Footer image
+  html += '<div style="display:flex;gap:6px;align-items:center;margin-top:6px">';
+  html += '<label style="font-size:10px;color:rgba(255,255,255,.4);white-space:nowrap">Logo</label>';
+  html += '<input type="file" id="gleFooterImg" accept="image/*" onchange="gleUploadFooterImg(this)" style="font-size:10px;flex:1;color:rgba(255,255,255,.6)">';
+  html += '</div>';
+  if (hasFooterImg) {
+    html += '<div class="gle-footer-img-row" id="gleFooterImgPreview">';
+    html += `<img src="${escPs(curFooterImg)}">`;
+    html += '<button class="gle-rm-img" onclick="gleRemoveFooterImg()">Remove</button>';
+    html += '</div>';
+  }
+  // Position presets
+  html += '<div style="display:flex;gap:4px;margin-top:6px">';
+  html += '<button class="gle-pos-btn" onclick="gleSetFooterPos(0)">Left</button>';
+  html += '<button class="gle-pos-btn" onclick="gleSetFooterPos(25)">C-Left</button>';
+  html += '<button class="gle-pos-btn" onclick="gleSetFooterPos(50)">Center</button>';
+  html += '<button class="gle-pos-btn" onclick="gleSetFooterPos(75)">C-Right</button>';
+  html += '<button class="gle-pos-btn" onclick="gleSetFooterPos(100)">Right</button>';
+  html += '</div>';
+  html += `<input type="range" id="gleFooterSlider" min="0" max="100" value="${escPs(curFooterPos)}" oninput="gleSetFooterPos(parseInt(this.value))" style="margin-top:6px;width:100%">`;
+  html += '</div>';
+
   html += '<div class="gle-footer">';
-  html += '<button class="btn btn-g" onclick="closeGridLayoutEditor()">Cancel</button>';
+  html += '<button class="btn btn-g" onclick="closeGridLayoutEditor()">Close</button>';
   html += '<button class="btn btn-p" onclick="gleApply()">Apply Layout</button>';
   html += '</div></div>';
 
   overlay.innerHTML = html;
-  document.body.appendChild(overlay);
-
-  // Wire up drag and drop on the minimap
   gleInitDragDrop();
 }
 
@@ -2472,7 +2544,6 @@ function gleInitDragDrop() {
   const grid = document.getElementById('gleGrid');
   if (!grid) return;
 
-  // Drag from available items
   document.querySelectorAll('.gle-avail-item').forEach(item => {
     item.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', JSON.stringify({
@@ -2481,18 +2552,53 @@ function gleInitDragDrop() {
     });
   });
 
-  // Drag from grid cells (reorder)
+  // Pointer-based drag-to-reorder occupied cells
   grid.querySelectorAll('.gle-cell--occupied').forEach(cell => {
-    cell.addEventListener('dragstart', e => {
-      e.dataTransfer.setData('text/plain', JSON.stringify({
-        type: 'move', fromKey: cell.dataset.key
-      }));
-      cell.classList.add('pg-cell--dragging');
+    cell.addEventListener('pointerdown', e => {
+      if (e.target.closest('.gle-resize-handle') || e.target.closest('.gle-rm')) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const fromKey = cell.dataset.key;
+      if (!fromKey) return;
+      const startX = e.clientX, startY = e.clientY;
+      let dragging = false;
+
+      function onMove(ev) {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        if (!dragging && Math.abs(dx) + Math.abs(dy) > 5) {
+          dragging = true;
+          cell.style.opacity = '0.4';
+          cell.style.pointerEvents = 'none';
+        }
+        if (dragging) {
+          grid.querySelectorAll('.gle-cell--dragover').forEach(c => c.classList.remove('gle-cell--dragover'));
+          const el = document.elementFromPoint(ev.clientX, ev.clientY);
+          const target = el?.closest('.gle-cell');
+          if (target && target !== cell && target.dataset.key) {
+            target.classList.add('gle-cell--dragover');
+          }
+        }
+      }
+      function onUp(ev) {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        cell.style.opacity = '';
+        cell.style.pointerEvents = '';
+        grid.querySelectorAll('.gle-cell--dragover').forEach(c => c.classList.remove('gle-cell--dragover'));
+        if (dragging) {
+          const el = document.elementFromPoint(ev.clientX, ev.clientY);
+          const target = el?.closest('.gle-cell');
+          if (target && target !== cell && target.dataset.key) {
+            gleMovePlugin(fromKey, target.dataset.key);
+          }
+        }
+      }
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
     });
-    cell.addEventListener('dragend', () => cell.classList.remove('pg-cell--dragging'));
   });
 
-  // Drop targets
+  // Drop handlers on ALL cells — accepts sidebar item drops
   grid.querySelectorAll('.gle-cell').forEach(cell => {
     cell.addEventListener('dragover', e => { e.preventDefault(); cell.classList.add('gle-cell--dragover'); });
     cell.addEventListener('dragleave', () => cell.classList.remove('gle-cell--dragover'));
@@ -2505,91 +2611,130 @@ function gleInitDragDrop() {
         if (!targetKey) return;
         if (data.type === 'new' && !cell.classList.contains('gle-cell--occupied')) {
           glePlacePlugin(targetKey, data.pluginId, data.name);
-        } else if (data.type === 'move' && data.fromKey !== targetKey) {
-          gleMovePlugin(data.fromKey, targetKey);
         }
       } catch(ex) { console.error('GLE drop error:', ex); }
     });
 
-    // Click empty cell to show available plugins
     if (!cell.classList.contains('gle-cell--occupied')) {
       cell.addEventListener('click', () => {
-        const items = document.querySelectorAll('.gle-avail-item');
+        const items = document.querySelectorAll('.gle-avail-item:not(.gle-avail-item--placed)');
         if (items.length > 0) {
-          // Auto-place first available plugin
           const first = items[0];
           glePlacePlugin(cell.dataset.key, first.dataset.pluginId, first.dataset.pluginName);
         }
       });
     }
+  });
 
-    // Click occupied cell to show size controls
-    if (cell.classList.contains('gle-cell--occupied')) {
-      cell.addEventListener('click', e => {
-        if (e.target.classList.contains('gle-rm')) return;
-        gleShowSizeControls(cell.dataset.key);
-      });
-    }
+  // Drag-to-resize on occupied cells — pure pointer events, no HTML5 drag
+  document.querySelectorAll('.gle-resize-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      handle.setPointerCapture(e.pointerId);
+      const cellEl = handle.closest('.gle-cell');
+      const key = cellEl?.dataset.key;
+      if (!key) return;
+      const [r, c] = key.split('-').map(Number);
+      const gridEl = document.getElementById('gleGrid');
+      const gridRect = gridEl.getBoundingClientRect();
+      const cellW = gridRect.width / 4;
+      const cellH = gridRect.height / 4;
+      const startX = e.clientX, startY = e.clientY;
+      const startCS = parseInt(cellEl.style.gridColumn?.match(/span (\d+)/)?.[1] || '1');
+      const startRS = parseInt(cellEl.style.gridRow?.match(/span (\d+)/)?.[1] || '1');
+      let lastCS = startCS, lastRS = startRS;
+
+      function onMove(ev) {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        const newCS = Math.max(1, Math.min(4 - c, Math.round(startCS + dx / cellW)));
+        const newRS = Math.max(1, Math.min(4 - r, Math.round(startRS + dy / cellH)));
+        if (newCS !== lastCS || newRS !== lastRS) {
+          cellEl.style.gridColumn = `span ${newCS}`;
+          cellEl.style.gridRow = `span ${newRS}`;
+          lastCS = newCS;
+          lastRS = newRS;
+        }
+      }
+      function onUp() {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        if (lastCS !== startCS || lastRS !== startRS) {
+          if (typeof window._pgResizePlugin === 'function') {
+            window._pgResizePlugin(key, lastCS, lastRS);
+          }
+          gleRefreshContent();
+        }
+      }
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    });
   });
 }
 
-function gleShowSizeControls(key) {
-  const container = document.getElementById('gleSizeControls');
-  if (!container) return;
-  const [r, c] = key.split('-').map(Number);
-  const maxRS = 4 - r, maxCS = 4 - c;
-
-  // Read current span from the grid cell
-  const cell = document.querySelector(`.gle-cell[data-key="${key}"]`);
-  const curRS = parseInt(cell?.style.gridRow?.match(/span (\d+)/)?.[1] || '1');
-  const curCS = parseInt(cell?.style.gridColumn?.match(/span (\d+)/)?.[1] || '1');
-  const name = cell?.querySelector('span')?.textContent || 'Plugin';
-
-  let h = `<div class="gle-size-row"><label>${esc(name)} size:</label>`;
-  h += `<label>Rows</label><select onchange="gleResize('${key}',parseInt(this.value),null)">`;
-  for (let i = 1; i <= maxRS; i++) h += `<option value="${i}"${i===curRS?' selected':''}>${i}</option>`;
-  h += '</select>';
-  h += `<label>Cols</label><select onchange="gleResize('${key}',null,parseInt(this.value))">`;
-  for (let i = 1; i <= maxCS; i++) h += `<option value="${i}"${i===curCS?' selected':''}>${i}</option>`;
-  h += '</select></div>';
-  container.innerHTML = h;
-}
-
-function gleResize(key, newRS, newCS) {
-  const cell = document.querySelector(`.gle-cell[data-key="${key}"]`);
-  if (!cell) return;
-  if (newRS !== null) cell.style.gridRow = `span ${newRS}`;
-  if (newCS !== null) cell.style.gridColumn = `span ${newCS}`;
-}
-
 function glePlacePlugin(key, pluginId, name) {
-  closeGridLayoutEditor();
-  // Place via plugin_grid.js API
   if (typeof window._pgPlacePlugin === 'function') {
     const [r, c] = key.split('-').map(Number);
     window._pgPlacePlugin(pluginId, r, c);
   }
-  setTimeout(() => openGridLayoutEditor(), 100);
+  gleRefreshContent();
 }
 
 function gleMovePlugin(fromKey, toKey) {
-  closeGridLayoutEditor();
   if (typeof window._pgMovePlugin === 'function') {
     window._pgMovePlugin(fromKey, toKey);
   }
-  setTimeout(() => openGridLayoutEditor(), 100);
+  gleRefreshContent();
 }
 
 function gleRemove(key) {
-  closeGridLayoutEditor();
   if (typeof window._pgRemovePlugin === 'function') {
     window._pgRemovePlugin(key);
   }
-  setTimeout(() => openGridLayoutEditor(), 100);
+  gleRefreshContent();
+}
+
+function gleSetFooterPos(pct) {
+  const slider = document.getElementById('gleFooterSlider');
+  if (slider) slider.value = pct;
+  if (typeof setFooterPos === 'function') setFooterPos(pct);
+}
+
+function gleUpdateFooterText() {
+  const gleInput = document.getElementById('gleFooterText');
+  const mainInput = document.getElementById('iFooterText');
+  if (gleInput && mainInput) {
+    mainInput.value = gleInput.value;
+    if (typeof debouncedSaveAll === 'function') debouncedSaveAll();
+  }
+}
+
+function gleUploadFooterImg(inp) {
+  if (!inp.files || !inp.files[0]) return;
+  const fd = new FormData();
+  fd.append('file', inp.files[0]);
+  fetch('/api/upload-footer', {method:'POST', body:fd}).then(r=>r.json()).then(r=>{
+    if (r.filename) {
+      const u = '/uploads/' + r.filename + '?t=' + Date.now();
+      document.getElementById('footerPrevImg').src = u;
+      document.getElementById('footerPrev').style.display = 'block';
+      document.getElementById('pFooterImg').src = u;
+      document.getElementById('pFooter').style.display = 'block';
+      gleRefreshContent();
+    }
+  });
+}
+
+function gleRemoveFooterImg() {
+  fetch('/api/remove-footer', {method:'POST'}).then(() => {
+    document.getElementById('footerPrev').style.display = 'none';
+    document.getElementById('pFooter').style.display = 'none';
+    gleRefreshContent();
+  });
 }
 
 function gleApply() {
-  // Read the minimap state and push to the real grid
   const grid = document.getElementById('gleGrid');
   if (!grid) { closeGridLayoutEditor(); return; }
 
@@ -2597,17 +2742,12 @@ function gleApply() {
   const layout = {};
   cells.forEach(cell => {
     const key = cell.dataset.key;
-    if (!key) return;
+    const pluginId = cell.dataset.pluginId;
+    if (!key || !pluginId) return;
     const [r, c] = key.split('-').map(Number);
     const rs = parseInt(cell.style.gridRow?.match(/span (\d+)/)?.[1] || '1');
     const cs = parseInt(cell.style.gridColumn?.match(/span (\d+)/)?.[1] || '1');
-    const name = cell.querySelector('span')?.textContent || '';
-    // Find pluginId — check the original state
-    const origGrid = (typeof window._pgGetGridState === 'function') ? window._pgGetGridState() : {};
-    const orig = origGrid[key];
-    if (orig) {
-      layout[key] = { pluginId: orig.pluginId, row: r, col: c, rowSpan: rs, colSpan: cs };
-    }
+    layout[key] = { pluginId, row: r, col: c, rowSpan: rs, colSpan: cs };
   });
 
   if (typeof window._pgSetGridState === 'function') {
