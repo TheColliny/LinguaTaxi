@@ -600,7 +600,9 @@ def _translate_opus(text, model_path, target_lang=None):
     if target_lang and target_lang.upper() in OPUS_ROMANCE_PREFIX:
         text = OPUS_ROMANCE_PREFIX[target_lang.upper()] + " " + text
     tokens = src_sp.Encode(text, out_type=str)
-    results = translator.translate_batch([tokens], beam_size=1)
+    results = translator.translate_batch([tokens], beam_size=1,
+                                          no_repeat_ngram_size=3,
+                                          repetition_penalty=1.2)
     output_tokens = results[0].hypotheses[0]
     # Decode with target tokenizer if available, else source
     decoder = tgt_sp if tgt_sp else src_sp
@@ -621,7 +623,9 @@ def _translate_m2m(text, source_lang, target_lang, model_path):
 
     results = translator.translate_batch([source_tokens],
                                           target_prefix=target_prefix,
-                                          beam_size=1)
+                                          beam_size=1,
+                                          no_repeat_ngram_size=3,
+                                          repetition_penalty=1.2)
     output_tokens = results[0].hypotheses[0]
     # Remove the language prefix token from output
     if output_tokens and output_tokens[0].startswith("__"):
