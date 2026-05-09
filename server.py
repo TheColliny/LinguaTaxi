@@ -175,6 +175,7 @@ DEFAULT_CONFIG = {
     "bidirectional_tuned_swap": False,
     "voice_id_enabled": True,
     "voice_id_threshold": 0.65,
+    "translate_cores": 0,
     "collapsed_sections": ["languages"],
     "footer_position": 50,
     # display_grids: per-display 4x4 grid layout pushed by operator panel
@@ -200,6 +201,9 @@ def save_config(cfg):
             json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 config = load_config()
+_configured_cores = config.get("translate_cores", 0)
+if _configured_cores > 0:
+    offline_translate.set_threads(_configured_cores)
 
 # ── Plugin System ──
 PLUGINS_DIR = BASE_DIR / "plugins"
@@ -1586,6 +1590,9 @@ async def o_config():
             "speaker_langs": config.get("speaker_langs", {}),
             "collapsed_sections": config.get("collapsed_sections", ["languages"]),
             "footer_position": config.get("footer_position", 50),
+            "system_cpu_count": os.cpu_count() or 4,
+            "translate_cores": config.get("translate_cores", 0),
+            "translate_cores_default": offline_translate.get_default_cores(),
         })
     except Exception as e:
         # Fallback: return at minimum the essential data so dropdowns populate
@@ -1612,6 +1619,9 @@ async def o_config():
             "speaker_langs": config.get("speaker_langs", {}),
             "collapsed_sections": config.get("collapsed_sections", ["languages"]),
             "footer_position": config.get("footer_position", 50),
+            "system_cpu_count": os.cpu_count() or 4,
+            "translate_cores": config.get("translate_cores", 0),
+            "translate_cores_default": offline_translate.get_default_cores(),
         })
 
 @operator_app.get("/api/status")
@@ -1656,6 +1666,7 @@ async def o_update(
     collapsed_sections: str = Form(None),
     footer_position: int = Form(None),
     footer_text: str = Form(None),
+    translate_cores: int = Form(None),
 ):
     if session_title is not None: config["session_title"] = session_title
     if deepl_api_key is not None: config["deepl_api_key"] = deepl_api_key
@@ -1727,6 +1738,10 @@ async def o_update(
         config["footer_position"] = max(0, min(100, footer_position))
     if footer_text is not None:
         config["footer_text"] = footer_text
+    if translate_cores is not None:
+        clamped = max(1, min(translate_cores, offline_translate.get_max_cores()))
+        config["translate_cores"] = clamped
+        offline_translate.set_threads(clamped)
 
     save_config(config)
 
