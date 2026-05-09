@@ -315,6 +315,8 @@ _line_id = 0               # monotonic counter for final lines
 _line_id_lock = threading.Lock()
 _model_lock = threading.RLock()     # protects stt_backend._model hot-swap
 _recent_lines = collections.deque(maxlen=50)  # last N final lines
+_translate_gen = {}
+_translate_gen_lock = threading.Lock()
 _RECENT_LINES_MAX = 50
 _translate_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="translate")
 
@@ -1115,10 +1117,19 @@ def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_ove
             _bc(loop, msg)
             continue
 
+        gen = None
+        if msg_type == "interim_translation":
+            with _translate_gen_lock:
+                gen = _translate_gen.get(i, 0) + 1
+                _translate_gen[i] = gen
         _translate_pool.submit(_do_translate,
-            text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang)
+            text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang, gen)
 
-def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None):
+def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None, generation=None):
+    if generation is not None:
+        with _translate_gen_lock:
+            if _translate_gen.get(slot, 0) != generation:
+                return
     translations = config.get("translations", [])
     mode = "deepl"
     if slot < len(translations):
