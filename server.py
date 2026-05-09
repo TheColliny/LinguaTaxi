@@ -1978,6 +1978,15 @@ async def o_offline_progress(key: str):
     return JSONResponse(offline_translate.get_progress(key))
 
 
+@operator_app.post("/api/offline-translate/reload")
+async def o_offline_reload():
+    """Clear cached translation models so they reload with current settings."""
+    offline_translate.reload_models()
+    cores = config.get("translate_cores", 0)
+    effective = cores if cores > 0 else offline_translate.get_default_cores()
+    return JSONResponse({"status": "reloaded", "intra_threads": effective})
+
+
 @operator_app.get("/api/mics")
 async def o_list_mics():
     """List available microphones."""
