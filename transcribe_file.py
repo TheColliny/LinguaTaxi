@@ -4,6 +4,20 @@ import threading
 import time
 import numpy as np
 from pathlib import Path
+import re
+
+AUDIO_EXTS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".webm"}
+TEXT_EXTS = {".txt", ".srt", ".vtt", ".md"}
+MAX_TEXT_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_LINE_LENGTH = 5000
+
+
+def _sanitize_text_line(line):
+    """Strip null bytes and control characters (keep newlines/tabs), cap length."""
+    line = line.replace("\x00", "")
+    line = re.sub(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]", "", line)
+    return line[:MAX_LINE_LENGTH]
+
 
 log = logging.getLogger("livecaption")
 
@@ -106,6 +120,70 @@ def segment_audio(samples, silence_threshold=0.008,
         segments.append(buf.copy())
 
     return segments
+
+
+def batch_translate_text(file_path, translate_fn, translations,
+                         output_dir, source_lang, progress_callback=None):
+    """Translate a text file to multiple languages.
+    Returns {lines, languages, output_dir} or None on error."""
+    p = Path(file_path)
+    _set_progress("processing", 0, f"Reading {p.name}...")
+
+    if p.stat().st_size > MAX_TEXT_FILE_SIZE:
+        _set_progress("error", 0, f"Skipped {p.name} (exceeds 10MB limit)")
+        return None
+
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        _set_progress("error", 0, f"Cannot read {p.name}: {e}")
+        return None
+
+    lines = raw.splitlines()
+    if not lines:
+        _set_progress("error", 0, f"Skipped {p.name} (empty file)")
+        return None
+
+    lines = [_sanitize_text_line(l) for l in lines]
+    lines = [l for l in lines if l.strip()]
+    if not lines:
+        _set_progress("error", 0, f"Skipped {p.name} (no text after sanitization)")
+        return None
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stem = p.stem
+    ext = p.suffix
+    languages = []
+    total_slots = len(translations)
+
+    for slot_idx, t in enumerate(translations):
+        tgt_lang = t["lang"]
+        mode = t.get("mode", "deepl")
+        tgt_base = tgt_lang.split("-")[0]
+        src_base = source_lang.split("-")[0]
+
+        pct = int(100 * slot_idx / max(total_slots, 1))
+        _set_progress("processing", pct, f"Translating to {tgt_lang}...")
+        if progress_callback:
+            progress_callback(pct, f"Translating to {tgt_lang}")
+
+        out_name = f"{stem}_{tgt_lang}{ext}"
+        with open(out / out_name, "w", encoding="utf-8") as f:
+            for line in lines:
+                if src_base == tgt_base:
+                    translated = line
+                else:
+                    translated = translate_fn(line, tgt_lang, source_lang, mode)
+                f.write(translated + "\n")
+        languages.append(tgt_lang)
+
+    _set_progress("done", 100, f"Translated {len(lines)} lines to {len(languages)} language(s)")
+    return {
+        "lines": len(lines),
+        "languages": languages,
+        "output_dir": str(out),
+    }
 
 
 # ── Progress state (read by server API) ──
