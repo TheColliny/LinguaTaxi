@@ -2396,34 +2396,38 @@ async def o_transcribe_batch(req: BatchRequest):
     recursive = req.recursive
 
     def run():
-        with _file_transcribe_lock:
-            if has_folder:
-                transcribe_file.batch_folder(
-                    folder_path=folder_path,
-                    recursive=recursive,
-                    stt_backend=stt_backend,
-                    translate_fn=translate_text,
-                    translations=translations,
-                    output_dir=output_dir,
-                    source_lang=src_lang,
-                )
-            elif is_text:
-                transcribe_file.batch_translate_text(
-                    file_path=file_path,
-                    translate_fn=translate_text,
-                    translations=translations,
-                    output_dir=output_dir,
-                    source_lang=src_lang,
-                )
-            else:
-                transcribe_file.batch_transcribe(
-                    file_path=file_path,
-                    stt_backend=stt_backend,
-                    translate_fn=translate_text,
-                    translations=translations,
-                    transcripts_dir=output_dir,
-                    source_lang=src_lang,
-                )
+        try:
+            with _file_transcribe_lock:
+                if has_folder:
+                    transcribe_file.batch_folder(
+                        folder_path=folder_path,
+                        recursive=recursive,
+                        stt_backend=stt_backend,
+                        translate_fn=translate_text,
+                        translations=translations,
+                        output_dir=output_dir,
+                        source_lang=src_lang,
+                    )
+                elif is_text:
+                    transcribe_file.batch_translate_text(
+                        file_path=file_path,
+                        translate_fn=translate_text,
+                        translations=translations,
+                        output_dir=output_dir,
+                        source_lang=src_lang,
+                    )
+                else:
+                    transcribe_file.batch_transcribe(
+                        file_path=file_path,
+                        stt_backend=stt_backend,
+                        translate_fn=translate_text,
+                        translations=translations,
+                        transcripts_dir=output_dir,
+                        source_lang=src_lang,
+                    )
+        except Exception as e:
+            log.exception("Batch transcription thread crashed")
+            transcribe_file._set_progress("error", 0, f"Internal error: {e}")
 
     threading.Thread(target=run, daemon=True).start()
     return JSONResponse({"status": "started"})

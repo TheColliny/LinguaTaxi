@@ -244,6 +244,10 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
         source_lang: Source language code (e.g. "EN").
         progress_callback: Optional callable(pct: int, message: str).
     """
+    if stt_backend is None:
+        _set_progress("error", 0, "No speech backend loaded — check model installation")
+        return None
+
     _set_progress("processing", 0, "Loading audio file...")
     try:
         samples, duration = load_audio(file_path)
