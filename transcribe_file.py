@@ -123,7 +123,10 @@ def segment_audio(samples, silence_threshold=0.008,
 
 
 # ── Progress state (read by server API) ──
-_progress = {"status": "idle", "pct": 0, "message": ""}
+_progress = {
+    "status": "idle", "pct": 0, "message": "",
+    "current_file": "", "files_done": 0, "files_total": 0,
+}
 _progress_lock = threading.Lock()
 
 
@@ -132,11 +135,15 @@ def get_progress():
         return dict(_progress)
 
 
-def _set_progress(status, pct=0, message=""):
+def _set_progress(status, pct=0, message="", current_file="",
+                  files_done=0, files_total=0):
     with _progress_lock:
         _progress["status"] = status
         _progress["pct"] = pct
         _progress["message"] = message
+        _progress["current_file"] = current_file
+        _progress["files_done"] = files_done
+        _progress["files_total"] = files_total
 
 
 def batch_translate_text(file_path, translate_fn, translations,
@@ -204,6 +211,88 @@ def batch_translate_text(file_path, translate_fn, translations,
     return {
         "lines": len(lines),
         "languages": languages,
+        "output_dir": str(out),
+    }
+
+
+def batch_folder(folder_path, recursive, stt_backend, translate_fn,
+                 translations, output_dir, source_lang,
+                 progress_callback=None):
+    """Process all supported files in a folder.
+    Returns {files_processed, files_skipped, total_lines, languages, output_dir}."""
+    root = Path(folder_path)
+    if not root.is_dir():
+        _set_progress("error", 0, f"Not a directory: {folder_path}")
+        return None
+
+    # Collect supported files
+    files = []
+    pattern = root.rglob("*") if recursive else root.glob("*")
+    for fp in sorted(pattern):
+        if not fp.is_file():
+            continue
+        ext = fp.suffix.lower()
+        if ext in AUDIO_EXTS or ext in TEXT_EXTS:
+            files.append(fp)
+
+    if not files:
+        _set_progress("error", 0, "No audio or text files found in folder")
+        return None
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    total = len(files)
+    processed = 0
+    skipped = 0
+    total_lines = 0
+    languages_set = set()
+
+    for idx, fp in enumerate(files):
+        ext = fp.suffix.lower()
+        file_pct = int(100 * idx / total)
+        _set_progress("processing", file_pct,
+                      f"Processing {fp.name} ({idx + 1}/{total})",
+                      current_file=fp.name, files_done=idx, files_total=total)
+
+        if ext in TEXT_EXTS:
+            if not translations:
+                log.warning(f"Skipping text file {fp.name} — no translation configured")
+                skipped += 1
+                continue
+            result = batch_translate_text(
+                str(fp), translate_fn, translations,
+                str(out), source_lang, progress_callback=None,
+            )
+            if result:
+                total_lines += result["lines"]
+                languages_set.update(result["languages"])
+                processed += 1
+            else:
+                skipped += 1
+
+        elif ext in AUDIO_EXTS:
+            result = batch_transcribe(
+                str(fp), stt_backend, translate_fn, translations,
+                transcripts_dir=str(out), source_lang=source_lang,
+                progress_callback=None,
+            )
+            if result:
+                total_lines += result["lines"]
+                languages_set.update(result["languages"])
+                processed += 1
+            else:
+                skipped += 1
+
+    msg = f"Done: {processed} files processed"
+    if skipped:
+        msg += f", {skipped} skipped"
+    _set_progress("done", 100, msg,
+                  current_file="", files_done=total, files_total=total)
+    return {
+        "files_processed": processed,
+        "files_skipped": skipped,
+        "total_lines": total_lines,
+        "languages": sorted(languages_set),
         "output_dir": str(out),
     }
 
