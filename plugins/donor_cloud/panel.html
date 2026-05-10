@@ -1,0 +1,22 @@
+<div class="dc-controls">
+  <div class="dc-search-row">
+    <input type="text" id="dc-search" class="dc-input" placeholder="Candidate name or FEC ID (e.g. H8CA05035)">
+    <button class="dc-btn dc-btn--search" id="dc-search-btn">Search</button>
+  </div>
+  <div class="dc-cycle-row">
+    <label class="dc-label">Cycle:</label>
+    <select id="dc-cycle" class="dc-select">
+      <option value="2026">2026</option>
+      <option value="2024" selected>2024</option>
+      <option value="2022">2022</option>
+      <option value="2020">2020</option>
+      <option value="2018">2018</option>
+      <option value="2016">2016</option>
+    </select>
+  </div>
+  <div class="dc-search-results" id="dc-search-results"></div>
+</div>
+<div class="dc-candidate-info" id="dc-candidate-info"></div>
+<div class="dc-empty" id="dc-empty">Search for a candidate to see their top donors as a word cloud. Data from FEC.gov — no API key needed.</div>
+<div class="dc-cloud-container" id="dc-cloud-container"></div>
+<div class="dc-legend" id="dc-legend"></div>

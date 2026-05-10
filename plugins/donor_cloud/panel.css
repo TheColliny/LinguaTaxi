@@ -1,0 +1,205 @@
+/* LinguaTaxi — Donor Cloud Panel Styles
+   All rules scoped to .dc-* to avoid colliding with operator.html styles */
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+.dc-controls {
+  margin-bottom: 10px;
+}
+
+.dc-search-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.dc-input {
+  flex: 1;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+}
+.dc-input::placeholder { color: rgba(255,255,255,0.35); }
+.dc-input:focus { outline: none; border-color: #4FC3F7; }
+
+.dc-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: 0.15s;
+}
+.dc-btn--search {
+  background: #4FC3F7;
+  color: #000;
+}
+.dc-btn--search:hover { filter: brightness(1.15); }
+
+.dc-cycle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.dc-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dc-select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+}
+.dc-select:focus { outline: none; border-color: #4FC3F7; }
+.dc-select option { background: #12122a; }
+
+/* ── Search results ─────────────────────────────────────────────────────── */
+.dc-search-results {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.dc-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dc-result-item:hover { background: rgba(255,255,255,0.06); }
+
+.dc-result-name {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  font-weight: 500;
+}
+.dc-result-meta {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+}
+.dc-result-cid {
+  font-size: 9px;
+  font-family: monospace;
+  color: rgba(255,255,255,0.25);
+  margin-left: auto;
+}
+
+.dc-no-results,
+.dc-searching {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  padding: 8px;
+  text-align: center;
+}
+
+/* ── Candidate info ─────────────────────────────────────────────────────── */
+.dc-candidate-info {
+  display: none;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 8px;
+}
+
+.dc-cand-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+}
+
+.dc-cand-meta {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+/* ── Word cloud container ───────────────────────────────────────────────── */
+.dc-cloud-container {
+  min-height: 120px;
+  max-height: 380px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.dc-cloud-container::-webkit-scrollbar { width: 5px; }
+.dc-cloud-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+.dc-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  padding: 12px 6px;
+  line-height: 1.2;
+}
+
+.dc-word {
+  display: inline-block;
+  font-weight: 600;
+  cursor: default;
+  transition: opacity 0.15s, transform 0.15s;
+  white-space: nowrap;
+}
+.dc-word:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+/* ── Empty / loading / error ────────────────────────────────────────────── */
+.dc-empty {
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+  text-align: center;
+  padding: 20px 8px;
+  line-height: 1.5;
+}
+
+.dc-loading {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  text-align: center;
+  padding: 20px 8px;
+}
+
+.dc-error {
+  font-size: 12px;
+  color: #F09595;
+  text-align: center;
+  padding: 12px 8px;
+}
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+.dc-legend {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0 2px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: 8px;
+}
+
+.dc-legend-item {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  font-family: monospace;
+}

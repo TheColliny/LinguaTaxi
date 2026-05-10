@@ -1,0 +1,126 @@
+{
+  "manifest_version": 1,
+  "updated": "2026-04-23",
+  "models": {
+    "faster-whisper-large-v3-turbo": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Systran/faster-whisper-large-v3-turbo",
+      "check_file": "model.bin",
+      "size_mb": 1550,
+      "category": "speech"
+    },
+    "vosk-model-small-en-us-0.15": {
+      "version": "0.15",
+      "source": "url",
+      "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+      "check_file": "README",
+      "size_mb": 68,
+      "category": "speech"
+    },
+    "silero-lang-detect": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "deepghs/silero-lang95-onnx",
+      "check_file": "lang_classifier_95.onnx",
+      "size_mb": 16,
+      "category": "speech"
+    },
+    "opus-mt-en-es": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Helsinki-NLP/opus-mt-en-es",
+      "check_file": "model.bin",
+      "size_mb": 310,
+      "category": "translation"
+    },
+    "opus-mt-en-fr": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Helsinki-NLP/opus-mt-en-fr",
+      "check_file": "model.bin",
+      "size_mb": 310,
+      "category": "translation"
+    },
+    "opus-mt-en-de": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Helsinki-NLP/opus-mt-en-de",
+      "check_file": "model.bin",
+      "size_mb": 310,
+      "category": "translation"
+    },
+    "opus-mt-en-it": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Helsinki-NLP/opus-mt-en-it",
+      "check_file": "model.bin",
+      "size_mb": 310,
+      "category": "translation"
+    },
+    "opus-mt-en-ru": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Helsinki-NLP/opus-mt-en-ru",
+      "check_file": "model.bin",
+      "size_mb": 310,
+      "category": "translation"
+    },
+    "m2m100-1.2b": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "facebook/m2m100_1.2B",
+      "check_file": "model.bin",
+      "size_mb": 4800,
+      "category": "translation"
+    },
+    "tuned-es": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "adriszmar/whisper-large-v3-turbo-es",
+      "check_file": "model.bin",
+      "size_mb": 1600,
+      "category": "tuned"
+    },
+    "tuned-fr": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "bofenghuang/whisper-large-v3-french",
+      "check_file": "model.bin",
+      "size_mb": 3100,
+      "category": "tuned"
+    },
+    "tuned-de": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "primeline/whisper-large-v3-german",
+      "check_file": "model.bin",
+      "size_mb": 3100,
+      "category": "tuned"
+    },
+    "tuned-ar": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "Byne/whisper-large-v3-arabic",
+      "check_file": "model.bin",
+      "size_mb": 3100,
+      "category": "tuned"
+    },
+    "tuned-ja": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "kotoba-tech/kotoba-whisper-v2.0",
+      "check_file": "model.bin",
+      "size_mb": 1500,
+      "category": "tuned"
+    },
+    "tuned-zh": {
+      "version": "1.0.0",
+      "source": "huggingface",
+      "repo": "BELLE-2/Belle-whisper-large-v3-zh",
+      "check_file": "model.bin",
+      "size_mb": 3100,
+      "category": "tuned"
+    }
+  }
+}

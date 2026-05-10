@@ -1,0 +1,154 @@
+/* LinguaTaxi — Polls Checker Panel Styles
+   All rules scoped to .pc-* to avoid collisions */
+
+.pc-count {
+  font-size: 12px;
+  font-family: monospace;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ── Status row ─────────────────────────────────────────────────────────── */
+.pc-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.pc-provider-badge { display: flex; align-items: center; gap: 6px; }
+.pc-prov {
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.pc-prov--ok    { background: rgba(99,153,34,0.15); color: #C0DD97; }
+.pc-prov--nokey { background: rgba(163,45,45,0.15); color: #F09595; }
+.pc-prov-cost   { font-size: 9px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.06em; }
+.pc-prov-warn   { font-size: 9px; color: #F09595; font-style: italic; }
+
+/* ── Empty / queue ──────────────────────────────────────────────────────── */
+.pc-empty {
+  font-size: 12px; color: rgba(255,255,255,0.3); text-align: center;
+  padding: 16px 8px; line-height: 1.5;
+}
+.pc-queue-status {
+  font-size: 11px; color: rgba(255,255,255,0.35); text-align: center;
+  padding: 6px 0 2px; font-family: monospace; letter-spacing: 0.02em;
+}
+
+/* ── Result cards ───────────────────────────────────────────────────────── */
+.pc-results { display: flex; flex-direction: column; gap: 8px; }
+
+.pc-card {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px; padding: 10px 12px; transition: opacity 0.3s;
+}
+.pc-card--loading { opacity: 0.5; }
+
+/* ── Card meta ──────────────────────────────────────────────────────────── */
+.pc-card-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 7px;
+}
+.pc-speaker {
+  font-size: 11px; color: rgba(255,255,255,0.45); font-style: italic; margin-right: 2px;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.pc-badge {
+  font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 4px;
+  letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid transparent;
+}
+.pc-badge--checking    { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); border-color: rgba(255,255,255,0.1); }
+.pc-badge--supported   { background: rgba(99,153,34,0.2);    color: #C0DD97; border-color: rgba(99,153,34,0.4); }
+.pc-badge--contradicted{ background: rgba(163,45,45,0.2);    color: #F7C1C1; border-color: rgba(163,45,45,0.4); }
+.pc-badge--mixed       { background: rgba(186,117,23,0.18);  color: #FAC775; border-color: rgba(186,117,23,0.35); }
+.pc-badge--nodata      { background: rgba(136,135,128,0.18); color: #B4B2A9; border-color: rgba(136,135,128,0.3); }
+.pc-badge--error       { background: rgba(163,45,45,0.15);   color: #F09595; border-color: rgba(163,45,45,0.3); }
+.pc-badge--claude      { background: rgba(204,120,50,0.15);  color: #E8A96C; border-color: rgba(204,120,50,0.3); font-size: 8px; }
+.pc-badge--gemini      { background: rgba(66,133,244,0.15);  color: #8AB4F8; border-color: rgba(66,133,244,0.3); font-size: 8px; }
+
+/* ── Statement + topic + summary ────────────────────────────────────────── */
+.pc-statement {
+  font-size: 13px; color: rgba(255,255,255,0.75); line-height: 1.5; margin-bottom: 6px;
+}
+.pc-topic {
+  font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5);
+  text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
+}
+.pc-summary {
+  font-size: 12px; color: rgba(255,255,255,0.55); line-height: 1.5; margin-bottom: 8px;
+}
+.pc-error {
+  font-size: 11px; color: #F09595; font-family: monospace; margin-top: 4px; opacity: 0.8;
+}
+
+/* ── Poll cards ─────────────────────────────────────────────────────────── */
+.pc-polls { display: flex; flex-direction: column; gap: 6px; }
+
+.pc-poll {
+  padding: 8px 10px; border-radius: 5px; border-left: 3px solid transparent;
+  background: rgba(255,255,255,0.02);
+}
+.pc-rating--gold    { border-left-color: #FFD54F; }
+.pc-rating--good    { border-left-color: #639922; }
+.pc-rating--mid     { border-left-color: #BA7517; }
+.pc-rating--low     { border-left-color: #A32D2D; }
+.pc-rating--unknown { border-left-color: rgba(255,255,255,0.15); }
+
+/* Poll header */
+.pc-poll-header {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+}
+.pc-poll-org {
+  font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.7);
+}
+.pc-poll-rating {
+  font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5);
+  font-family: monospace;
+}
+.pc-rating--gold .pc-poll-rating { background: rgba(255,213,79,0.2); color: #FFD54F; }
+.pc-rating--good .pc-poll-rating { background: rgba(99,153,34,0.2);  color: #C0DD97; }
+.pc-rating--low  .pc-poll-rating { background: rgba(163,45,45,0.15); color: #F09595; }
+
+.pc-poll-date {
+  font-size: 10px; color: rgba(255,255,255,0.35); font-family: monospace; margin-left: auto;
+}
+
+/* Poll question */
+.pc-poll-question {
+  font-size: 11px; color: rgba(255,255,255,0.45); font-style: italic;
+  margin-bottom: 5px; line-height: 1.4;
+}
+
+/* Poll result bars */
+.pc-poll-results { margin-bottom: 5px; }
+.pc-bar-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 3px;
+}
+.pc-bar-label {
+  font-size: 10px; color: rgba(255,255,255,0.55); min-width: 60px;
+  text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pc-bar-track {
+  flex: 1; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;
+}
+.pc-bar-fill {
+  height: 100%; border-radius: 3px; transition: width 0.5s ease;
+}
+.pc-bar-pct {
+  font-size: 10px; font-family: monospace; color: rgba(255,255,255,0.5);
+  min-width: 28px; text-align: right;
+}
+
+/* Poll footer */
+.pc-poll-footer {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.pc-poll-meta {
+  font-size: 9px; color: rgba(255,255,255,0.3); font-family: monospace;
+}
+.pc-poll-link {
+  font-size: 9px; color: rgba(79,195,247,0.6); text-decoration: none;
+  transition: color 0.15s;
+}
+.pc-poll-link:hover { color: #4FC3F7; text-decoration: underline; }

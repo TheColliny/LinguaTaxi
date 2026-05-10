@@ -1,0 +1,38 @@
+{
+  "id": "polls_checker",
+  "name": "Polls Checker",
+  "version": "1.0.0",
+  "description": "When opinion claims are made about what people think/want/support, finds actual polling data from respected non-partisan sources",
+  "author": "LinguaTaxi",
+  "hooks": ["on_config_change", "on_shutdown"],
+  "has_routes": true,
+  "has_panel": true,
+  "route_prefix": "/api/polls",
+  "settings_schema": {
+    "provider": {
+      "type": "text",
+      "label": "Provider: gemini (free) or claude (paid)",
+      "default": "gemini"
+    },
+    "gemini_api_key": {
+      "type": "password",
+      "label": "Google AI API Key (free at aistudio.google.com)",
+      "default": ""
+    },
+    "anthropic_api_key": {
+      "type": "password",
+      "label": "Anthropic API Key (paid — for Claude provider)",
+      "default": ""
+    },
+    "auto_check": {
+      "type": "text",
+      "label": "Auto-check opinion claims from transcript (true/false)",
+      "default": "true"
+    },
+    "rate_limit": {
+      "type": "number",
+      "label": "Max checks per minute",
+      "default": 8
+    }
+  }
+}

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Live Dial — Rate the Speaker</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a1a;--surface:#14142a;--accent:#4FC3F7;--red:#f44336;--green:#4CAF50;--yellow:#FFC107}
+html,body{height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e0e0e0;overflow:hidden;touch-action:none}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px}
+
+.status{position:absolute;top:12px;left:0;right:0;text-align:center}
+.status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px;vertical-align:middle}
+.status .dot.live{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status .label{font-size:12px;color:rgba(255,255,255,0.4);vertical-align:middle}
+
+.speaker{font-size:18px;font-weight:700;color:rgba(255,255,255,0.85);margin-bottom:6px;text-align:center;min-height:24px}
+.prompt{font-size:12px;color:rgba(255,255,255,0.35);margin-bottom:24px;text-align:center}
+
+.dial-area{width:100%;max-width:320px;display:flex;flex-direction:column;align-items:center}
+
+.value-display{font-size:64px;font-weight:800;font-variant-numeric:tabular-nums;margin-bottom:4px;transition:color 0.2s}
+.value-label{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:20px;transition:color 0.2s}
+
+.slider-wrap{width:100%;position:relative;margin-bottom:20px}
+input[type=range]{-webkit-appearance:none;width:100%;height:44px;background:transparent;outline:none;touch-action:none}
+input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--red) 0%,var(--yellow) 50%,var(--green) 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:40px;height:40px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.4);margin-top:-16px;cursor:pointer}
+input[type=range]::-moz-range-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--red) 0%,var(--yellow) 50%,var(--green) 100%);border:none}
+input[type=range]::-moz-range-thumb{width:40px;height:40px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.4);cursor:pointer;border:none}
+
+.labels{display:flex;justify-content:space-between;width:100%;font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.06em}
+
+.thanks{position:absolute;bottom:16px;font-size:10px;color:rgba(255,255,255,0.2);text-align:center}
+</style>
+</head>
+<body>
+
+<div class="status">
+  <span class="dot" id="dot"></span>
+  <span class="label" id="status-label">Connecting...</span>
+</div>
+
+<div class="speaker" id="speaker"></div>
+<div class="prompt">Slide to rate the speaker in real-time</div>
+
+<div class="dial-area">
+  <div class="value-display" id="value-display">50</div>
+  <div class="value-label" id="value-label">Neutral</div>
+
+  <div class="slider-wrap">
+    <input type="range" id="dial" min="0" max="100" value="50" step="1">
+  </div>
+
+  <div class="labels">
+    <span>Strongly Disapprove</span>
+    <span>Strongly Approve</span>
+  </div>
+</div>
+
+<div class="thanks">LinguaTaxi Live Dial</div>
+
+<script>
+(function() {
+  const dial      = document.getElementById('dial');
+  const display   = document.getElementById('value-display');
+  const label     = document.getElementById('value-label');
+  const speaker   = document.getElementById('speaker');
+  const dot       = document.getElementById('dot');
+  const statusLbl = document.getElementById('status-label');
+
+  let ws = null;
+  let lastSent = -1;
+  let sendTimer = null;
+  let reconnectAttempts = 0;
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/api/dial/audience-ws`);
+
+    ws.onopen = () => {
+      reconnectAttempts = 0;
+      dot.className = 'dot live';
+      statusLbl.textContent = 'Connected';
+      sendValue(); // send initial value
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'speaker') {
+          speaker.textContent = msg.name || '';
+        }
+      } catch(err) {}
+    };
+
+    ws.onclose = () => {
+      dot.className = 'dot';
+      reconnectAttempts++;
+      if (reconnectAttempts > 50) {
+        statusLbl.textContent = 'Connection lost';
+        return;
+      }
+      statusLbl.textContent = 'Reconnecting...';
+      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 30000);
+      setTimeout(connect, delay);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  window.addEventListener('beforeunload', () => {
+    if (ws) {
+      try { ws.close(); } catch(e) {}
+    }
+  });
+
+  function sendValue() {
+    const val = parseInt(dial.value, 10);
+    if (val === lastSent) return;
+    lastSent = val;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: 'dial', value: val}));
+    }
+  }
+
+  function updateDisplay() {
+    const val = parseInt(dial.value, 10);
+    display.textContent = val;
+
+    if (val >= 70) { display.style.color = '#4CAF50'; label.textContent = 'Approve'; label.style.color = '#4CAF50'; }
+    else if (val >= 55) { display.style.color = '#81C784'; label.textContent = 'Lean Approve'; label.style.color = '#81C784'; }
+    else if (val >= 45) { display.style.color = '#FFC107'; label.textContent = 'Neutral'; label.style.color = '#FFC107'; }
+    else if (val >= 30) { display.style.color = '#FF8A65'; label.textContent = 'Lean Disapprove'; label.style.color = '#FF8A65'; }
+    else { display.style.color = '#f44336'; label.textContent = 'Disapprove'; label.style.color = '#f44336'; }
+  }
+
+  // Throttled send: max 5 updates/sec to avoid flooding
+  dial.addEventListener('input', () => {
+    updateDisplay();
+    if (!sendTimer) {
+      sendTimer = setTimeout(() => { sendTimer = null; sendValue(); }, 200);
+    }
+  });
+
+  updateDisplay();
+  connect();
+})();
+</script>
+</body>
+</html>

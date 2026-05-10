@@ -1,0 +1,75 @@
+/* LinguaTaxi — Live Dial Testing Panel Styles
+   All rules scoped to .ld-* */
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+.ld-controls { margin-bottom: 10px; }
+.ld-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.ld-btn {
+  padding: 6px 12px; border: none; border-radius: 5px; cursor: pointer;
+  font-weight: 600; font-family: inherit; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.04em; transition: 0.15s;
+}
+.ld-btn--tunnel { background: #4FC3F7; color: #000; }
+.ld-btn--tunnel:hover { filter: brightness(1.15); }
+.ld-btn--tunnel:disabled { opacity: 0.5; cursor: default; }
+.ld-btn--reset { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.1); }
+.ld-btn--reset:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.ld-btn--set { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.12); font-size: 10px; padding: 5px 10px; }
+.ld-btn--set:hover { background: rgba(255,255,255,0.12); }
+
+.ld-audience-count {
+  font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.5);
+  margin-left: auto;
+}
+
+/* ── Tunnel info ────────────────────────────────────────────────────────── */
+.ld-tunnel-info { margin-bottom: 6px; }
+.ld-tunnel-link {
+  font-size: 11px; color: #4FC3F7; text-decoration: none; word-break: break-all;
+}
+.ld-tunnel-link:hover { text-decoration: underline; }
+.ld-tunnel-pending { font-size: 11px; color: rgba(255,255,255,0.35); font-style: italic; }
+
+.ld-qr { text-align: center; margin-bottom: 8px; }
+.ld-qr-img { width: 160px; height: 160px; border-radius: 8px; background: #fff; padding: 4px; }
+
+/* ── Speaker input ──────────────────────────────────────────────────────── */
+.ld-speaker-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ld-label {
+  font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5);
+  text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap;
+}
+.ld-input {
+  flex: 1; padding: 5px 8px; border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05);
+  color: #fff; font-family: inherit; font-size: 11px;
+}
+.ld-input::placeholder { color: rgba(255,255,255,0.3); }
+.ld-input:focus { outline: none; border-color: #4FC3F7; }
+
+/* ── Graph area ─────────────────────────────────────────────────────────── */
+.ld-graph-area {
+  position: relative; background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+  padding: 8px; overflow: hidden;
+}
+
+.ld-avg-display {
+  position: absolute; top: 8px; right: 12px;
+  font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: #FFC107; opacity: 0.7; z-index: 1;
+}
+
+#ld-canvas { width: 100%; height: 140px; display: block; }
+
+.ld-graph-labels {
+  display: flex; justify-content: space-between; margin-top: 4px;
+}
+.ld-gl {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.ld-gl--approve { color: rgba(76,175,80,0.5); }
+.ld-gl--neutral { color: rgba(255,193,7,0.4); }
+.ld-gl--disapprove { color: rgba(244,67,54,0.5); }

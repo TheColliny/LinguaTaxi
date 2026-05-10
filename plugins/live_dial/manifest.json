@@ -1,0 +1,18 @@
+{
+  "id": "live_dial",
+  "name": "Live Dial Testing",
+  "version": "1.0.0",
+  "description": "Real-time audience approval dial — audience joins via QR code on their phones, operator sees live sentiment graph",
+  "author": "LinguaTaxi",
+  "hooks": ["on_config_change", "on_shutdown"],
+  "has_routes": true,
+  "has_panel": true,
+  "route_prefix": "/api/dial",
+  "settings_schema": {
+    "tunnel_service": {
+      "type": "text",
+      "label": "Tunnel: serveo, localhost.run, or none (LAN only)",
+      "default": "serveo"
+    }
+  }
+}

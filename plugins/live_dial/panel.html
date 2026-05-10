@@ -1,0 +1,23 @@
+<div class="ld-controls">
+  <div class="ld-row">
+    <button class="ld-btn ld-btn--tunnel" id="ld-tunnel-btn" onclick="window._ldToggleTunnel()">Start Tunnel</button>
+    <span class="ld-audience-count" id="ld-audience-count">0 connected</span>
+    <button class="ld-btn ld-btn--reset" onclick="window._ldReset()">Reset</button>
+  </div>
+  <div class="ld-tunnel-info" id="ld-tunnel-info"></div>
+  <div class="ld-qr" id="ld-qr"></div>
+  <div class="ld-speaker-row">
+    <label class="ld-label">Speaker:</label>
+    <input type="text" id="ld-speaker-input" class="ld-input" placeholder="Current speaker name">
+    <button class="ld-btn ld-btn--set" onclick="window._ldSetSpeaker()">Set</button>
+  </div>
+</div>
+<div class="ld-graph-area">
+  <div class="ld-avg-display" id="ld-avg-display">50</div>
+  <canvas id="ld-canvas" width="360" height="140"></canvas>
+  <div class="ld-graph-labels">
+    <span class="ld-gl ld-gl--approve">Approve</span>
+    <span class="ld-gl ld-gl--neutral">Neutral</span>
+    <span class="ld-gl ld-gl--disapprove">Disapprove</span>
+  </div>
+</div>
