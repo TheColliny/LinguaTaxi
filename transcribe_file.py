@@ -242,3 +242,67 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
         "output_dir": str(out_dir),
         "languages": languages,
     }
+
+
+# ── Live playback state ──
+_playback_stop = None   # threading.Event or None
+_playback_thread = None
+
+
+def start_live_playback(file_path, source, on_complete=None):
+    """Feed audio file into source.queue at real-time pace.
+    Returns a stop_event that can be set to cancel playback.
+
+    Args:
+        source: An AudioSource instance whose .queue receives numpy chunks.
+        on_complete: Optional callback when playback finishes (called from playback thread).
+    """
+    global _playback_stop, _playback_thread
+
+    if _playback_stop is not None and not _playback_stop.is_set():
+        raise RuntimeError("File transcription already in progress")
+
+    samples, duration = load_audio(file_path)
+    stop_event = threading.Event()
+    _playback_stop = stop_event
+
+    chunk_size = int(SAMPLE_RATE * 0.5)  # 8000 samples = 0.5s, matches CHUNK_DURATION
+    total_chunks = max(1, len(samples) // chunk_size)
+
+    def feed():
+        _set_progress("playing", 0, f"Playing file ({duration:.0f}s)...")
+        try:
+            for i in range(0, len(samples), chunk_size):
+                if stop_event.is_set():
+                    break
+                chunk = samples[i:i + chunk_size]
+                # Reshape to (N,1) to match mic input format
+                source.queue.put(chunk.reshape(-1, 1))
+                pct = min(100, int(100 * i / len(samples)))
+                elapsed = i / SAMPLE_RATE
+                _set_progress("playing", pct,
+                              f"{int(elapsed)}s / {int(duration)}s")
+                # Wait real-time before sending next chunk
+                if not stop_event.wait(0.5):
+                    pass  # timeout expired = continue
+                else:
+                    break  # stop_event was set
+        finally:
+            _set_progress("idle", 0, "")
+            if on_complete:
+                on_complete()
+
+    t = threading.Thread(target=feed, daemon=True)
+    t.start()
+    _playback_thread = t
+    _set_progress("playing", 0, f"Playing file ({duration:.0f}s)...")
+    return stop_event
+
+
+def stop_live_playback():
+    """Stop any active live playback and signal completion."""
+    global _playback_stop
+    if _playback_stop is not None:
+        _playback_stop.set()
+        _playback_stop = None
+    _set_progress("idle", 0, "")
