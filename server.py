@@ -57,6 +57,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 import tuned_models
 import offline_translate
+import transcribe_file
 import voice_id
 from plugin_loader import PluginDispatcher
 from plugin_registry import PluginRegistry
@@ -2340,6 +2341,103 @@ async def d_get_grids():
 @extended_app.get("/api/display-grids")
 async def e_get_grids():
     return _snapshot_display_grids()
+
+
+# ── File transcription endpoints ──
+
+_file_transcribe_lock = threading.Lock()
+
+@operator_app.post("/api/transcribe-file/batch")
+async def o_transcribe_batch(file_path: str = Form(...)):
+    """Start batch file transcription in a background thread."""
+    if not Path(file_path).exists():
+        return JSONResponse({"error": "File not found"}, status_code=400)
+
+    progress = transcribe_file.get_progress()
+    if progress["status"] in ("processing", "playing"):
+        return JSONResponse({"error": "File transcription already in progress"}, status_code=409)
+
+    translations = config.get("translations", [])
+    src_lang = config.get("input_lang", "EN")
+
+    def run():
+        with _file_transcribe_lock:
+            transcribe_file.batch_transcribe(
+                file_path=file_path,
+                stt_backend=stt_backend,
+                translate_fn=translate_text,
+                translations=translations,
+                transcripts_dir=str(TRANSCRIPTS_DIR),
+                source_lang=src_lang,
+            )
+
+    threading.Thread(target=run, daemon=True).start()
+    return JSONResponse({"status": "started"})
+
+
+@operator_app.post("/api/transcribe-file/live")
+async def o_transcribe_live(file_path: str = Form(...)):
+    """Start live file playback — pauses mic, feeds file as audio input."""
+    if not Path(file_path).exists():
+        return JSONResponse({"error": "File not found"}, status_code=400)
+
+    progress = transcribe_file.get_progress()
+    if progress["status"] in ("processing", "playing"):
+        return JSONResponse({"error": "File transcription already in progress"}, status_code=409)
+
+    # Pause mic streams
+    with _sources_lock:
+        for src in _sources:
+            if src.stream is not None:
+                try:
+                    src.stream.stop()
+                except Exception:
+                    pass
+
+    # Use first source for playback
+    with _sources_lock:
+        if not _sources:
+            return JSONResponse({"error": "No audio source available"}, status_code=400)
+        source = _sources[0]
+
+    def on_complete():
+        # Resume mic streams
+        with _sources_lock:
+            for src in _sources:
+                if src.stream is not None:
+                    try:
+                        src.stream.start()
+                    except Exception:
+                        pass
+        log.info("File playback complete, mic resumed")
+
+    try:
+        samples, duration = transcribe_file.load_audio(file_path)
+        transcribe_file.start_live_playback(file_path, source, on_complete=on_complete)
+        return JSONResponse({"status": "playing", "duration_sec": round(duration, 1)})
+    except ValueError as e:
+        on_complete()  # resume mic on error
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@operator_app.post("/api/transcribe-file/stop")
+async def o_transcribe_stop():
+    """Stop live playback if active, resume mic."""
+    transcribe_file.stop_live_playback()
+    with _sources_lock:
+        for src in _sources:
+            if src.stream is not None:
+                try:
+                    src.stream.start()
+                except Exception:
+                    pass
+    return JSONResponse({"status": "stopped"})
+
+
+@operator_app.get("/api/transcribe-file/progress")
+async def o_transcribe_progress():
+    """Get current file transcription progress."""
+    return JSONResponse(transcribe_file.get_progress())
 
 
 @operator_app.websocket("/ws")
