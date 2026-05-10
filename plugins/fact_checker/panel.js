@@ -175,7 +175,7 @@
         if (results.length > MAX_RESULTS) results.pop();
         replacePlaceholder(placeholderId, result);
         updateCount();
-        broadcastToAudience(result);
+        if (result.type !== 'opinion') broadcastToAudience(result);
       }
     } catch (e) {
       replacePlaceholder(placeholderId, {
@@ -199,7 +199,7 @@
   function onFactCheckResult(data) {
     if (!enabled) return;
     if (isOperatorPage) return;
-    if (data.type === 'ambiguous' || data.error) return;
+    if (data.type === 'ambiguous' || data.type === 'opinion' || data.error) return;
 
     results.unshift(data);
     if (results.length > MAX_RESULTS) results.pop();

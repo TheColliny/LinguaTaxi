@@ -1071,9 +1071,9 @@ async def fact_check(req: FactCheckRequest):
     local_filter_on = _plugin_settings.get("local_filter", "true").lower() in ("true", "1", "on")
     if local_filter_on and not req.recheck and claim_filter.is_loaded():
         cf_result = claim_filter.classify(req.statement.strip())
-        if not cf_result["is_claim"] and cf_result["confidence"] >= 0.75:
+        if not cf_result["is_claim"] and cf_result["confidence"] >= 0.995:
             return FactCheckResponse(
-                type="opinion" if cf_result["confidence"] >= 0.85 else "ambiguous",
+                type="opinion",
                 assessment="Filtered locally — not a verifiable factual claim.",
                 claim=req.statement.strip(),
             )

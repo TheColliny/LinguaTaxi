@@ -580,13 +580,6 @@
       if (ph) ph.style.display = 'none';
       div.appendChild(body);
 
-      // Resize handle
-      const handle = document.createElement('div');
-      handle.className = 'pg-resize-handle';
-      handle.title = 'Drag to resize';
-      attachResizeHandlers(handle, key);
-      div.appendChild(handle);
-
       // Drag/drop for rearranging
       attachCellDragHandlers(div, key);
       attachDropHandlers(div, cell.row, cell.col);
@@ -959,6 +952,11 @@
     const cell = grid[key];
     if (!cell) return;
     removePluginFromGrid(cell.pluginId);
+    buildAll();
+  };
+
+  window._pgResizePlugin = function(key, colSpan, rowSpan) {
+    resizeCell(key, colSpan, rowSpan);
     buildAll();
   };
 
