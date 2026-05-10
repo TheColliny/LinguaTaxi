@@ -13,13 +13,23 @@ uploads/
 
 # Build artifacts
 dist/
+*.exe
 build/windows/python_dist/
 build/windows/venv_dist/
 build/windows/venv_lite/
 build/windows/venv_full/
 build/windows/build_log.txt
+build/windows/build_stdout.txt
+build/windows/build_stderr.txt
 build/windows/python_installer.exe
 build/windows/models_prebuilt/
+
+# Test/temp files
+*.wav
+*.zip
+live-caption/
+71Coallition/
+.superpowers/
 
 # OS
 .DS_Store
