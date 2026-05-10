@@ -315,8 +315,8 @@ class LinguaTaxiApp(ctk.CTk):
         self.FG = "#ffffff"
         self.FG2 = "#a0a0a0"
         self.ACCENT = "#4FC3F7"
-        self.GREEN = "#8BC34A"
-        self.RED = "#ff6b6b"
+        self.GREEN = "#66BB6A"
+        self.RED = "#E57373"
         self.ORANGE = "#FF9800"
         self.YELLOW = "#FFD54F"
 
@@ -435,13 +435,13 @@ class LinguaTaxiApp(ctk.CTk):
         btn_row.pack(fill="x")
 
         self.start_btn = ctk.CTkButton(btn_row, text=_t("launcher.start_server"),
-                                        fg_color=self.GREEN, hover_color="#9CCC65",
+                                        fg_color=self.GREEN, hover_color="#81C784",
                                         text_color="#000", font=("Segoe UI", 12, "bold"),
                                         height=40, command=self._start_server)
         self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
 
         self.stop_btn = ctk.CTkButton(btn_row, text=_t("launcher.stop_server"),
-                                       fg_color=self.RED, hover_color="#EF5350",
+                                       fg_color=self.RED, hover_color="#EF9A9A",
                                        text_color="#fff", font=("Segoe UI", 12, "bold"),
                                        height=40, command=self._stop_server, state="disabled")
         self.stop_btn.pack(side="right", expand=True, fill="x", padx=(4, 0))
@@ -452,7 +452,7 @@ class LinguaTaxiApp(ctk.CTk):
 
         self.transcribe_btn = ctk.CTkButton(
             tf_row, text="Transcribe File",
-            fg_color="#7E57C2", hover_color="#9575CD",
+            fg_color="#9575CD", hover_color="#B39DDB",
             text_color="#fff", font=("Segoe UI", 11, "bold"),
             height=34, command=self._transcribe_file,
             state="disabled"
@@ -696,7 +696,7 @@ class LinguaTaxiApp(ctk.CTk):
         rm_btn = None
         if len(self._source_frames) > 0:
             rm_btn = ctk.CTkButton(row, text="X", width=30, height=28,
-                                    fg_color=self.RED, hover_color="#EF5350",
+                                    fg_color=self.RED, hover_color="#EF9A9A",
                                     text_color="#fff",
                                     command=lambda r=row: self._remove_source_row(r))
             rm_btn.pack(side="right")
@@ -1037,7 +1037,7 @@ class LinguaTaxiApp(ctk.CTk):
         btn_frame.pack(fill="x", pady=(0, 8))
 
         dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
-                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
+                            fg_color="#66BB6A", hover_color="#81C784", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
         close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
@@ -1301,7 +1301,7 @@ class LinguaTaxiApp(ctk.CTk):
         btn_frame.pack(fill="x", pady=(0, 8))
 
         dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
-                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
+                            fg_color="#66BB6A", hover_color="#81C784", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
         close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
@@ -1599,7 +1599,7 @@ class LinguaTaxiApp(ctk.CTk):
         btn_frame.pack(fill="x", pady=(8, 4))
 
         dl_btn = ctk.CTkButton(btn_frame, text=_t("launcher.download_selected"),
-                            fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=lambda: _start_download())
+                            fg_color="#66BB6A", hover_color="#81C784", text_color="#000", command=lambda: _start_download())
         dl_btn.pack(side="left", padx=(0, 8))
 
         close_btn = ctk.CTkButton(btn_frame, text=_t("launcher.close"),
@@ -2287,84 +2287,82 @@ class LinguaTaxiApp(ctk.CTk):
 
         port = self.settings.get("operator_port", 3001)
         base_url = f"http://localhost:{port}"
-        polling = [False]  # mutable flag for polling loop
+        polling = [False]
+        request_result = [None]  # bg thread stores HTTP result here
+        poll_data = [None]       # bg thread stores progress data here
+        started = [False]        # POST succeeded
+        live_stop_btn = [None]
 
-        def start_batch():
-            start_btn.configure(state="disabled")
-            status_var.set("Starting batch transcription...")
-            progress.configure(mode="indeterminate")
-            progress.start(15)
+        def _send_request(endpoint):
+            """Background thread: send HTTP POST, store result."""
             try:
                 data = urllib.parse.urlencode({"file_path": file_path}).encode()
-                req = urllib.request.Request(f"{base_url}/api/transcribe-file/batch", data=data)
+                req = urllib.request.Request(f"{base_url}/api/transcribe-file/{endpoint}", data=data)
                 resp = urllib.request.urlopen(req, timeout=10)
-                result = json.loads(resp.read())
-                if "error" in result:
-                    status_var.set(f"Error: {result['error']}")
-                    start_btn.configure(state="normal")
-                    progress.stop()
-                    progress.configure(mode="determinate")
-                    progress.set(0)
-                    return
+                request_result[0] = json.loads(resp.read())
             except Exception as e:
-                status_var.set(f"Error: {e}")
-                start_btn.configure(state="normal")
-                progress.stop()
-                progress.configure(mode="determinate")
-                progress.set(0)
-                return
+                request_result[0] = {"error": str(e)}
 
-            progress.stop()
-            progress.configure(mode="determinate")
-            polling[0] = True
-            cancel_btn.configure(text="Close")
-            poll_progress()
-
-        def start_live():
-            start_btn.configure(state="disabled")
-            status_var.set("Starting live playback...")
+        def _fetch_progress():
+            """Background thread: fetch progress, store result."""
             try:
-                data = urllib.parse.urlencode({"file_path": file_path}).encode()
-                req = urllib.request.Request(f"{base_url}/api/transcribe-file/live", data=data)
-                resp = urllib.request.urlopen(req, timeout=10)
-                result = json.loads(resp.read())
-                if "error" in result:
-                    status_var.set(f"Error: {result['error']}")
-                    start_btn.configure(state="normal")
-                    return
-            except Exception as e:
-                status_var.set(f"Error: {e}")
-                start_btn.configure(state="normal")
-                return
-
-            start_btn.pack_forget()
-            stop_btn = ctk.CTkButton(btn_frame, text="Stop Playback",
-                                     fg_color=self.RED, hover_color="#EF5350",
-                                     text_color="#fff", font=("Segoe UI", 11, "bold"),
-                                     height=34, command=lambda: stop_playback(stop_btn))
-            stop_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
-            polling[0] = True
-            poll_progress()
-
-        def stop_playback(btn):
-            btn.configure(state="disabled")
-            try:
-                req = urllib.request.Request(f"{base_url}/api/transcribe-file/stop",
-                                            data=b"", method="POST")
-                urllib.request.urlopen(req, timeout=5)
+                resp = urllib.request.urlopen(
+                    f"{base_url}/api/transcribe-file/progress", timeout=3)
+                poll_data[0] = json.loads(resp.read())
             except Exception:
                 pass
+
+        def stop_playback():
+            if live_stop_btn[0]:
+                live_stop_btn[0].configure(state="disabled")
             polling[0] = False
+            def _send_stop():
+                try:
+                    req = urllib.request.Request(
+                        f"{base_url}/api/transcribe-file/stop", data=b"", method="POST")
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception:
+                    pass
+            threading.Thread(target=_send_stop, daemon=True).start()
             status_var.set("Playback stopped, mic resumed")
             progress.set(0)
             dlg.after(1500, dlg.destroy)
 
         def poll_progress():
+            """Main thread: read bg results, update widgets, schedule next."""
             if not polling[0]:
                 return
-            try:
-                resp = urllib.request.urlopen(f"{base_url}/api/transcribe-file/progress", timeout=3)
-                p = json.loads(resp.read())
+
+            # Check if the initial POST has returned
+            r = request_result[0]
+            if r is not None and not started[0]:
+                request_result[0] = None
+                if "error" in r:
+                    polling[0] = False
+                    progress.stop()
+                    progress.configure(mode="determinate")
+                    progress.set(0)
+                    status_var.set(f"Error: {r['error']}")
+                    start_btn.configure(state="normal")
+                    cancel_btn.configure(text="Close")
+                    return
+                started[0] = True
+                progress.stop()
+                progress.configure(mode="determinate")
+                cancel_btn.configure(text="Close")
+                if mode_var.get() == "live":
+                    start_btn.pack_forget()
+                    sb = ctk.CTkButton(btn_frame, text="Stop Playback",
+                                       fg_color=self.RED, hover_color="#EF9A9A",
+                                       text_color="#fff", font=("Segoe UI", 11, "bold"),
+                                       height=34, command=stop_playback)
+                    sb.pack(side="left", expand=True, fill="x", padx=(0, 4))
+                    live_stop_btn[0] = sb
+
+            # Check latest progress data
+            p = poll_data[0]
+            if p is not None:
+                poll_data[0] = None
                 status_var.set(p.get("message", ""))
                 progress.set(p.get("pct", 0) / 100.0)
 
@@ -2373,19 +2371,15 @@ class LinguaTaxiApp(ctk.CTk):
                     progress.set(1.0)
                     status_var.set(p.get("message", "Complete"))
                     cancel_btn.configure(text="Close")
-                    # Add Open Folder button for batch
                     if mode_var.get() == "batch":
-                        import subprocess
                         transcripts_dir = Path.home() / "Documents" / "LinguaTaxi Transcripts"
                         open_btn = ctk.CTkButton(
                             btn_frame, text="Open Folder",
-                            fg_color=self.GREEN, hover_color="#9CCC65",
+                            fg_color=self.GREEN, hover_color="#81C784",
                             text_color="#000", font=("Segoe UI", 11, "bold"),
                             height=34,
                             command=lambda: subprocess.Popen(
-                                ["explorer", str(transcripts_dir)]
-                            )
-                        )
+                                ["explorer", str(transcripts_dir)]))
                         open_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
                     return
                 elif p["status"] == "error":
@@ -2394,28 +2388,34 @@ class LinguaTaxiApp(ctk.CTk):
                     start_btn.configure(state="normal")
                     cancel_btn.configure(text="Close")
                     return
-                elif p["status"] == "idle":
-                    polling[0] = False
-                    progress.set(0)
-                    dlg.after(500, dlg.destroy)
-                    return
-            except Exception:
-                pass
 
+            # Fire async fetch for next tick
+            if started[0]:
+                threading.Thread(target=_fetch_progress, daemon=True).start()
             dlg.after(500, poll_progress)
 
         def on_start():
-            if mode_var.get() == "batch":
-                threading.Thread(target=start_batch, daemon=True).start()
-            else:
-                threading.Thread(target=start_live, daemon=True).start()
+            mode = mode_var.get()
+            start_btn.configure(state="disabled")
+            status_var.set("Starting batch transcription..." if mode == "batch"
+                           else "Starting live playback...")
+            progress.configure(mode="indeterminate")
+            progress.start(15)
+            polling[0] = True
+            started[0] = False
+            request_result[0] = None
+            poll_data[0] = None
+            threading.Thread(target=_send_request,
+                             args=("batch" if mode == "batch" else "live",),
+                             daemon=True).start()
+            dlg.after(500, poll_progress)
 
         def on_cancel():
             polling[0] = False
             dlg.destroy()
 
         start_btn = ctk.CTkButton(btn_frame, text="Start",
-                                  fg_color=self.GREEN, hover_color="#9CCC65",
+                                  fg_color=self.GREEN, hover_color="#81C784",
                                   text_color="#000", font=("Segoe UI", 11, "bold"),
                                   height=34, command=on_start)
         start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
@@ -2837,7 +2837,7 @@ class LinguaTaxiApp(ctk.CTk):
             save_settings(self.settings)
             dlg.destroy()
 
-        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_download_now"), fg_color="#8BC34A", hover_color="#9CCC65", text_color="#000", command=_download_now).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_download_now"), fg_color="#66BB6A", hover_color="#81C784", text_color="#000", command=_download_now).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_remind_later"),
                    command=_remind_later).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_frame, text=_t("launcher.dialog_update_dont_remind"),
