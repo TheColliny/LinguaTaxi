@@ -54,11 +54,13 @@ from pathlib import Path
 import numpy as np, requests, sounddevice as sd, uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from pydantic import BaseModel
 from starlette.staticfiles import StaticFiles
 import tuned_models
 import offline_translate
 import transcribe_file
 import voice_id
+from typing import List, Optional
 from plugin_loader import PluginDispatcher
 from plugin_registry import PluginRegistry
 
@@ -2343,33 +2345,76 @@ async def e_get_grids():
     return _snapshot_display_grids()
 
 
+class BatchTranslationSlot(BaseModel):
+    lang: str
+    mode: str = "deepl"
+
+class BatchRequest(BaseModel):
+    file_path: Optional[str] = None
+    folder_path: Optional[str] = None
+    recursive: bool = False
+    translations: List[BatchTranslationSlot] = []
+    output_dir: Optional[str] = None
+    source_lang: Optional[str] = None
+
+
 # ── File transcription endpoints ──
 
 _file_transcribe_lock = threading.Lock()
 
 @operator_app.post("/api/transcribe-file/batch")
-async def o_transcribe_batch(file_path: str = Form(...)):
-    """Start batch file transcription in a background thread."""
-    if not Path(file_path).exists():
-        return JSONResponse({"error": "File not found"}, status_code=400)
-
+async def o_transcribe_batch(req: BatchRequest):
+    """Start batch file transcription/translation in a background thread."""
     progress = transcribe_file.get_progress()
     if progress["status"] in ("processing", "playing"):
         return JSONResponse({"error": "File transcription already in progress"}, status_code=409)
 
-    translations = config.get("translations", [])
-    src_lang = config.get("input_lang", "EN")
+    # Validate paths
+    has_file = req.file_path and Path(req.file_path).exists()
+    has_folder = req.folder_path and Path(req.folder_path).is_dir()
+    if not has_file and not has_folder:
+        return JSONResponse({"error": "File or folder not found"}, status_code=400)
+
+    translations = [{"lang": t.lang, "mode": t.mode} for t in req.translations]
+    src_lang = req.source_lang or config.get("input_lang", "EN")
+    output_dir = req.output_dir or str(TRANSCRIPTS_DIR)
 
     def run():
         with _file_transcribe_lock:
-            transcribe_file.batch_transcribe(
-                file_path=file_path,
-                stt_backend=stt_backend,
-                translate_fn=translate_text,
-                translations=translations,
-                transcripts_dir=str(TRANSCRIPTS_DIR),
-                source_lang=src_lang,
-            )
+            if has_folder:
+                transcribe_file.batch_folder(
+                    folder_path=req.folder_path,
+                    recursive=req.recursive,
+                    stt_backend=stt_backend,
+                    translate_fn=translate_text,
+                    translations=translations,
+                    output_dir=output_dir,
+                    source_lang=src_lang,
+                )
+            else:
+                ext = Path(req.file_path).suffix.lower()
+                if ext in transcribe_file.TEXT_EXTS:
+                    if not translations:
+                        transcribe_file._set_progress(
+                            "error", 0,
+                            "Text files require translation — select a language")
+                        return
+                    transcribe_file.batch_translate_text(
+                        file_path=req.file_path,
+                        translate_fn=translate_text,
+                        translations=translations,
+                        output_dir=output_dir,
+                        source_lang=src_lang,
+                    )
+                else:
+                    transcribe_file.batch_transcribe(
+                        file_path=req.file_path,
+                        stt_backend=stt_backend,
+                        translate_fn=translate_text,
+                        translations=translations,
+                        transcripts_dir=output_dir,
+                        source_lang=src_lang,
+                    )
 
     threading.Thread(target=run, daemon=True).start()
     return JSONResponse({"status": "started"})
