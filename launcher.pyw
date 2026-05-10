@@ -5,7 +5,7 @@ Desktop launcher with server management and browser integration.
 """
 
 import atexit, json, os, platform, queue, re, shutil, signal, subprocess, sys, threading, time, webbrowser
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 from pathlib import Path
 
 import tkinter as tk
@@ -445,6 +445,19 @@ class LinguaTaxiApp(ctk.CTk):
                                        text_color="#fff", font=("Segoe UI", 12, "bold"),
                                        height=40, command=self._stop_server, state="disabled")
         self.stop_btn.pack(side="right", expand=True, fill="x", padx=(4, 0))
+
+        # ── Transcribe File button ──
+        tf_row = ctk.CTkFrame(srv_inner, fg_color="transparent")
+        tf_row.pack(fill="x", pady=(6, 0))
+
+        self.transcribe_btn = ctk.CTkButton(
+            tf_row, text="Transcribe File",
+            fg_color="#7E57C2", hover_color="#9575CD",
+            text_color="#fff", font=("Segoe UI", 11, "bold"),
+            height=34, command=self._transcribe_file,
+            state="disabled"
+        )
+        self.transcribe_btn.pack(fill="x")
 
         # ── Main Controls ──
         ctk.CTkLabel(main, text="Main Controls",
@@ -2129,6 +2142,7 @@ class LinguaTaxiApp(ctk.CTk):
             self._server_running = True
             self._server_ready = False
             self._update_ui_state(running=True)
+            self.transcribe_btn.configure(state="normal")
 
             # Start log reader thread
             t = threading.Thread(target=self._read_server_output, daemon=True)
@@ -2193,7 +2207,224 @@ class LinguaTaxiApp(ctk.CTk):
         self.server_proc = None
         self._server_job = None
         self._update_ui_state(running=False)
+        self.transcribe_btn.configure(state="disabled")
         self._log_system(_t("launcher.log_server_stopped"))
+
+    def _transcribe_file(self):
+        """Open file picker, then show mode selection dialog."""
+        if not self._server_running:
+            return
+
+        file_path = filedialog.askopenfilename(
+            title="Select Audio File",
+            filetypes=[
+                ("Audio Files", "*.wav *.mp3 *.flac *.m4a *.ogg *.webm"),
+                ("WAV", "*.wav"), ("MP3", "*.mp3"), ("FLAC", "*.flac"),
+                ("M4A", "*.m4a"), ("OGG", "*.ogg"), ("WebM", "*.webm"),
+                ("All Files", "*.*"),
+            ]
+        )
+        if not file_path:
+            return
+
+        self._show_transcribe_dialog(file_path)
+
+    def _show_transcribe_dialog(self, file_path):
+        """Show mode selection dialog for file transcription."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Transcribe File")
+        dlg.geometry("440x320")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color=self.BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        dlg.update_idletasks()
+        px = self.winfo_x() + (self.winfo_width() - 440) // 2
+        py = self.winfo_y() + (self.winfo_height() - 320) // 2
+        dlg.geometry(f"+{px}+{py}")
+
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
+        f.pack(fill="both", expand=True, padx=16, pady=12)
+
+        # Filename display
+        fname = Path(file_path).name
+        if len(fname) > 45:
+            fname = fname[:42] + "..."
+        ctk.CTkLabel(f, text=fname,
+                     font=("Segoe UI", 11, "bold"),
+                     text_color=self.ACCENT).pack(anchor="w", pady=(0, 10))
+
+        # Mode selection
+        mode_var = tk.StringVar(value="batch")
+
+        ctk.CTkRadioButton(
+            f, text="Batch Transcribe — Process offline, save text files",
+            variable=mode_var, value="batch",
+            font=("Segoe UI", 11), text_color=self.FG
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkRadioButton(
+            f, text="Play as Live Input — Feed into live captioning pipeline",
+            variable=mode_var, value="live",
+            font=("Segoe UI", 11), text_color=self.FG
+        ).pack(anchor="w", pady=(0, 12))
+
+        # Status area
+        status_var = tk.StringVar(value="")
+        status_lbl = ctk.CTkLabel(f, textvariable=status_var,
+                                  font=("Segoe UI", 10), text_color=self.FG2,
+                                  wraplength=400)
+        status_lbl.pack(anchor="w", pady=(0, 4))
+
+        progress = ctk.CTkProgressBar(f, width=400, mode="determinate")
+        progress.pack(pady=(0, 8))
+        progress.set(0)
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(4, 0))
+
+        port = self.settings.get("operator_port", 3001)
+        base_url = f"http://localhost:{port}"
+        polling = [False]  # mutable flag for polling loop
+
+        def start_batch():
+            start_btn.configure(state="disabled")
+            status_var.set("Starting batch transcription...")
+            progress.configure(mode="indeterminate")
+            progress.start(15)
+            try:
+                data = urllib.parse.urlencode({"file_path": file_path}).encode()
+                req = urllib.request.Request(f"{base_url}/api/transcribe-file/batch", data=data)
+                resp = urllib.request.urlopen(req, timeout=10)
+                result = json.loads(resp.read())
+                if "error" in result:
+                    status_var.set(f"Error: {result['error']}")
+                    start_btn.configure(state="normal")
+                    progress.stop()
+                    progress.configure(mode="determinate")
+                    progress.set(0)
+                    return
+            except Exception as e:
+                status_var.set(f"Error: {e}")
+                start_btn.configure(state="normal")
+                progress.stop()
+                progress.configure(mode="determinate")
+                progress.set(0)
+                return
+
+            progress.stop()
+            progress.configure(mode="determinate")
+            polling[0] = True
+            cancel_btn.configure(text="Close")
+            poll_progress()
+
+        def start_live():
+            start_btn.configure(state="disabled")
+            status_var.set("Starting live playback...")
+            try:
+                data = urllib.parse.urlencode({"file_path": file_path}).encode()
+                req = urllib.request.Request(f"{base_url}/api/transcribe-file/live", data=data)
+                resp = urllib.request.urlopen(req, timeout=10)
+                result = json.loads(resp.read())
+                if "error" in result:
+                    status_var.set(f"Error: {result['error']}")
+                    start_btn.configure(state="normal")
+                    return
+            except Exception as e:
+                status_var.set(f"Error: {e}")
+                start_btn.configure(state="normal")
+                return
+
+            start_btn.pack_forget()
+            stop_btn = ctk.CTkButton(btn_frame, text="Stop Playback",
+                                     fg_color=self.RED, hover_color="#EF5350",
+                                     text_color="#fff", font=("Segoe UI", 11, "bold"),
+                                     height=34, command=lambda: stop_playback(stop_btn))
+            stop_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+            polling[0] = True
+            poll_progress()
+
+        def stop_playback(btn):
+            btn.configure(state="disabled")
+            try:
+                req = urllib.request.Request(f"{base_url}/api/transcribe-file/stop",
+                                            data=b"", method="POST")
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+            polling[0] = False
+            status_var.set("Playback stopped, mic resumed")
+            progress.set(0)
+            dlg.after(1500, dlg.destroy)
+
+        def poll_progress():
+            if not polling[0]:
+                return
+            try:
+                resp = urllib.request.urlopen(f"{base_url}/api/transcribe-file/progress", timeout=3)
+                p = json.loads(resp.read())
+                status_var.set(p.get("message", ""))
+                progress.set(p.get("pct", 0) / 100.0)
+
+                if p["status"] == "done":
+                    polling[0] = False
+                    progress.set(1.0)
+                    status_var.set(p.get("message", "Complete"))
+                    cancel_btn.configure(text="Close")
+                    # Add Open Folder button for batch
+                    if mode_var.get() == "batch":
+                        import subprocess
+                        transcripts_dir = Path.home() / "Documents" / "LinguaTaxi Transcripts"
+                        open_btn = ctk.CTkButton(
+                            btn_frame, text="Open Folder",
+                            fg_color=self.GREEN, hover_color="#9CCC65",
+                            text_color="#000", font=("Segoe UI", 11, "bold"),
+                            height=34,
+                            command=lambda: subprocess.Popen(
+                                ["explorer", str(transcripts_dir)]
+                            )
+                        )
+                        open_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+                    return
+                elif p["status"] == "error":
+                    polling[0] = False
+                    status_var.set(f"Error: {p.get('message', 'Unknown error')}")
+                    start_btn.configure(state="normal")
+                    cancel_btn.configure(text="Close")
+                    return
+                elif p["status"] == "idle":
+                    polling[0] = False
+                    progress.set(0)
+                    dlg.after(500, dlg.destroy)
+                    return
+            except Exception:
+                pass
+
+            dlg.after(500, poll_progress)
+
+        def on_start():
+            if mode_var.get() == "batch":
+                threading.Thread(target=start_batch, daemon=True).start()
+            else:
+                threading.Thread(target=start_live, daemon=True).start()
+
+        def on_cancel():
+            polling[0] = False
+            dlg.destroy()
+
+        start_btn = ctk.CTkButton(btn_frame, text="Start",
+                                  fg_color=self.GREEN, hover_color="#9CCC65",
+                                  text_color="#000", font=("Segoe UI", 11, "bold"),
+                                  height=34, command=on_start)
+        start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+
+        cancel_btn = ctk.CTkButton(btn_frame, text="Cancel",
+                                   fg_color=self.BG3, hover_color="#555",
+                                   text_color="#fff", font=("Segoe UI", 11),
+                                   height=34, command=on_cancel)
+        cancel_btn.pack(side="right", expand=True, fill="x", padx=(4, 0))
 
     def _read_server_output(self):
         """Read server stdout in a background thread."""
