@@ -2510,6 +2510,10 @@ class LinguaTaxiApp(ctk.CTk):
                 lang_rows.clear()
                 lang_frame.pack_forget()
                 add_lang_btn.pack_forget()
+            elif old_key == "none":
+                lang_frame.pack(fill="x", pady=(0, 4))
+                _add_lang_row()
+                add_lang_btn.pack(anchor="w", pady=(0, 4))
             else:
                 kept = []
                 if old_key == "deepl":
@@ -2534,12 +2538,11 @@ class LinguaTaxiApp(ctk.CTk):
                 lang_rows.clear()
 
                 if not kept:
-                    engine_var.set("none")
-                    engine_display_var.set("No Translation")
-                    lang_frame.pack_forget()
-                    add_lang_btn.pack_forget()
+                    lang_frame.pack(fill="x", pady=(0, 4))
+                    _add_lang_row()
+                    add_lang_btn.pack(anchor="w", pady=(0, 4))
                 else:
-                    lang_frame.pack(fill="x", pady=(4, 4))
+                    lang_frame.pack(fill="x", pady=(0, 4))
                     for display in kept:
                         _add_lang_row(preset_display=display)
                     add_lang_btn.pack(anchor="w", pady=(0, 4))
@@ -2570,20 +2573,20 @@ class LinguaTaxiApp(ctk.CTk):
                       text_color="#fff", font=("Segoe UI", 10),
                       command=change_output).pack(side="right")
 
-        # ── Status / progress ──
+        # ── Buttons (packed side="bottom" so they stay below config widgets) ──
+        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
+        btn_frame.pack(fill="x", side="bottom", pady=(2, 0))
+
+        progress = ctk.CTkProgressBar(f, width=420, mode="determinate")
+        progress.pack(side="bottom", pady=(0, 6))
+        progress.set(0)
+
+        # ── Status ──
         status_var = tk.StringVar(value="")
         status_lbl = ctk.CTkLabel(f, textvariable=status_var,
                                   font=("Segoe UI", 10), text_color=self.FG2,
                                   wraplength=420)
-        status_lbl.pack(anchor="w", pady=(6, 2))
-
-        progress = ctk.CTkProgressBar(f, width=420, mode="determinate")
-        progress.pack(pady=(0, 6))
-        progress.set(0)
-
-        # ── Buttons ──
-        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=(2, 0))
+        status_lbl.pack(side="bottom", anchor="w", pady=(6, 2))
 
         # ── UI visibility helpers ──
         def _update_ui_for_selection():
@@ -2640,24 +2643,15 @@ class LinguaTaxiApp(ctk.CTk):
         started = [False]
         live_stop_btn = [None]
 
-        def _send_batch_request():
+        def _send_batch_request(snapshot):
             try:
-                ld = _get_lang_dict()
-                trans_list = []
-                for row in lang_rows:
-                    val = row["var"].get()
-                    for code, name in ld.items():
-                        if f"{name} ({code})" == val:
-                            trans_list.append({"lang": code, "mode": engine_var.get()})
-                            break
-
                 body = {
-                    "file_path": selection["file_path"],
-                    "folder_path": selection["folder_path"],
-                    "recursive": subfolder_var.get(),
-                    "translations": trans_list,
-                    "output_dir": output_dir_var.get() or None,
-                    "source_lang": source_lang[0],
+                    "file_path": snapshot["file_path"],
+                    "folder_path": snapshot["folder_path"],
+                    "recursive": snapshot["recursive"],
+                    "translations": snapshot["translations"],
+                    "output_dir": snapshot["output_dir"],
+                    "source_lang": snapshot["source_lang"],
                 }
                 data = json.dumps(body).encode("utf-8")
                 req = urllib.request.Request(
@@ -2800,8 +2794,24 @@ class LinguaTaxiApp(ctk.CTk):
                 threading.Thread(target=_send_live_request,
                                  daemon=True).start()
             else:
+                ld = _get_lang_dict()
+                trans_list = []
+                for row in lang_rows:
+                    val = row["var"].get()
+                    for code, name in ld.items():
+                        if f"{name} ({code})" == val:
+                            trans_list.append({"lang": code, "mode": engine_var.get()})
+                            break
+                snapshot = {
+                    "file_path": selection["file_path"],
+                    "folder_path": selection["folder_path"],
+                    "recursive": subfolder_var.get(),
+                    "translations": trans_list,
+                    "output_dir": output_dir_var.get() or None,
+                    "source_lang": source_lang[0],
+                }
                 threading.Thread(target=_send_batch_request,
-                                 daemon=True).start()
+                                 args=(snapshot,), daemon=True).start()
             dlg.after(500, poll_progress)
 
         def on_cancel():
