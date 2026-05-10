@@ -2369,52 +2369,61 @@ async def o_transcribe_batch(req: BatchRequest):
     if progress["status"] in ("processing", "playing"):
         return JSONResponse({"error": "File transcription already in progress"}, status_code=409)
 
-    # Validate paths
     has_file = req.file_path and Path(req.file_path).exists()
     has_folder = req.folder_path and Path(req.folder_path).is_dir()
     if not has_file and not has_folder:
         return JSONResponse({"error": "File or folder not found"}, status_code=400)
 
+    if has_file:
+        ext = Path(req.file_path).suffix.lower()
+        supported = transcribe_file.AUDIO_EXTS | transcribe_file.TEXT_EXTS
+        if ext not in supported:
+            return JSONResponse({"error": f"Unsupported file type: {ext}"}, status_code=400)
+        is_text = ext in transcribe_file.TEXT_EXTS
+    else:
+        is_text = False
+
     translations = [{"lang": t.lang, "mode": t.mode} for t in req.translations]
+    if has_file and is_text and not translations:
+        return JSONResponse(
+            {"error": "Text files require translation — select a language"},
+            status_code=400)
+
     src_lang = req.source_lang or config.get("input_lang", "EN")
     output_dir = req.output_dir or str(TRANSCRIPTS_DIR)
+    file_path = req.file_path
+    folder_path = req.folder_path
+    recursive = req.recursive
 
     def run():
         with _file_transcribe_lock:
             if has_folder:
                 transcribe_file.batch_folder(
-                    folder_path=req.folder_path,
-                    recursive=req.recursive,
+                    folder_path=folder_path,
+                    recursive=recursive,
                     stt_backend=stt_backend,
                     translate_fn=translate_text,
                     translations=translations,
                     output_dir=output_dir,
                     source_lang=src_lang,
                 )
+            elif is_text:
+                transcribe_file.batch_translate_text(
+                    file_path=file_path,
+                    translate_fn=translate_text,
+                    translations=translations,
+                    output_dir=output_dir,
+                    source_lang=src_lang,
+                )
             else:
-                ext = Path(req.file_path).suffix.lower()
-                if ext in transcribe_file.TEXT_EXTS:
-                    if not translations:
-                        transcribe_file._set_progress(
-                            "error", 0,
-                            "Text files require translation — select a language")
-                        return
-                    transcribe_file.batch_translate_text(
-                        file_path=req.file_path,
-                        translate_fn=translate_text,
-                        translations=translations,
-                        output_dir=output_dir,
-                        source_lang=src_lang,
-                    )
-                else:
-                    transcribe_file.batch_transcribe(
-                        file_path=req.file_path,
-                        stt_backend=stt_backend,
-                        translate_fn=translate_text,
-                        translations=translations,
-                        transcripts_dir=output_dir,
-                        source_lang=src_lang,
-                    )
+                transcribe_file.batch_transcribe(
+                    file_path=file_path,
+                    stt_backend=stt_backend,
+                    translate_fn=translate_text,
+                    translations=translations,
+                    transcripts_dir=output_dir,
+                    source_lang=src_lang,
+                )
 
     threading.Thread(target=run, daemon=True).start()
     return JSONResponse({"status": "started"})
