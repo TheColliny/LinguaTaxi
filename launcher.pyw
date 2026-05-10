@@ -2533,12 +2533,16 @@ class LinguaTaxiApp(ctk.CTk):
                     row["frame"].destroy()
                 lang_rows.clear()
 
-                lang_frame.pack(fill="x", pady=(4, 4))
-                for display in kept:
-                    _add_lang_row(preset_display=display)
                 if not kept:
-                    _add_lang_row()
-                add_lang_btn.pack(anchor="w", pady=(0, 4))
+                    engine_var.set("none")
+                    engine_display_var.set("No Translation")
+                    lang_frame.pack_forget()
+                    add_lang_btn.pack_forget()
+                else:
+                    lang_frame.pack(fill="x", pady=(4, 4))
+                    for display in kept:
+                        _add_lang_row(preset_display=display)
+                    add_lang_btn.pack(anchor="w", pady=(0, 4))
 
             _update_controls_visibility()
 
