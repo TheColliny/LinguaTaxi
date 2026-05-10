@@ -122,6 +122,23 @@ def segment_audio(samples, silence_threshold=0.008,
     return segments
 
 
+# ── Progress state (read by server API) ──
+_progress = {"status": "idle", "pct": 0, "message": ""}
+_progress_lock = threading.Lock()
+
+
+def get_progress():
+    with _progress_lock:
+        return dict(_progress)
+
+
+def _set_progress(status, pct=0, message=""):
+    with _progress_lock:
+        _progress["status"] = status
+        _progress["pct"] = pct
+        _progress["message"] = message
+
+
 def batch_translate_text(file_path, translate_fn, translations,
                          output_dir, source_lang, progress_callback=None):
     """Translate a text file to multiple languages.
@@ -129,7 +146,12 @@ def batch_translate_text(file_path, translate_fn, translations,
     p = Path(file_path)
     _set_progress("processing", 0, f"Reading {p.name}...")
 
-    if p.stat().st_size > MAX_TEXT_FILE_SIZE:
+    try:
+        size = p.stat().st_size
+    except OSError as e:
+        _set_progress("error", 0, f"Cannot access {p.name}: {e}")
+        return None
+    if size > MAX_TEXT_FILE_SIZE:
         _set_progress("error", 0, f"Skipped {p.name} (exceeds 10MB limit)")
         return None
 
@@ -144,8 +166,8 @@ def batch_translate_text(file_path, translate_fn, translations,
         _set_progress("error", 0, f"Skipped {p.name} (empty file)")
         return None
 
-    lines = [_sanitize_text_line(l) for l in lines]
-    lines = [l for l in lines if l.strip()]
+    lines = [_sanitize_text_line(ln) for ln in lines]
+    lines = [ln for ln in lines if ln.strip()]
     if not lines:
         _set_progress("error", 0, f"Skipped {p.name} (no text after sanitization)")
         return None
@@ -184,23 +206,6 @@ def batch_translate_text(file_path, translate_fn, translations,
         "languages": languages,
         "output_dir": str(out),
     }
-
-
-# ── Progress state (read by server API) ──
-_progress = {"status": "idle", "pct": 0, "message": ""}
-_progress_lock = threading.Lock()
-
-
-def get_progress():
-    with _progress_lock:
-        return dict(_progress)
-
-
-def _set_progress(status, pct=0, message=""):
-    with _progress_lock:
-        _progress["status"] = status
-        _progress["pct"] = pct
-        _progress["message"] = message
 
 
 def _transcribe_segment_vosk(segment, vosk_model):
