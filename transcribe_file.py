@@ -106,3 +106,139 @@ def segment_audio(samples, silence_threshold=0.008,
         segments.append(buf.copy())
 
     return segments
+
+
+# ── Progress state (read by server API) ──
+_progress = {"status": "idle", "pct": 0, "message": ""}
+_progress_lock = threading.Lock()
+
+
+def get_progress():
+    with _progress_lock:
+        return dict(_progress)
+
+
+def _set_progress(status, pct=0, message=""):
+    with _progress_lock:
+        _progress["status"] = status
+        _progress["pct"] = pct
+        _progress["message"] = message
+
+
+def _transcribe_segment_vosk(segment, vosk_model):
+    """Transcribe a single segment using a temporary Vosk KaldiRecognizer."""
+    import vosk
+    rec = vosk.KaldiRecognizer(vosk_model, SAMPLE_RATE)
+    pcm = (segment * 32768).astype(np.int16).tobytes()
+    chunk_size = 8000  # 0.5s of 16-bit mono at 16kHz
+    for i in range(0, len(pcm), chunk_size):
+        rec.AcceptWaveform(pcm[i:i + chunk_size])
+    import json
+    result = json.loads(rec.FinalResult())
+    return result.get("text", "").strip()
+
+
+def batch_transcribe(file_path, stt_backend, translate_fn, translations,
+                     transcripts_dir, source_lang, progress_callback=None):
+    """Full batch pipeline: load → segment → transcribe → translate → save.
+    Returns {lines, duration_sec, output_dir, languages}.
+
+    Args:
+        stt_backend: The active SpeechBackend instance (WhisperBackend or VoskBackend).
+        translate_fn: The translate_text(text, target_lang, source_lang, mode) function.
+        translations: List of translation slot dicts from config, e.g. [{"lang":"ES","mode":"deepl"},...].
+        transcripts_dir: Path to transcripts output directory.
+        source_lang: Source language code (e.g. "EN").
+        progress_callback: Optional callable(pct: int, message: str).
+    """
+    _set_progress("processing", 0, "Loading audio file...")
+    try:
+        samples, duration = load_audio(file_path)
+    except ValueError as e:
+        _set_progress("error", 0, str(e))
+        return None
+
+    _set_progress("processing", 5, "Segmenting audio...")
+    segments = segment_audio(samples)
+    if not segments:
+        _set_progress("error", 0, "No speech detected in audio file")
+        return None
+
+    total = len(segments)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    out_dir = Path(transcripts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine if this is a Vosk backend
+    is_vosk = hasattr(stt_backend, '_model') and not hasattr(stt_backend, '_transcribe')
+    # Actually, both have _model. Check by class name or method.
+    vosk_model = None
+    if hasattr(stt_backend, '_vosk_source_loop'):
+        is_vosk = True
+        vosk_model = stt_backend._model
+
+    # Collect transcribed lines: [(timestamp_str, text)]
+    lines = []
+    elapsed_samples = 0
+
+    for idx, seg in enumerate(segments):
+        pct = 10 + int(70 * idx / total)  # 10-80% for transcription
+        ts_sec = elapsed_samples / SAMPLE_RATE
+        ts_str = f"{int(ts_sec // 3600):02d}:{int((ts_sec % 3600) // 60):02d}:{int(ts_sec % 60):02d}"
+        _set_progress("processing", pct, f"Transcribing segment {idx + 1}/{total}...")
+        if progress_callback:
+            progress_callback(pct, f"Transcribing {idx + 1}/{total}")
+
+        if is_vosk and vosk_model:
+            text = _transcribe_segment_vosk(seg, vosk_model)
+        else:
+            text = stt_backend._transcribe(
+                seg.reshape(-1, 1),  # reshape to (N,1) as expected by _buffer_audio_loop
+                lang=None
+            )
+
+        if text and text.strip():
+            lines.append((ts_str, text.strip()))
+        elapsed_samples += len(seg)
+
+    if not lines:
+        _set_progress("done", 100, "No speech found in file")
+        return {"lines": 0, "duration_sec": duration, "output_dir": str(out_dir), "languages": []}
+
+    # Save source language transcript
+    src_fn = f"file_{stamp}_{source_lang}.txt"
+    with open(out_dir / src_fn, "w", encoding="utf-8") as f:
+        for ts, text in lines:
+            f.write(f"[{ts}] {text}\n")
+
+    languages = [source_lang]
+
+    # Translate and save for each active translation slot
+    for slot_idx, t in enumerate(translations):
+        tgt_lang = t["lang"]
+        mode = t.get("mode", "deepl")
+        tgt_base = tgt_lang.split("-")[0]
+        src_base = source_lang.split("-")[0]
+
+        pct = 80 + int(18 * slot_idx / max(len(translations), 1))
+        _set_progress("processing", pct, f"Translating to {tgt_lang}...")
+        if progress_callback:
+            progress_callback(pct, f"Translating to {tgt_lang}")
+
+        tgt_fn = f"file_{stamp}_{tgt_lang}.txt"
+        with open(out_dir / tgt_fn, "w", encoding="utf-8") as f:
+            for ts, text in lines:
+                if src_base == tgt_base:
+                    translated = text
+                else:
+                    translated = translate_fn(text, tgt_lang, source_lang, mode)
+                f.write(f"[{ts}] {translated}\n")
+        languages.append(tgt_lang)
+
+    _set_progress("done", 100, f"Transcribed {len(lines)} lines")
+    return {
+        "lines": len(lines),
+        "duration_sec": round(duration, 1),
+        "output_dir": str(out_dir),
+        "languages": languages,
+    }
