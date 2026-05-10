@@ -147,7 +147,8 @@ def _set_progress(status, pct=0, message="", current_file="",
 
 
 def batch_translate_text(file_path, translate_fn, translations,
-                         output_dir, source_lang, progress_callback=None):
+                         output_dir, source_lang, progress_callback=None,
+                         _emit_done=True):
     """Translate a text file to multiple languages.
     Returns {lines, languages, output_dir} or None on error."""
     p = Path(file_path)
@@ -207,7 +208,8 @@ def batch_translate_text(file_path, translate_fn, translations,
                 f.write(translated + "\n")
         languages.append(tgt_lang)
 
-    _set_progress("done", 100, f"Translated {len(lines)} lines to {len(languages)} language(s)")
+    if _emit_done:
+        _set_progress("done", 100, f"Translated {len(lines)} lines to {len(languages)} language(s)")
     return {
         "lines": len(lines),
         "languages": languages,
@@ -229,7 +231,8 @@ def _transcribe_segment_vosk(segment, vosk_model):
 
 
 def batch_transcribe(file_path, stt_backend, translate_fn, translations,
-                     transcripts_dir, source_lang, progress_callback=None):
+                     transcripts_dir, source_lang, progress_callback=None,
+                     _emit_done=True):
     """Full batch pipeline: load → segment → transcribe → translate → save.
     Returns {lines, duration_sec, output_dir, languages}.
 
@@ -325,7 +328,8 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
                 f.write(f"[{ts}] {translated}\n")
         languages.append(tgt_lang)
 
-    _set_progress("done", 100, f"Transcribed {len(lines)} lines")
+    if _emit_done:
+        _set_progress("done", 100, f"Transcribed {len(lines)} lines")
     return {
         "lines": len(lines),
         "duration_sec": round(duration, 1),
@@ -380,12 +384,13 @@ def batch_folder(folder_path, recursive, stt_backend, translate_fn,
             result = batch_translate_text(
                 str(fp), translate_fn, translations,
                 str(out), source_lang, progress_callback=None,
+                _emit_done=False,
             )
         elif ext in AUDIO_EXTS:
             result = batch_transcribe(
                 str(fp), stt_backend, translate_fn, translations,
                 transcripts_dir=str(out), source_lang=source_lang,
-                progress_callback=None,
+                progress_callback=None, _emit_done=False,
             )
         else:
             continue

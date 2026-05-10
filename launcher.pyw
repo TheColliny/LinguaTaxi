@@ -2288,6 +2288,7 @@ class LinguaTaxiApp(ctk.CTk):
                 resp = urllib.request.urlopen(f"{base_url}/api/config", timeout=3)
                 cfg = json.loads(resp.read())
                 source_lang[0] = cfg.get("input_lang", "EN")
+                dlg.after(0, _refresh_engine_options)
             except Exception:
                 pass
         threading.Thread(target=_fetch_source_lang, daemon=True).start()
@@ -2390,6 +2391,9 @@ class LinguaTaxiApp(ctk.CTk):
             font=("Segoe UI", 11),
             command=lambda val: _on_engine_change(val))
         engine_menu.pack(anchor="w")
+
+        def _refresh_engine_options():
+            engine_menu.configure(values=_get_engine_options())
 
         # ── Language slots ──
         lang_frame = ctk.CTkFrame(f, fg_color="transparent")
@@ -2663,10 +2667,10 @@ class LinguaTaxiApp(ctk.CTk):
             except Exception as e:
                 request_result[0] = {"error": str(e)}
 
-        def _send_live_request():
+        def _send_live_request(file_path):
             try:
                 data = urllib.parse.urlencode(
-                    {"file_path": selection["file_path"]}).encode()
+                    {"file_path": file_path}).encode()
                 req = urllib.request.Request(
                     f"{base_url}/api/transcribe-file/live", data=data)
                 resp = urllib.request.urlopen(req, timeout=10)
@@ -2792,6 +2796,7 @@ class LinguaTaxiApp(ctk.CTk):
 
             if is_live:
                 threading.Thread(target=_send_live_request,
+                                 args=(selection["file_path"],),
                                  daemon=True).start()
             else:
                 ld = _get_lang_dict()
