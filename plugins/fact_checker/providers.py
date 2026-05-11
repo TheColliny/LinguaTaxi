@@ -735,3 +735,538 @@ def call_openai_compatible(
         sources = [{"url": "", "title": "Brave Search", "snippet": ""}]
 
     return _build_provider_result(provider_id, parsed, sources, latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Gemini Caller (gemini_flash_lite + gemini_pro)
+# ════════════════════════════════════════════════════════════════════════════
+
+def call_gemini(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call the Google Gemini generateContent API with native Google Search
+    grounding enabled.  Falls back to no-tools call on HTTP 429.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY ("gemini_flash_lite" or "gemini_pro").
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave snippets (ignored — Gemini uses native search).
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    user_prompt = f"{SYSTEM_PROMPT}\n\n{claim}"
+    if search_context:
+        user_prompt = f"{user_prompt}\n\nWeb search results for context:\n{search_context}"
+
+    payload = {
+        "contents": [{"parts": [{"text": user_prompt}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000},
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        cfg.auth_header: api_key,   # x-goog-api-key, no prefix
+    }
+
+    url = cfg.base_url  # model is already baked into the URL
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=cfg.timeout)
+
+        # Grounding fallback: retry without tools on 429 (quota exceeded for grounding)
+        if resp.status_code == 429:
+            log.warning("call_gemini: 429 on %s — retrying without grounding tools", provider_id)
+            payload_no_tools = {k: v for k, v in payload.items() if k != "tools"}
+            resp = requests.post(url, headers=headers, json=payload_no_tools, timeout=cfg.timeout)
+
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return _error_result(provider_id, "Request timed out")
+    except requests.exceptions.HTTPError as exc:
+        return _error_result(provider_id, f"HTTP {exc.response.status_code}: {exc.response.text[:200]}")
+    except Exception as exc:
+        return _error_result(provider_id, f"Request error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # Extract text
+    try:
+        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError) as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    # Extract grounding sources
+    sources: list[dict] = []
+    try:
+        chunks = (
+            data["candidates"][0]
+            .get("groundingMetadata", {})
+            .get("groundingChunks", [])
+        )
+        for chunk in chunks:
+            web = chunk.get("web", {})
+            uri = web.get("uri", "")
+            title = web.get("title", "")
+            if uri:
+                sources.append({"url": uri, "title": title, "snippet": ""})
+    except Exception:
+        pass  # sources remain empty; non-fatal
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    return _build_provider_result(provider_id, parsed, sources, latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Cohere Caller
+# ════════════════════════════════════════════════════════════════════════════
+
+def call_cohere(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call the Cohere Chat v2 API with the built-in web-search connector.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY ("cohere").
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave snippets (ignored — Cohere uses native search).
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    user_content = f"{SYSTEM_PROMPT}\n\n{claim}"
+    if search_context:
+        user_content = f"{user_content}\n\nWeb search results for context:\n{search_context}"
+
+    payload = {
+        "model": cfg.model_id,
+        "messages": [{"role": "user", "content": user_content}],
+        "connectors": [{"id": "web-search"}],
+        "temperature": 0.1,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.post(cfg.base_url, headers=headers, json=payload, timeout=cfg.timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return _error_result(provider_id, "Request timed out")
+    except requests.exceptions.HTTPError as exc:
+        return _error_result(provider_id, f"HTTP {exc.response.status_code}: {exc.response.text[:200]}")
+    except Exception as exc:
+        return _error_result(provider_id, f"Request error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # Extract text
+    try:
+        raw_text = data["message"]["content"][0]["text"]
+    except (KeyError, IndexError, TypeError) as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    # Extract sources from citations.documents (may not exist)
+    sources: list[dict] = []
+    try:
+        docs = data["message"]["citations"]["documents"]
+        for doc in docs:
+            url = doc.get("url", "")
+            title = doc.get("title", "")
+            if url:
+                sources.append({"url": url, "title": title, "snippet": ""})
+    except Exception:
+        pass  # sources remain empty; non-fatal
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    return _build_provider_result(provider_id, parsed, sources, latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Perplexity Caller
+# ════════════════════════════════════════════════════════════════════════════
+
+def call_perplexity(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call the Perplexity Sonar API (OpenAI-shaped with native search + citations).
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY ("perplexity").
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave snippets (ignored — Perplexity searches natively).
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    user_content = claim
+    if search_context:
+        user_content = f"{claim}\n\nWeb search results for context:\n{search_context}"
+
+    payload = {
+        "model": cfg.model_id,  # sonar-pro (from registry)
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 1000,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.post(cfg.base_url, headers=headers, json=payload, timeout=cfg.timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return _error_result(provider_id, "Request timed out")
+    except requests.exceptions.HTTPError as exc:
+        return _error_result(provider_id, f"HTTP {exc.response.status_code}: {exc.response.text[:200]}")
+    except Exception as exc:
+        return _error_result(provider_id, f"Request error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # Extract text
+    try:
+        raw_text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    # Extract citations — can be strings (URLs) or dicts with url/title
+    sources: list[dict] = []
+    try:
+        for citation in data.get("citations", []):
+            if isinstance(citation, str):
+                sources.append({"url": citation, "title": "", "snippet": ""})
+            elif isinstance(citation, dict):
+                sources.append({
+                    "url": citation.get("url", ""),
+                    "title": citation.get("title", ""),
+                    "snippet": "",
+                })
+    except Exception:
+        pass  # sources remain empty; non-fatal
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    return _build_provider_result(provider_id, parsed, sources, latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# OpenAI Native Web Search Caller (GPT-5.x series)
+# ════════════════════════════════════════════════════════════════════════════
+
+def call_openai_native(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call OpenAI GPT-5.x models with the native web_search tool.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY (e.g. "openai_gpt55").
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave snippets (ignored — OpenAI searches natively).
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    user_content = claim
+    if search_context:
+        user_content = f"{claim}\n\nWeb search results for context:\n{search_context}"
+
+    payload = {
+        "model": cfg.model_id,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "tools": [{"type": "web_search"}],
+        "temperature": 0.1,
+        "max_tokens": 1000,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.post(cfg.base_url, headers=headers, json=payload, timeout=cfg.timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return _error_result(provider_id, "Request timed out")
+    except requests.exceptions.HTTPError as exc:
+        return _error_result(provider_id, f"HTTP {exc.response.status_code}: {exc.response.text[:200]}")
+    except Exception as exc:
+        return _error_result(provider_id, f"Request error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # Extract text
+    try:
+        raw_text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    # No structured citation extraction for OpenAI native; sources come from model internals
+    return _build_provider_result(provider_id, parsed, [], latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Claude Caller (Anthropic Python SDK — claude_sonnet + claude_opus)
+# ════════════════════════════════════════════════════════════════════════════
+
+import threading as _threading
+
+_anthropic_client = None
+_anthropic_client_key: str = ""
+_anthropic_client_lock = _threading.Lock()
+
+
+def _get_anthropic_client(api_key: str):
+    """Return a singleton Anthropic client, recreating it if the key changes.
+
+    Thread-safe via _anthropic_client_lock.
+    """
+    import anthropic  # lazy import — package may not be installed
+
+    global _anthropic_client, _anthropic_client_key  # noqa: PLW0603
+
+    with _anthropic_client_lock:
+        if _anthropic_client is None or _anthropic_client_key != api_key:
+            _anthropic_client = anthropic.Anthropic(api_key=api_key)
+            _anthropic_client_key = api_key
+        return _anthropic_client
+
+
+def _extract_claude_sources(message) -> list[dict]:
+    """Extract URLs from a Claude message that used the web_search tool.
+
+    Inspects ``web_search_tool_result`` content blocks and any URL references
+    found in text blocks.  Returns a list of {url, title, snippet} dicts.
+    """
+    sources: list[dict] = []
+    seen: set[str] = set()
+
+    try:
+        for block in message.content:
+            block_type = getattr(block, "type", None)
+
+            if block_type == "web_search_tool_result":
+                # Each result block contains a list of search result entries
+                for entry in getattr(block, "content", []):
+                    url = getattr(entry, "url", "") or ""
+                    title = getattr(entry, "title", "") or ""
+                    if url and url not in seen:
+                        seen.add(url)
+                        sources.append({"url": url, "title": title, "snippet": ""})
+
+            elif block_type == "text":
+                # Some models embed [url] or citation markers in the text block
+                # We skip inline parsing here — structured grounding covers it
+                pass
+    except Exception as exc:
+        log.debug("_extract_claude_sources: %s", exc)
+
+    return sources
+
+
+def call_claude(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call Anthropic Claude via the official Python SDK with native web search.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY ("claude_sonnet" or "claude_opus").
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave snippets appended to the user prompt if provided.
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    try:
+        client = _get_anthropic_client(api_key)
+    except ImportError:
+        return _error_result(provider_id, "anthropic SDK not installed — run: pip install anthropic")
+    except Exception as exc:
+        return _error_result(provider_id, f"Failed to create Anthropic client: {exc}")
+
+    user_prompt = claim
+    if search_context:
+        user_prompt = f"{claim}\n\nWeb search results for context:\n{search_context}"
+
+    t0 = time.monotonic()
+    try:
+        message = client.messages.create(
+            model=cfg.model_id,
+            max_tokens=1000,
+            system=SYSTEM_PROMPT,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+    except Exception as exc:
+        return _error_result(provider_id, f"Anthropic API error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # Extract the final text block
+    try:
+        raw_text = next(
+            b.text for b in message.content if getattr(b, "type", None) == "text"
+        )
+    except StopIteration:
+        return _error_result(provider_id, "No text block in Claude response")
+    except Exception as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    sources = _extract_claude_sources(message)
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    return _build_provider_result(provider_id, parsed, sources, latency_ms)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Provider Dispatch
+# ════════════════════════════════════════════════════════════════════════════
+
+# Maps api_style → caller function.  All callers share the same signature:
+#   (provider_id: str, claim: str, search_context: str, settings: dict) -> ProviderResult
+_CALLERS: dict[str, object] = {
+    "openai": call_openai_compatible,
+    "gemini": call_gemini,
+    "anthropic": call_claude,
+    "cohere": call_cohere,
+    "perplexity": call_perplexity,
+    "openai_native": call_openai_native,
+}
+
+
+def call_provider(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Dispatch a fact-check call to the correct provider caller.
+
+    Looks up the ProviderConfig for *provider_id*, selects the caller function
+    from ``_CALLERS`` by ``cfg.api_style``, and delegates.  Any unhandled
+    exception is caught and returned as an error ProviderResult.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY.
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave search snippets (or "").
+    settings:        Full plugin settings dict.
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    caller = _CALLERS.get(cfg.api_style)
+    if caller is None:
+        return _error_result(
+            provider_id,
+            f"No caller registered for api_style {cfg.api_style!r}",
+        )
+
+    try:
+        return caller(provider_id, claim, search_context, settings)  # type: ignore[operator]
+    except Exception as exc:
+        log.exception("call_provider: unexpected error for %s", provider_id)
+        return _error_result(provider_id, f"Unexpected error: {exc}")
