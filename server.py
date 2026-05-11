@@ -2929,10 +2929,10 @@ def _graceful_shutdown():
                     pass
                 src.stream = None
             # Drain the audio queue to unblock any waiting threads
-            if hasattr(src, 'audio_queue'):
+            if hasattr(src, 'queue'):
                 try:
-                    while not src.audio_queue.empty():
-                        src.audio_queue.get_nowait()
+                    while not src.queue.empty():
+                        src.queue.get_nowait()
                 except Exception:
                     pass
     # Stop all sounddevice activity globally (releases PortAudio resources)
