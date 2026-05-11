@@ -15,6 +15,7 @@ import concurrent.futures
 import importlib.util
 import json
 import logging
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -58,6 +59,7 @@ _providers_spec = importlib.util.spec_from_file_location(
     "providers", str(Path(__file__).parent / "providers.py")
 )
 _providers_mod = importlib.util.module_from_spec(_providers_spec)
+sys.modules[_providers_spec.name] = _providers_mod
 _providers_spec.loader.exec_module(_providers_mod)
 providers = _providers_mod
 
@@ -66,6 +68,7 @@ _consensus_spec = importlib.util.spec_from_file_location(
     "consensus", str(Path(__file__).parent / "consensus.py")
 )
 _consensus_mod = importlib.util.module_from_spec(_consensus_spec)
+sys.modules[_consensus_spec.name] = _consensus_mod
 _consensus_spec.loader.exec_module(_consensus_mod)
 consensus = _consensus_mod
 
