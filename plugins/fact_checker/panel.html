@@ -10,6 +10,27 @@
   <button class="fc-manual-btn" id="fc-check-last" onclick="window._fcCheckLast()">Check Last Statement</button>
   <button class="fc-manual-btn" id="fc-check-30s" onclick="window._fcCheck30s()">Check Last 30s</button>
 </div>
+
+<!-- Provider settings (collapsible) -->
+<div class="fc-settings-toggle" id="fc-settings-toggle" onclick="window._fcToggleSettings()">
+  <span class="fc-settings-chevron" id="fc-settings-chevron">&#9654;</span>
+  <span>Provider Settings</span>
+</div>
+<div class="fc-settings-panel" id="fc-settings-panel" style="display:none">
+  <div class="fc-brave-section" id="fc-brave-section"></div>
+  <div class="fc-provider-list" id="fc-provider-list"></div>
+  <div class="fc-advanced-toggle" onclick="window._fcToggleAdvanced()">
+    <span class="fc-advanced-chevron" id="fc-advanced-chevron">&#9654;</span>
+    <span>Advanced Settings</span>
+  </div>
+  <div class="fc-advanced-panel" id="fc-advanced-panel" style="display:none"></div>
+</div>
+
+<!-- Modified weights warning -->
+<div class="fc-weights-warning" id="fc-weights-warning" style="display:none">
+  &#9888; Fact checking model weights have been modified from defaults
+</div>
+
 <div class="fc-empty" id="fc-empty">Fact checker is off. Click Enable to analyze statements as they are transcribed.</div>
 <div class="fc-results" id="fc-results"></div>
 <div class="fc-queue-status" id="fc-queue-status"></div>

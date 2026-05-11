@@ -12,6 +12,25 @@
   const HISTORY_WINDOW = 30; // seconds of transcript to keep for "Check Last 30s"
   const MAX_HISTORY   = 50;  // max transcript entries retained
 
+  const PROVIDER_META = {
+    gemini_flash_lite: { name: 'Gemini 3.1 Flash Lite', speed: 'Fast', cost: 'Free', search: 'Google Search', signup: 'aistudio.google.com', category: 'free' },
+    cerebras:          { name: 'Cerebras', speed: 'Fast', cost: 'Free', search: 'Brave Search', signup: 'cerebras.ai', category: 'free' },
+    mistral:           { name: 'Mistral AI', speed: 'Normal', cost: 'Free', search: 'Brave Search', signup: 'console.mistral.ai', category: 'free' },
+    github_models:     { name: 'GitHub Models', speed: 'Normal', cost: 'Free', search: 'Brave Search', signup: 'github.com/marketplace/models', category: 'free' },
+    cohere:            { name: 'Cohere', speed: 'Normal', cost: 'Free', search: 'Built-in Search', signup: 'dashboard.cohere.com', category: 'free' },
+    openrouter:        { name: 'OpenRouter', speed: 'Normal', cost: 'Free', search: 'Brave Search', signup: 'openrouter.ai', category: 'free' },
+    ovhcloud:          { name: 'OVHcloud', speed: 'Slow', cost: 'Free', search: 'Brave Search', signup: 'endpoints.ai.cloud.ovh.net', category: 'free' },
+    huggingface:       { name: 'Hugging Face', speed: 'Slow', cost: 'Free', search: 'Brave Search', signup: 'huggingface.co', category: 'free' },
+    claude_sonnet:     { name: 'Claude Sonnet 4.6', speed: 'Fast', cost: 'Paid', search: 'Brave Search', signup: 'console.anthropic.com', costInfo: '$3/$15 per 1M tokens', category: 'paid' },
+    claude_opus:       { name: 'Claude Opus 4.6', speed: 'Normal', cost: 'Paid', search: 'Brave Search', signup: 'console.anthropic.com', costInfo: '$5/$25 per 1M tokens', category: 'paid' },
+    perplexity:        { name: 'Perplexity Sonar Pro', speed: 'Normal', cost: 'Paid', search: 'Built-in Search', signup: 'docs.perplexity.ai', costInfo: '$3/$15 + search', category: 'paid' },
+    openai_gpt55:      { name: 'OpenAI GPT-5.5', speed: 'Normal', cost: 'Paid', search: 'Built-in Search', signup: 'platform.openai.com', costInfo: '$5/$30 per 1M tokens', category: 'paid' },
+    openai_gpt54_mini: { name: 'OpenAI GPT-5.4-mini', speed: 'Fast', cost: 'Paid', search: 'Built-in Search', signup: 'platform.openai.com', costInfo: '$0.75/$4.50', category: 'paid' },
+    openai_gpt54_nano: { name: 'OpenAI GPT-5.4-nano', speed: 'Fast', cost: 'Paid', search: 'Built-in Search', signup: 'platform.openai.com', costInfo: '$0.20/$1.25', category: 'paid' },
+    openai_gpt5_nano:  { name: 'OpenAI GPT-5-nano', speed: 'Fast', cost: 'Paid', search: 'Built-in Search', signup: 'platform.openai.com', costInfo: '$0.05/$0.40', category: 'paid' },
+    gemini_pro:        { name: 'Google Gemini 3.1 Pro', speed: 'Normal', cost: 'Paid', search: 'Google Search', signup: 'aistudio.google.com', costInfo: '$1.25/$10', category: 'paid' },
+  };
+
   let enabled     = false;
   let panelOpen   = true;
   let mode        = 'auto'; // 'auto' or 'manual'
@@ -20,23 +39,33 @@
   let results     = [];     // accumulated result objects
   let isOperatorPage = null; // true = operator (has API), false = audience (WS only)
   let history     = [];     // { text, speaker, ts } — recent transcripts for manual mode
+  let providerSettings = {};
 
   // ── DOM refs (resolved after DOMContentLoaded) ───────────────────────────
   let elCount, elEmpty, elResults, elQueueStatus, elProviderBadge;
   let elModeToggle, elModeAuto, elModeManual, elManualControls;
+  let elSettingsPanel, elSettingsChevron, elProviderList, elBraveSection;
+  let elAdvancedPanel, elAdvancedChevron, elWeightsWarning;
 
   function $(id) { return document.getElementById(id); }
 
   document.addEventListener('DOMContentLoaded', () => {
-    elCount         = $('fc-count');
-    elEmpty         = $('fc-empty');
-    elResults       = $('fc-results');
-    elQueueStatus   = $('fc-queue-status');
-    elProviderBadge = $('fc-provider-badge');
-    elModeToggle    = $('fc-mode-toggle');
-    elModeAuto      = $('fc-mode-auto');
-    elModeManual    = $('fc-mode-manual');
-    elManualControls = $('fc-manual-controls');
+    elCount           = $('fc-count');
+    elEmpty           = $('fc-empty');
+    elResults         = $('fc-results');
+    elQueueStatus     = $('fc-queue-status');
+    elProviderBadge   = $('fc-provider-badge');
+    elModeToggle      = $('fc-mode-toggle');
+    elModeAuto        = $('fc-mode-auto');
+    elModeManual      = $('fc-mode-manual');
+    elManualControls  = $('fc-manual-controls');
+    elSettingsPanel   = $('fc-settings-panel');
+    elSettingsChevron = $('fc-settings-chevron');
+    elProviderList    = $('fc-provider-list');
+    elBraveSection    = $('fc-brave-section');
+    elAdvancedPanel   = $('fc-advanced-panel');
+    elAdvancedChevron = $('fc-advanced-chevron');
+    elWeightsWarning  = $('fc-weights-warning');
     renderState();
     detectPage();
     fetchMode();
@@ -49,7 +78,10 @@
     } catch(e) {
       isOperatorPage = false;
     }
-    if (isOperatorPage) fetchProviderStatus();
+    if (isOperatorPage) {
+      fetchProviderStatus();
+      loadProviderSettings();
+    }
     renderState();
   }
 
@@ -78,26 +110,51 @@
     try {
       const resp = await fetch('/api/fact-check/status');
       if (!resp.ok) return;
-      const s = resp.json ? await resp.json() : {};
-      const provider = s.provider || 'gemini';
-      let label, cost, keyOk;
-      if (provider === 'claude') {
-        label = `Claude ${s.claude_model || 'sonnet'}`;
-        cost = 'paid';
-        keyOk = s.claude_key_set;
-      } else if (provider === 'groq') {
-        label = 'Groq/Llama';
-        cost = 'free';
-        keyOk = s.groq_key_set && s.brave_key_set;
-      } else if (provider === 'magi') {
-        label = 'MAGI';
-        cost = 'multi';
-        keyOk = s.claude_key_set || s.gemini_key_set || (s.groq_key_set && s.brave_key_set);
+      const s = await resp.json();
+
+      // Build badge from new status fields (provider_count, providers_enabled, provider_details, brave_key_set)
+      // Falls back gracefully to old single-provider fields for backward compat
+      let label, keyOk, costClass;
+
+      if (s.provider_count != null) {
+        // New multi-provider status
+        const count = s.providers_enabled || 0;
+        const total = s.provider_count || 0;
+        if (count === 0) {
+          label = 'No providers';
+          keyOk = false;
+          costClass = 'nokey';
+        } else {
+          // Show first enabled provider name or count
+          const details = s.provider_details || {};
+          const activeNames = Object.entries(details)
+            .filter(([, d]) => d.enabled)
+            .map(([pid]) => (PROVIDER_META[pid] || {}).name || pid);
+          label = activeNames.length === 1
+            ? activeNames[0]
+            : `${count} provider${count !== 1 ? 's' : ''}`;
+          keyOk = true;
+          costClass = 'ok';
+        }
       } else {
-        label = 'Gemini Flash';
-        cost = 'free';
-        keyOk = s.gemini_key_set;
+        // Legacy single-provider fields
+        const provider = s.provider || 'gemini';
+        if (provider === 'claude') {
+          label = `Claude ${s.claude_model || 'sonnet'}`;
+          keyOk = !!s.claude_key_set;
+        } else if (provider === 'groq') {
+          label = 'Groq/Llama';
+          keyOk = !!(s.groq_key_set && s.brave_key_set);
+        } else if (provider === 'magi') {
+          label = 'MAGI';
+          keyOk = !!(s.claude_key_set || s.gemini_key_set || (s.groq_key_set && s.brave_key_set));
+        } else {
+          label = 'Gemini Flash';
+          keyOk = !!s.gemini_key_set;
+        }
+        costClass = keyOk ? 'ok' : 'nokey';
       }
+
       const cls = keyOk ? 'fc-prov--ok' : 'fc-prov--nokey';
       let filterHtml = '';
       if (s.claim_filter_loaded) {
@@ -107,9 +164,9 @@
       } else {
         filterHtml = '<span class="fc-filter-badge fc-filter--off" onclick="window._fcDownloadFilter(this)">Download Filter</span>';
       }
+
       elProviderBadge.innerHTML =
         `<span class="fc-prov ${cls}">${esc(label)}</span>` +
-        `<span class="fc-prov-cost">${cost}</span>` +
         (!keyOk ? '<span class="fc-prov-warn">no API key</span>' : '') +
         filterHtml;
     } catch(e) { /* ignore */ }
@@ -670,6 +727,217 @@
     queue.push({ text: combined.trim(), speaker });
     updateQueueStatus();
     processNext();
+  };
+
+  // ── Provider settings ────────────────────────────────────────────────────
+
+  async function loadProviderSettings() {
+    try {
+      const resp = await fetch('/api/plugins/fact_checker/settings');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const vals = data.values || {};
+
+      // providers and weights may arrive as JSON strings from form data storage
+      let providers = vals.providers || {};
+      if (typeof providers === 'string') {
+        try { providers = JSON.parse(providers); } catch(e) { providers = {}; }
+      }
+
+      let weights = vals.weights || {};
+      if (typeof weights === 'string') {
+        try { weights = JSON.parse(weights); } catch(e) { weights = {}; }
+      }
+
+      providerSettings = { ...vals, providers, weights };
+      renderBraveSection();
+      renderProviderList();
+      renderWeightsWarning();
+    } catch(e) { /* ignore */ }
+  }
+
+  function renderWeightsWarning() {
+    if (!elWeightsWarning) return;
+    const weights = providerSettings.weights || {};
+    const hasCustom = Object.keys(weights).length > 0;
+    elWeightsWarning.style.display = hasCustom ? 'block' : 'none';
+  }
+
+  function renderProviderList() {
+    if (!elProviderList) return;
+    const providers = providerSettings.providers || {};
+    const freeProviders = [];
+    const paidProviders = [];
+
+    Object.entries(PROVIDER_META).forEach(([pid, meta]) => {
+      if (meta.category === 'paid') {
+        paidProviders.push([pid, meta]);
+      } else {
+        freeProviders.push([pid, meta]);
+      }
+    });
+
+    let html = '';
+
+    if (freeProviders.length > 0) {
+      html += '<div class="fc-prov-section-title">Free Providers</div>';
+      freeProviders.forEach(([pid, meta]) => {
+        const cfg = providers[pid] || {};
+        html += buildProviderRow(pid, meta, cfg);
+      });
+    }
+
+    if (paidProviders.length > 0) {
+      html += '<div class="fc-prov-section-title">Paid Providers</div>';
+      paidProviders.forEach(([pid, meta]) => {
+        const cfg = providers[pid] || {};
+        html += buildProviderRow(pid, meta, cfg);
+      });
+    }
+
+    elProviderList.innerHTML = html;
+  }
+
+  function buildProviderRow(pid, meta, cfg) {
+    const enabled = !!cfg.enabled;
+    const apiKey  = cfg.api_key || '';
+    const keySet  = apiKey.length > 0;
+
+    const speedCls = meta.speed === 'Fast'   ? 'fc-tag--fast'
+                   : meta.speed === 'Slow'   ? 'fc-tag--slow'
+                   : 'fc-tag--normal';
+    const costCls  = meta.cost === 'Free'    ? 'fc-tag--free' : 'fc-tag--paid';
+
+    const statusIndicator = enabled
+      ? (keySet ? '<span class="fc-prov-ok">&#10003;</span>' : '<span class="fc-prov-warn">&#9888; needs key</span>')
+      : '';
+
+    const signupHtml = `<a class="fc-prov-signup" href="https://${esc(meta.signup)}" target="_blank" rel="noopener">${esc(meta.signup)}</a>`;
+    const costInfoHtml = meta.costInfo ? `<span class="fc-prov-cost-info">${esc(meta.costInfo)}</span>` : '';
+
+    const keyRowHtml = `
+      <div class="fc-prov-keyrow" id="fc-prov-keyrow-${esc(pid)}" style="display:${enabled ? 'flex' : 'none'}">
+        <input class="fc-prov-key" type="password" placeholder="API key"
+          value="${esc(apiKey)}"
+          onchange="window._fcSetProviderKey('${esc(pid)}', this.value)"
+          oninput="window._fcSetProviderKey('${esc(pid)}', this.value)"
+          autocomplete="off" spellcheck="false" />
+        ${signupHtml}
+        ${costInfoHtml}
+      </div>`;
+
+    return `
+      <div class="fc-prov-row" id="fc-prov-row-${esc(pid)}">
+        <div class="fc-prov-header">
+          <label class="fc-prov-check">
+            <input type="checkbox" ${enabled ? 'checked' : ''}
+              onchange="window._fcToggleProvider('${esc(pid)}', this.checked)" />
+            <span class="fc-prov-name">${esc(meta.name)}</span>
+          </label>
+          <div class="fc-prov-tags">
+            <span class="fc-tag ${speedCls}">${esc(meta.speed)}</span>
+            <span class="fc-tag ${costCls}">${esc(meta.cost)}</span>
+            <span class="fc-tag">${esc(meta.search)}</span>
+            ${statusIndicator}
+          </div>
+        </div>
+        ${keyRowHtml}
+      </div>`;
+  }
+
+  function renderBraveSection() {
+    if (!elBraveSection) return;
+    const braveKey = providerSettings.brave_api_key || '';
+    const keySet   = braveKey.length > 0;
+
+    // Check if any provider uses Brave Search
+    const needsBrave = Object.entries(PROVIDER_META).some(([pid, meta]) => {
+      const cfg = (providerSettings.providers || {})[pid] || {};
+      return cfg.enabled && meta.search === 'Brave Search';
+    });
+
+    const statusHtml = keySet
+      ? '<span class="fc-prov-ok">&#10003; Key set</span>'
+      : (needsBrave ? '<span class="fc-prov-warn">&#9888; Required for enabled providers</span>' : '');
+
+    elBraveSection.innerHTML = `
+      <div class="fc-brave-title">Brave Search API
+        ${statusHtml}
+      </div>
+      <div class="fc-brave-note">Required by Cerebras, Mistral, GitHub Models, OpenRouter, OVHcloud, Hugging Face, Claude providers.</div>
+      <div class="fc-brave-keyrow">
+        <input class="fc-prov-key" type="password" placeholder="Brave Search API key"
+          value="${esc(braveKey)}"
+          onchange="window._fcSetBraveKey(this.value)"
+          oninput="window._fcSetBraveKey(this.value)"
+          autocomplete="off" spellcheck="false" />
+        <a class="fc-prov-signup" href="https://brave.com/search/api/" target="_blank" rel="noopener">brave.com/search/api</a>
+      </div>`;
+  }
+
+  async function saveProviderSettings() {
+    try {
+      // Read current settings first to preserve non-provider keys (mode, etc.)
+      const resp = await fetch('/api/plugins/fact_checker/settings');
+      const data = resp.ok ? await resp.json() : { values: {} };
+      const vals = { ...(data.values || {}) };
+
+      // Serialize providers and weights as JSON strings for FormData transport
+      vals.providers  = JSON.stringify(providerSettings.providers  || {});
+      vals.weights    = JSON.stringify(providerSettings.weights    || {});
+      vals.brave_api_key = providerSettings.brave_api_key || '';
+
+      const fd = new FormData();
+      Object.entries(vals).forEach(([k, v]) => fd.append(k, String(v)));
+      fetch('/api/plugins/fact_checker/settings', { method: 'POST', body: fd }).catch(() => {});
+    } catch(e) { /* ignore */ }
+  }
+
+  window._fcToggleProvider = function(pid, enabled) {
+    if (!providerSettings.providers) providerSettings.providers = {};
+    if (!providerSettings.providers[pid]) providerSettings.providers[pid] = {};
+    providerSettings.providers[pid].enabled = enabled;
+
+    // Show/hide key row
+    const keyRow = document.getElementById('fc-prov-keyrow-' + pid);
+    if (keyRow) keyRow.style.display = enabled ? 'flex' : 'none';
+
+    // Refresh brave section warning in case Brave-dependent providers changed
+    renderBraveSection();
+
+    saveProviderSettings();
+    // Refresh badge after short delay to let server process
+    setTimeout(fetchProviderStatus, 800);
+  };
+
+  window._fcSetProviderKey = function(pid, key) {
+    if (!providerSettings.providers) providerSettings.providers = {};
+    if (!providerSettings.providers[pid]) providerSettings.providers[pid] = {};
+    providerSettings.providers[pid].api_key = key;
+    saveProviderSettings();
+    setTimeout(fetchProviderStatus, 800);
+  };
+
+  window._fcSetBraveKey = function(key) {
+    providerSettings.brave_api_key = key;
+    renderBraveSection();
+    saveProviderSettings();
+    setTimeout(fetchProviderStatus, 800);
+  };
+
+  window._fcToggleSettings = function() {
+    if (!elSettingsPanel || !elSettingsChevron) return;
+    const open = elSettingsPanel.style.display === 'none';
+    elSettingsPanel.style.display = open ? 'block' : 'none';
+    elSettingsChevron.innerHTML   = open ? '&#9660;' : '&#9654;';
+    if (open) loadProviderSettings(); // refresh on expand
+  };
+
+  window._fcToggleAdvanced = function() {
+    if (!elAdvancedPanel || !elAdvancedChevron) return;
+    const open = elAdvancedPanel.style.display === 'none';
+    elAdvancedPanel.style.display = open ? 'block' : 'none';
+    elAdvancedChevron.innerHTML   = open ? '&#9660;' : '&#9654;';
   };
 
   // Register with plugin system

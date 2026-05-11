@@ -556,3 +556,225 @@
   padding-top: 4px;
   border-top: 1px dashed rgba(163,45,45,0.25);
 }
+
+/* ── Provider settings collapsible ──────────────────────────────────────── */
+.fc-settings-toggle,
+.fc-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  user-select: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  transition: color 0.15s, background 0.15s;
+}
+.fc-settings-toggle:hover,
+.fc-advanced-toggle:hover {
+  color: rgba(255,255,255,0.65);
+  background: rgba(255,255,255,0.03);
+}
+.fc-settings-chevron,
+.fc-advanced-chevron {
+  font-size: 8px;
+  color: rgba(255,255,255,0.25);
+  transition: color 0.15s;
+  display: inline-block;
+  width: 10px;
+}
+
+/* ── Settings panel container ────────────────────────────────────────────── */
+.fc-settings-panel {
+  background: rgba(0,0,0,0.18);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 10px 12px 6px;
+}
+
+.fc-advanced-panel {
+  padding: 8px 0 4px;
+}
+
+/* ── Provider section titles ─────────────────────────────────────────────── */
+.fc-prov-section-title {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.28);
+  padding: 8px 0 5px;
+  margin-top: 2px;
+}
+.fc-prov-section-title:first-child { margin-top: 0; padding-top: 0; }
+
+/* ── Provider row ────────────────────────────────────────────────────────── */
+.fc-prov-row {
+  margin-bottom: 3px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.fc-prov-row:last-child { border-bottom: none; }
+
+.fc-prov-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.fc-prov-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.fc-prov-check input[type="checkbox"] {
+  margin: 0;
+  accent-color: #4FC3F7;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.fc-prov-name {
+  font-size: 11px;
+  color: rgba(255,255,255,0.65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-prov-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Tags ────────────────────────────────────────────────────────────────── */
+.fc-tag {
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.35);
+  white-space: nowrap;
+}
+.fc-tag--fast   { background: rgba(29,158,117,0.18);  color: #9FE1CB; }
+.fc-tag--normal { background: rgba(79,195,247,0.12);  color: #7ED8F7; }
+.fc-tag--slow   { background: rgba(186,117,23,0.18);  color: #FAC775; }
+.fc-tag--free   { background: rgba(99,153,34,0.18);   color: #C0DD97; }
+.fc-tag--paid   { background: rgba(204,120,50,0.18);  color: #E8A96C; }
+
+/* ── Provider status indicators ─────────────────────────────────────────── */
+.fc-prov-warn {
+  font-size: 9px;
+  color: #F09595;
+  font-style: italic;
+  white-space: nowrap;
+}
+.fc-prov-ok {
+  font-size: 9px;
+  color: #81C784;
+  white-space: nowrap;
+}
+
+/* ── API key input row ───────────────────────────────────────────────────── */
+.fc-prov-keyrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  padding-left: 18px;
+  flex-wrap: wrap;
+}
+
+.fc-prov-key {
+  flex: 1;
+  min-width: 120px;
+  max-width: 280px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.fc-prov-key:focus {
+  border-color: rgba(79,195,247,0.45);
+}
+.fc-prov-key::placeholder { color: rgba(255,255,255,0.2); }
+
+/* ── Signup link ─────────────────────────────────────────────────────────── */
+.fc-prov-signup {
+  font-size: 9px;
+  color: rgba(79,195,247,0.55);
+  text-decoration: none;
+  text-transform: lowercase;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.fc-prov-signup:hover { color: #4FC3F7; text-decoration: underline; }
+
+/* ── Cost info ───────────────────────────────────────────────────────────── */
+.fc-prov-cost-info {
+  font-size: 9px;
+  color: rgba(255,255,255,0.28);
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* ── Brave Search section ────────────────────────────────────────────────── */
+.fc-brave-section {
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.fc-brave-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(255,255,255,0.45);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.fc-brave-note {
+  font-size: 9px;
+  color: rgba(255,255,255,0.28);
+  margin-bottom: 6px;
+  line-height: 1.45;
+}
+.fc-brave-keyrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+/* ── Modified weights warning banner ────────────────────────────────────── */
+.fc-weights-warning {
+  font-size: 10px;
+  font-weight: 600;
+  color: #FFB74D;
+  background: rgba(255,183,77,0.08);
+  border: 1px solid rgba(255,183,77,0.2);
+  border-radius: 4px;
+  padding: 5px 10px;
+  margin: 4px 0 6px;
+  letter-spacing: 0.03em;
+}
