@@ -118,9 +118,11 @@ class FinancialSummary:
 
 | Event | Behavior |
 |-------|----------|
-| Plugin start | Load all cached candidates. Re-fetch roster candidates from source. Re-fetch non-roster candidates only if older than staleness threshold. |
+| Candidate added to event | Immediately fetch full data from source and write to disk cache. |
+| Event loaded (selected in panel) | Check for updates on only that event's candidates — re-fetch if older than staleness threshold. |
+| Plugin start | Load cached data into memory. No source fetches — waits until an event is selected. |
 | Search/fetch | Write results to disk cache after successful source fetch. |
-| Staleness threshold | Configurable, default 24 hours. Data older than this is re-fetched on next startup or manual refresh. |
+| Staleness threshold | Configurable, default 24 hours. Data older than this is re-fetched when the event is loaded or manually refreshed. |
 | Source unavailable | Return cached data with a `stale: true` flag. Log warning. |
 
 **In-memory cache (existing):** The current 1-hour in-memory cache remains as a hot layer for repeated queries during a live session. The disk cache is the cold-start fallback.
@@ -148,7 +150,9 @@ class FinancialSummary:
 
 ### Behavior
 
-- On plugin start, all roster candidates across all events get their data fetched/refreshed via the cache layer (only hits the source if stale or missing).
+- When a candidate is added to an event, their data is fetched immediately from the source and cached to disk.
+- When an event is selected/loaded in the operator panel, only that event's candidates are checked for updates (re-fetched if older than staleness threshold).
+- Plugin start loads cached data into memory but does not hit any sources — waits until an event is selected.
 - Multiple events can be configured simultaneously.
 - Past events (date < today) are hidden from the operator panel dropdown but their cached data is retained.
 
