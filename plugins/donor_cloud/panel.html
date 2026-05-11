@@ -1,6 +1,6 @@
 <div class="dc-controls">
   <div class="dc-search-row">
-    <input type="text" id="dc-search" class="dc-input" placeholder="Candidate name or FEC ID (e.g. H8CA05035)">
+    <input type="text" id="dc-search" class="dc-input" placeholder="Candidate name or ID">
     <button class="dc-btn dc-btn--search" id="dc-search-btn">Search</button>
   </div>
   <div class="dc-cycle-row">
@@ -16,7 +16,30 @@
   </div>
   <div class="dc-search-results" id="dc-search-results"></div>
 </div>
+
+<!-- Event Roster -->
+<div class="dc-roster-section" id="dc-roster-section">
+  <div class="dc-roster-header">
+    <span class="dc-section-title">Event Roster</span>
+    <button class="dc-btn dc-btn--small" id="dc-roster-new-event" title="New Event">+ Event</button>
+  </div>
+  <div class="dc-roster-event-row">
+    <select id="dc-roster-event-select" class="dc-select dc-select--wide"></select>
+    <button class="dc-btn dc-btn--icon" id="dc-roster-refresh" title="Refresh All">&#8635;</button>
+    <button class="dc-btn dc-btn--icon dc-btn--danger" id="dc-roster-delete-event" title="Delete Event">&#10005;</button>
+  </div>
+  <div class="dc-roster-candidates" id="dc-roster-candidates"></div>
+</div>
+
+<!-- View Toggle -->
+<div class="dc-toggle-row" id="dc-toggle-row">
+  <button class="dc-toggle-btn dc-toggle-btn--active" id="dc-toggle-employer" data-view="employer">By Employer</button>
+  <button class="dc-toggle-btn" id="dc-toggle-individual" data-view="individual">By Individual</button>
+</div>
+
+<!-- Candidate Info with Source Badge -->
 <div class="dc-candidate-info" id="dc-candidate-info"></div>
-<div class="dc-empty" id="dc-empty">Search for a candidate to see their top donors as a word cloud. Data from FEC.gov — no API key needed.</div>
+
+<div class="dc-empty" id="dc-empty">Search for a candidate or select from an event roster. Data from FEC.gov + Utah disclosures.</div>
 <div class="dc-cloud-container" id="dc-cloud-container"></div>
 <div class="dc-legend" id="dc-legend"></div>
