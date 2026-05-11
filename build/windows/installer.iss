@@ -194,6 +194,7 @@ Source: "..\..\dictation.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\bidirectional.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\lang_detect.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\voice_id.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\transcribe_file.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\model_manager.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\models-manifest.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
