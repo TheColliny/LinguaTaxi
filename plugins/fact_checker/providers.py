@@ -1270,3 +1270,141 @@ def call_provider(
     except Exception as exc:
         log.exception("call_provider: unexpected error for %s", provider_id)
         return _error_result(provider_id, f"Unexpected error: {exc}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Claim Classification Stage (Stage 2)
+# ════════════════════════════════════════════════════════════════════════════
+
+_CLASSIFICATION_PROMPT = """\
+Analyze this transcribed statement. Respond in JSON only.
+If it contains a verifiable factual claim, extract it clearly.
+If it does not contain a verifiable claim, mark it as not_a_claim.
+
+Statement: "{statement}"
+
+Response format:
+{{"is_claim": true/false, "extracted_claim": "clean claim text or null", "search_query": "optimized search query or null"}}\
+"""
+
+# Ordered list of providers to try for classification (fast/free-tier first)
+CLASSIFICATION_FALLBACK_ORDER: list[str] = [
+    "cerebras",
+    "github_models",
+    "mistral",
+    "openrouter",
+    "gemini_flash_lite",
+]
+
+
+def _parse_classification_response(raw: str) -> dict | None:
+    """Parse a classification JSON response from an LLM.
+
+    Uses _parse_verdict_json for fence-stripping and JSON decoding.
+    Returns None if parse fails or "is_claim" key is absent.
+
+    Returns a normalised dict:
+        {"is_claim": bool, "extracted_claim": str|None, "search_query": str|None}
+    """
+    parsed = _parse_verdict_json(raw)
+    if parsed is None:
+        return None
+    if "is_claim" not in parsed:
+        return None
+    return {
+        "is_claim": bool(parsed["is_claim"]),
+        "extracted_claim": parsed.get("extracted_claim") or None,
+        "search_query": parsed.get("search_query") or None,
+    }
+
+
+def classify_claim(
+    statement: str,
+    settings: dict,
+    preferred_provider: str | None = None,
+) -> dict | None:
+    """Use a fast LLM to classify whether *statement* contains a verifiable claim.
+
+    Tries providers in CLASSIFICATION_FALLBACK_ORDER, with *preferred_provider*
+    moved to the front if specified.  Only providers that have an API key
+    configured in *settings* are tried.
+
+    Returns a dict on success:
+        {"is_claim": bool, "extracted_claim": str|None, "search_query": str|None}
+
+    Returns None if all providers fail or no API keys are configured.
+    """
+    order = list(CLASSIFICATION_FALLBACK_ORDER)
+    if preferred_provider and preferred_provider in order:
+        order.remove(preferred_provider)
+        order.insert(0, preferred_provider)
+    elif preferred_provider and preferred_provider not in order:
+        order.insert(0, preferred_provider)
+
+    prompt = _CLASSIFICATION_PROMPT.format(statement=statement)
+    system_msg = "You classify statements as verifiable claims or not. Respond in JSON only."
+
+    for pid in order:
+        api_key = get_provider_api_key(pid, settings)
+        if not api_key:
+            continue
+
+        cfg = get_provider_config(pid)
+        if cfg is None:
+            continue
+
+        # Build lightweight request (no search context needed)
+        if cfg.api_style == "gemini":
+            payload: dict = {
+                "contents": [{"parts": [{"text": system_msg + "\n\n" + prompt}]}],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 300},
+            }
+        else:
+            # OpenAI-compatible shape covers: openai, perplexity, openai_native,
+            # cohere (v2 accepts messages), anthropic — all accept messages array
+            payload = {
+                "model": cfg.model_id,
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 300,
+            }
+
+        auth_value = f"{cfg.auth_prefix}{api_key}"
+        headers = {
+            "Content-Type": "application/json",
+            cfg.auth_header: auth_value,
+        }
+
+        try:
+            resp = requests.post(
+                cfg.base_url,
+                headers=headers,
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            log.debug("classify_claim: %s failed: %s", pid, exc)
+            continue
+
+        # Extract response text based on api_style
+        try:
+            if cfg.api_style == "gemini":
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            else:
+                raw_text = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            log.debug("classify_claim: unexpected response shape from %s: %s", pid, exc)
+            continue
+
+        result = _parse_classification_response(raw_text)
+        if result is not None:
+            return result
+
+        log.debug("classify_claim: failed to parse response from %s: %s", pid, raw_text[:200])
+
+    return None
