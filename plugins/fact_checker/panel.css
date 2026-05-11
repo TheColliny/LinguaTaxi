@@ -778,3 +778,32 @@
   margin: 4px 0 6px;
   letter-spacing: 0.03em;
 }
+
+/* ── Advanced settings ────────────────────────────────────────────────────── */
+.fc-advanced-panel { padding: 0 0 8px; }
+.fc-adv-section { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.fc-adv-title { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); margin-bottom: 4px; }
+.fc-adv-note { font-size: 10px; color: rgba(255,255,255,0.3); margin-bottom: 6px; }
+.fc-weight-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.fc-weight-name { flex: 1; font-size: 11px; color: rgba(255,255,255,0.7); }
+.fc-weight-input {
+  width: 55px; padding: 3px 6px;
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px; color: rgba(255,255,255,0.8);
+  font-size: 11px; font-family: monospace; text-align: center;
+}
+.fc-weight-input:focus { border-color: rgba(79,195,247,0.5); outline: none; }
+.fc-weight-default { font-size: 9px; color: rgba(255,255,255,0.25); }
+.fc-adv-select {
+  padding: 4px 8px; background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+  color: rgba(255,255,255,0.8); font-size: 11px;
+}
+
+/* ── Consensus display ────────────────────────────────────────────────────── */
+.fc-badge--consensus-initial { background: rgba(255,193,7,0.15); color: #FFD54F; }
+.fc-badge--consensus-final { background: rgba(76,175,80,0.15); color: #81C784; }
+.fc-badge--consensus-direct { background: rgba(79,195,247,0.12); color: #4FC3F7; }
+.fc-consensus-count { font-size: 9px; color: rgba(255,255,255,0.35); margin-left: 4px; }
+.fc-consensus-change { font-size: 10px; color: #FFD54F; padding: 4px 0 2px; font-style: italic; }
+.fc-magi-latency { font-size: 9px; color: rgba(255,255,255,0.25); margin-left: auto; }

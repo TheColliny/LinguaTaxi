@@ -12,6 +12,14 @@
   const HISTORY_WINDOW = 30; // seconds of transcript to keep for "Check Last 30s"
   const MAX_HISTORY   = 50;  // max transcript entries retained
 
+  const DEFAULT_WEIGHTS = {
+    gemini_flash_lite: 0.75, cerebras: 0.78, mistral: 0.80, github_models: 0.85,
+    cohere: 0.83, openrouter: 0.78, ovhcloud: 0.85, huggingface: 0.60,
+    claude_sonnet: 0.95, claude_opus: 0.88, perplexity: 0.95,
+    openai_gpt55: 0.93, openai_gpt54_mini: 0.82, openai_gpt54_nano: 0.72,
+    openai_gpt5_nano: 0.68, gemini_pro: 0.90,
+  };
+
   const PROVIDER_META = {
     gemini_flash_lite: { name: 'Gemini 3.1 Flash Lite', speed: 'Fast', cost: 'Free', search: 'Google Search', signup: 'aistudio.google.com', category: 'free' },
     cerebras:          { name: 'Cerebras', speed: 'Fast', cost: 'Free', search: 'Brave Search', signup: 'cerebras.ai', category: 'free' },
@@ -364,6 +372,22 @@
                     : 'fc-badge--gemini';
       html += `<span class="fc-badge ${provCls}" style="margin-left:auto">${esc(r.provider)}</span>`;
     }
+    // Consensus stage label
+    if (r.consensus_stage) {
+      const stageCls = r.consensus_stage === 'final' ? 'fc-badge--consensus-final'
+                     : r.consensus_stage === 'initial' ? 'fc-badge--consensus-initial'
+                     : 'fc-badge--consensus-direct';
+      const stageLabel = r.consensus_stage === 'direct' ? 'Fact Check'
+                       : r.consensus_stage === 'initial' ? 'Initial Fact Check'
+                       : 'Final Fact Check';
+      html += `<span class="fc-badge ${stageCls}">${stageLabel}</span>`;
+      if (r.consensus_providers != null && r.consensus_total != null && r.consensus_total > 1) {
+        html += `<span class="fc-consensus-count">${r.consensus_providers}/${r.consensus_total} providers</span>`;
+      }
+    }
+    if (r.consensus_changed && r.consensus_reason) {
+      html += `<div class="fc-consensus-change">${esc(r.consensus_reason)}</div>`;
+    }
     html += `</div>`;
 
     html += `<div class="fc-statement">\u201C${esc(r.statement)}\u201D</div>`;
@@ -395,8 +419,35 @@
       html += `<div class="fc-error-msg">${esc(r.error)}</div>`;
     }
 
-    // ── MAGI consensus section ──
-    if (r.magi_consensus && r.magi_nodes) {
+    // ── Provider breakdown (new consensus format) ──
+    if (r.provider_breakdown && r.provider_breakdown.length > 1) {
+      const hasDisagreement = new Set(r.provider_breakdown.filter(p => p.verdict).map(p => p.verdict)).size > 1;
+      const conCls = hasDisagreement ? 'fc-magi--disagree' : 'fc-magi--agree';
+      const conLabel = hasDisagreement ? 'SPLIT VERDICT' : 'CONSENSUS';
+      html += `<div class="fc-magi ${conCls}">`;
+      html += `<div class="fc-magi-header"><span class="fc-magi-label">${conLabel}</span></div>`;
+      html += `<div class="fc-magi-nodes">`;
+      for (const node of r.provider_breakdown) {
+        const dimmed = node.error || node.weight === 0;
+        html += `<div class="fc-magi-node${dimmed ? ' fc-magi-node--dim' : ''}">`;
+        html += `<span class="fc-magi-prov">${esc(node.display_name || node.provider_id)}</span>`;
+        html += `<span class="fc-magi-weight">${Math.round((node.weight || 0) * 100)}%</span>`;
+        if (node.error) {
+          html += `<span class="fc-magi-verdict fc-magi-verdict--err">error</span>`;
+        } else if (node.verdict) {
+          html += `<span class="fc-magi-verdict">${esc(node.verdict)}</span>`;
+        }
+        if (node.accuracy_score != null) {
+          html += `<span class="fc-magi-score">${Math.round(node.accuracy_score)}%</span>`;
+        }
+        if (node.latency_ms) {
+          html += `<span class="fc-magi-latency">${(node.latency_ms / 1000).toFixed(1)}s</span>`;
+        }
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+    } else if (r.magi_consensus && r.magi_nodes) {
+      // Keep existing magi_nodes rendering as backward compat fallback
       const conCls = r.magi_consensus === 'agree' ? 'fc-magi--agree'
                    : r.magi_consensus === 'close' ? 'fc-magi--close'
                    : r.magi_consensus === 'disagree' ? 'fc-magi--disagree'
@@ -757,10 +808,7 @@
   }
 
   function renderWeightsWarning() {
-    if (!elWeightsWarning) return;
-    const weights = providerSettings.weights || {};
-    const hasCustom = Object.keys(weights).length > 0;
-    elWeightsWarning.style.display = hasCustom ? 'block' : 'none';
+    checkModifiedWeights();
   }
 
   function renderProviderList() {
@@ -938,7 +986,107 @@
     const open = elAdvancedPanel.style.display === 'none';
     elAdvancedPanel.style.display = open ? 'block' : 'none';
     elAdvancedChevron.innerHTML   = open ? '&#9660;' : '&#9654;';
+    if (open) renderAdvancedSettings(); // refresh on expand
   };
+
+  // ── Advanced settings ────────────────────────────────────────────────────
+
+  function getDefaultWeight(pid) {
+    return DEFAULT_WEIGHTS[pid] || 0.50;
+  }
+
+  function checkModifiedWeights() {
+    if (!elWeightsWarning) return;
+    const weights = providerSettings.weights || {};
+    const hasModified = Object.entries(weights).some(([pid, val]) => {
+      return val !== getDefaultWeight(pid);
+    });
+    elWeightsWarning.style.display = hasModified ? 'block' : 'none';
+  }
+
+  window._fcSetWeight = function(pid, val) {
+    if (!providerSettings.weights) providerSettings.weights = {};
+    if (val === '' || val === null || val === undefined) {
+      delete providerSettings.weights[pid];
+    } else {
+      const num = parseFloat(val);
+      if (!isNaN(num)) providerSettings.weights[pid] = Math.min(1.00, Math.max(0.01, num));
+    }
+    checkModifiedWeights();
+    saveProviderSettings();
+  };
+
+  window._fcWeightBlur = function(pid, input) {
+    if (input.value === '' || input.value === null) {
+      input.value = getDefaultWeight(pid).toFixed(2);
+      delete (providerSettings.weights || {})[pid];
+      checkModifiedWeights();
+      saveProviderSettings();
+    }
+  };
+
+  window._fcSetClassificationProvider = function(val) {
+    if (!providerSettings) providerSettings = {};
+    providerSettings.classification_provider = val;
+    saveProviderSettings();
+  };
+
+  function renderAdvancedSettings() {
+    if (!elAdvancedPanel) return;
+    const providers  = providerSettings.providers  || {};
+    const weights    = providerSettings.weights    || {};
+    const classProv  = providerSettings.classification_provider || '';
+
+    // Only show providers that are enabled AND have an API key
+    const enabledWithKey = Object.entries(PROVIDER_META).filter(([pid]) => {
+      const cfg = providers[pid] || {};
+      return cfg.enabled && (cfg.api_key || '').length > 0;
+    });
+
+    let html = '<div class="fc-advanced-panel">';
+
+    // Weight editor section
+    html += '<div class="fc-adv-section">';
+    html += '<div class="fc-adv-title">Provider Weights</div>';
+    html += '<div class="fc-adv-note">Adjust how much each provider\'s verdict influences the consensus score (0.01 – 1.00).</div>';
+
+    if (enabledWithKey.length === 0) {
+      html += '<div class="fc-adv-note">No providers enabled with API keys.</div>';
+    } else {
+      enabledWithKey.forEach(([pid, meta]) => {
+        const def     = getDefaultWeight(pid);
+        const current = weights[pid] != null ? weights[pid] : def;
+        html += `<div class="fc-weight-row">`;
+        html += `<span class="fc-weight-name">${esc(meta.name)}</span>`;
+        html += `<input class="fc-weight-input" type="number" min="0.01" max="1.00" step="0.01"
+          value="${current.toFixed(2)}"
+          onchange="window._fcSetWeight('${esc(pid)}', this.value)"
+          onblur="window._fcWeightBlur('${esc(pid)}', this)" />`;
+        html += `<span class="fc-weight-default">(default: ${def.toFixed(2)})</span>`;
+        html += `</div>`;
+      });
+    }
+    html += '</div>';
+
+    // Classification provider dropdown section
+    const classOptions = ['cerebras', 'github_models', 'mistral', 'openrouter', 'gemini_flash_lite'];
+    html += '<div class="fc-adv-section">';
+    html += '<div class="fc-adv-title">Classification Provider</div>';
+    html += '<div class="fc-adv-note">Provider used to classify statements before fact-checking.</div>';
+    html += `<select class="fc-adv-select" onchange="window._fcSetClassificationProvider(this.value)">`;
+    html += `<option value="">Auto (first enabled)</option>`;
+    classOptions.forEach(pid => {
+      const meta = PROVIDER_META[pid] || {};
+      const name = meta.name || pid;
+      const sel  = classProv === pid ? ' selected' : '';
+      html += `<option value="${esc(pid)}"${sel}>${esc(name)}</option>`;
+    });
+    html += `</select>`;
+    html += '</div>';
+
+    html += '</div>';
+    elAdvancedPanel.innerHTML = html;
+  }
 
   // Register with plugin system
   window.LinguaTaxi.plugins.register('fact_checker', {
