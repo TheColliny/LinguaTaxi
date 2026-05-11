@@ -1,10 +1,10 @@
 {
   "id": "donor_cloud",
   "name": "Donor Cloud",
-  "version": "2.0.0",
-  "description": "Displays candidate donor data from FEC.gov as a word cloud sized by donation amount — no API key required",
+  "version": "3.0.0",
+  "description": "Multi-source candidate donor word cloud — FEC (federal) + Utah state/county disclosures",
   "author": "LinguaTaxi",
-  "hooks": ["on_config_change", "on_shutdown"],
+  "hooks": ["on_config_change", "on_shutdown", "on_enabled", "on_startup"],
   "has_routes": true,
   "has_panel": true,
   "route_prefix": "/api/donor-cloud",
@@ -13,6 +13,11 @@
       "type": "text",
       "label": "Election cycle (e.g. 2024)",
       "default": "2024"
+    },
+    "staleness_hours": {
+      "type": "text",
+      "label": "Cache staleness threshold (hours)",
+      "default": "24"
     }
   }
 }
