@@ -9,6 +9,12 @@ API key resolution, and weight lookups.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+import logging
+import time
+import requests
+
+log = logging.getLogger("livecaption")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -481,3 +487,251 @@ def needs_brave_search(provider_id: str) -> bool:
     if config is None:
         return False
     return config.search_method == "brave"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Shared Fact-Checking System Prompt
+# ════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT = """\
+You are a precise fact-checking assistant for live political speech.
+Analyze the given statement and return ONLY a valid JSON object — no markdown, no backticks, no preamble.
+
+Classify the statement as:
+  "fact_claim"  — makes a verifiable assertion (statistics, historical events, named entities with
+                  properties, numeric comparisons, claims about current/past state of the world)
+  "opinion"     — expresses a viewpoint, preference, belief, moral judgment, or subjective evaluation
+  "ambiguous"   — too vague, incomplete, or mixed to classify confidently
+
+For fact claims, use web search to research and verify before scoring.
+
+Return exactly this JSON structure:
+{
+  "type": "fact_claim" | "opinion" | "ambiguous",
+  "claim": "core verifiable claim in 12 words or less",
+  "accuracy_score": number 0-100 or null,
+  "verdict": "TRUE" | "MOSTLY TRUE" | "MIXED" | "MOSTLY FALSE" | "FALSE" | "UNVERIFIABLE" | null,
+  "assessment": "1-2 sentence explanation of accuracy or why classified as opinion/ambiguous",
+  "language_signals": "specific words or phrases that drove the fact vs opinion classification"
+}
+
+Rules:
+- accuracy_score and verdict must be null for opinions and ambiguous statements
+- For UNVERIFIABLE claims, set accuracy_score to null and verdict to "UNVERIFIABLE"
+- If the statement is a sentence fragment, greeting, or filler phrase (<20 meaningful chars), return type "ambiguous"
+- Never fabricate sources; if you cannot verify via web search, use verdict "UNVERIFIABLE"\
+"""
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Brave Search
+# ════════════════════════════════════════════════════════════════════════════
+
+def brave_search(query: str, brave_key: str, count: int = 5) -> list[dict]:
+    """Call Brave Search API and return a list of result dicts.
+
+    Each dict contains: url, title, snippet.
+    Returns an empty list on any error.
+    """
+    url = "https://api.search.brave.com/res/v1/web/search"
+    headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": brave_key,
+    }
+    params = {"q": query, "count": count}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        results = []
+        for item in data.get("web", {}).get("results", []):
+            results.append({
+                "url": item.get("url", ""),
+                "title": item.get("title", ""),
+                "snippet": item.get("description", ""),
+            })
+        return results
+    except Exception as exc:
+        log.warning("brave_search error: %s", exc)
+        return []
+
+
+def format_search_snippets(results: list[dict]) -> str:
+    """Format Brave search results as numbered lines.
+
+    Returns "" for empty results.
+    Format: [N] Title — Snippet
+    """
+    if not results:
+        return ""
+    lines = []
+    for i, r in enumerate(results, start=1):
+        title = r.get("title", "")
+        snippet = r.get("snippet", "")
+        lines.append(f"[{i}] {title} — {snippet}")
+    return "\n".join(lines)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# JSON parsing helpers
+# ════════════════════════════════════════════════════════════════════════════
+
+def _parse_verdict_json(raw_text: str) -> dict | None:
+    """Strip markdown fences and parse JSON from raw LLM response text.
+
+    Returns the parsed dict on success, or None if parsing fails.
+    """
+    text = raw_text.strip()
+    # Strip common markdown code fences (```json ... ``` or ``` ... ```)
+    if text.startswith("```"):
+        # Remove opening fence line
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline + 1:]
+        # Remove closing fence
+        if text.endswith("```"):
+            text = text[: text.rfind("```")].rstrip()
+    text = text.strip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+        return None
+    except (json.JSONDecodeError, ValueError) as exc:
+        log.debug("_parse_verdict_json failed: %s", exc)
+        return None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ProviderResult builder helpers
+# ════════════════════════════════════════════════════════════════════════════
+
+def _build_provider_result(
+    provider_id: str,
+    parsed_dict: dict,
+    sources: list[dict],
+    latency_ms: int,
+) -> ProviderResult:
+    """Convert a parsed JSON verdict dict into a ProviderResult."""
+    return ProviderResult(
+        provider_id=provider_id,
+        verdict=parsed_dict.get("verdict"),
+        accuracy_score=parsed_dict.get("accuracy_score"),
+        assessment=parsed_dict.get("assessment"),
+        claim=parsed_dict.get("claim"),
+        sources=sources,
+        language_signals=parsed_dict.get("language_signals"),
+        error=None,
+        latency_ms=latency_ms,
+        result_type=parsed_dict.get("type", "fact_claim"),
+    )
+
+
+def _error_result(provider_id: str, error_msg: str) -> ProviderResult:
+    """Create a ProviderResult representing a failed/errored call."""
+    return ProviderResult(
+        provider_id=provider_id,
+        verdict=None,
+        accuracy_score=None,
+        assessment=None,
+        claim=None,
+        sources=[],
+        language_signals=None,
+        error=error_msg,
+        latency_ms=0,
+        result_type="fact_claim",
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# OpenAI-Compatible Caller
+# ════════════════════════════════════════════════════════════════════════════
+
+def call_openai_compatible(
+    provider_id: str,
+    claim: str,
+    search_context: str,
+    settings: dict,
+) -> ProviderResult:
+    """Call any OpenAI-compatible API (Cerebras, Mistral, GitHub Models,
+    OpenRouter, OVHcloud, HuggingFace) and return a ProviderResult.
+
+    Parameters
+    ----------
+    provider_id:     Key in PROVIDER_REGISTRY.
+    claim:           The raw claim text to fact-check.
+    search_context:  Pre-formatted Brave search snippets (or "").
+    settings:        Full plugin settings dict (providers, brave_api_key, …).
+    """
+    cfg = PROVIDER_REGISTRY.get(provider_id)
+    if cfg is None:
+        return _error_result(provider_id, f"Unknown provider: {provider_id!r}")
+
+    api_key = get_provider_api_key(provider_id, settings)
+    if not api_key:
+        return _error_result(provider_id, "API key not configured")
+
+    # Build user message
+    user_content = claim
+    if search_context:
+        user_content = (
+            f"{claim}\n\nWeb search results for context:\n{search_context}"
+        )
+
+    payload = {
+        "model": cfg.model_id,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 1000,
+    }
+
+    auth_value = f"{cfg.auth_prefix}{api_key}"
+    headers = {
+        "Content-Type": "application/json",
+        cfg.auth_header: auth_value,
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = requests.post(
+            cfg.base_url,
+            headers=headers,
+            json=payload,
+            timeout=cfg.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.Timeout:
+        return _error_result(provider_id, "Request timed out")
+    except requests.exceptions.HTTPError as exc:
+        return _error_result(provider_id, f"HTTP {exc.response.status_code}: {exc.response.text[:200]}")
+    except Exception as exc:
+        return _error_result(provider_id, f"Request error: {exc}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    try:
+        raw_text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        return _error_result(provider_id, f"Unexpected response shape: {exc}")
+
+    parsed = _parse_verdict_json(raw_text)
+    if parsed is None:
+        return _error_result(
+            provider_id,
+            f"Failed to parse JSON from response: {raw_text[:200]}",
+        )
+
+    # Sources come from Brave search context (no inline citations in openai-compat)
+    sources: list[dict] = []
+    if search_context:
+        # Reconstruct minimal source list from whatever was searched
+        # (full source objects are available to caller if they passed them in;
+        #  here we just record that web context was used)
+        sources = [{"url": "", "title": "Brave Search", "snippet": ""}]
+
+    return _build_provider_result(provider_id, parsed, sources, latency_ms)
