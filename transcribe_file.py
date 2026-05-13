@@ -249,19 +249,24 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
         return None
 
     _set_progress("processing", 0, "Loading audio file...")
+    log.info(f"Batch: loading audio from {file_path}")
     try:
         samples, duration = load_audio(file_path)
     except ValueError as e:
+        log.error(f"Batch: failed to load audio: {e}")
         _set_progress("error", 0, str(e))
         return None
 
+    log.info(f"Batch: audio loaded ({duration:.1f}s), segmenting...")
     _set_progress("processing", 5, "Segmenting audio...")
     segments = segment_audio(samples)
     if not segments:
+        log.warning("Batch: no speech detected in audio file")
         _set_progress("error", 0, "No speech detected in audio file")
         return None
 
     total = len(segments)
+    log.info(f"Batch: found {total} speech segments")
     stamp = time.strftime("%Y%m%d_%H%M%S")
     out_dir = Path(transcripts_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -296,6 +301,7 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
 
         if text and text.strip():
             lines.append((ts_str, text.strip()))
+            log.info(f"  Batch [{idx+1}/{total}]: {text.strip()[:80]}")
         elapsed_samples += len(seg)
 
     if not lines:
@@ -333,6 +339,7 @@ def batch_transcribe(file_path, stt_backend, translate_fn, translations,
         languages.append(tgt_lang)
 
     if _emit_done:
+        log.info(f"Batch complete: {len(lines)} lines, {len(languages)} language(s)")
         _set_progress("done", 100, f"Transcribed {len(lines)} lines")
     return {
         "lines": len(lines),
