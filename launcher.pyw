@@ -3605,6 +3605,13 @@ class LinguaTaxiApp(ctk.CTk):
 
     def _quit_from_tray(self):
         """Full quit from tray: stop server, destroy window, exit."""
+        self._closing = True
+
+        def _force_exit():
+            time.sleep(20)
+            os._exit(1)
+        threading.Thread(target=_force_exit, daemon=True).start()
+
         if self._server_running:
             self._stop_server()
         if self._tray_icon:
@@ -3612,7 +3619,11 @@ class LinguaTaxiApp(ctk.CTk):
                 self._tray_icon.stop()
             except Exception:
                 pass
-        self.destroy()
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        os._exit(0)
 
     # ── Cleanup ──
 

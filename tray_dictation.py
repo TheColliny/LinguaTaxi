@@ -292,6 +292,12 @@ def _on_set_toggle(icon, item):
 
 def _on_quit(icon, item):
     global _grace_timer
+
+    def _force_exit():
+        time.sleep(15)
+        os._exit(1)
+    threading.Thread(target=_force_exit, daemon=True).start()
+
     if _grace_timer:
         _grace_timer.cancel()
     if _hotkey_listener:
@@ -304,7 +310,11 @@ def _on_quit(icon, item):
     if _overlay_tk:
         _overlay_tk.after(0, _overlay_tk.quit)
     stop_server()
-    icon.stop()
+    try:
+        icon.stop()
+    except Exception:
+        pass
+    os._exit(0)
 
 def _update_tray_icon(state):
     """Update tray icon: 'disconnected', 'idle', 'active'."""
@@ -389,8 +399,11 @@ def _on_ws_open(ws):
     _update_tray_icon("idle")
     logging.getLogger("tray").info("Websocket connected")
 
+_server_confirmed_active = False
+
 def _on_ws_message(ws, message):
     _log = logging.getLogger("tray")
+    global _server_confirmed_active
     try:
         msg = json.loads(message)
     except Exception:
@@ -401,18 +414,27 @@ def _on_ws_message(ws, message):
     if msg.get("type") == "final" and msg.get("text"):
         _log.info(f"FINAL text received: {msg['text'][:100]}")
         _inject_text(msg["text"])
+    elif msg.get("type") == "interim" and msg.get("text"):
+        _log.debug(f"INTERIM: {msg['text'][:80]}")
     elif msg.get("type") == "dictation_active":
         global _dictation_active
-        _dictation_active = msg.get("active", False)
-        _update_tray_icon("active" if _dictation_active else "idle")
-        if _dictation_active:
+        active = msg.get("active", False)
+        _dictation_active = active
+        _server_confirmed_active = active
+        _log.info(f"Server confirmed dictation_active={active}")
+        _update_tray_icon("active" if active else "idle")
+        if active:
             _show_overlay()
         else:
             _hide_overlay()
     elif msg.get("type") == "status":
         if msg.get("dictation_active") is not None:
-            _dictation_active = msg["dictation_active"]
-            _update_tray_icon("active" if _dictation_active else "idle")
+            active = msg["dictation_active"]
+            _dictation_active = active
+            _server_confirmed_active = active
+            _update_tray_icon("active" if active else "idle")
+            if not active:
+                _hide_overlay()
 
 def _on_ws_close(ws, close_status_code, close_msg):
     global _ws_connected
@@ -423,13 +445,19 @@ def _on_ws_error(ws, error):
     logging.getLogger("tray").error(f"WS error: {error}")
 
 def _send_ws(msg_dict):
-    """Send a JSON message to the server WebSocket."""
+    """Send a JSON message to the server WebSocket. Returns True if sent."""
+    _log = logging.getLogger("tray")
     global _ws
-    if _ws and _ws_connected:
-        try:
-            _ws.send(json.dumps(msg_dict))
-        except Exception:
-            pass
+    if not _ws or not _ws_connected:
+        _log.warning(f"_send_ws DROPPED (not connected): {msg_dict.get('type')}")
+        return False
+    try:
+        _ws.send(json.dumps(msg_dict))
+        _log.info(f"_send_ws OK: {msg_dict}")
+        return True
+    except Exception as e:
+        _log.error(f"_send_ws FAILED: {e}")
+        return False
 
 def _ws_loop():
     """Connect to the dictation WebSocket and handle messages."""
@@ -457,22 +485,52 @@ def _ws_loop():
 _kb_controller = None
 
 def _inject_text(text):
-    """Inject text word-by-word into the currently focused application."""
+    """Inject text into the currently focused application via clipboard paste."""
     _log = logging.getLogger("tray")
-    global _kb_controller
-    if _kb_controller is None:
-        from pynput.keyboard import Controller
-        _kb_controller = Controller()
-
-    _log.info(f"_inject_text called: '{text[:100]}' | words={len(text.split())}")
+    _log.info(f"_inject_text called: '{text[:100]}' | len={len(text)}")
+    if not text.strip():
+        return
+    inject = text + " "
     try:
-        words = text.split()
-        for i, word in enumerate(words):
-            if i > 0:
-                _kb_controller.type(" ")
-            _kb_controller.type(word)
-        _kb_controller.type(" ")
-        _log.info("_inject_text completed OK")
+        if IS_WIN:
+            import ctypes
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            CF_UNICODETEXT = 13
+            GMEM_MOVEABLE = 0x0002
+
+            data = inject.encode("utf-16-le") + b"\x00\x00"
+            h = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+            p = kernel32.GlobalLock(h)
+            ctypes.memmove(p, data, len(data))
+            kernel32.GlobalUnlock(h)
+
+            user32.OpenClipboard(0)
+            user32.EmptyClipboard()
+            user32.SetClipboardData(CF_UNICODETEXT, h)
+            user32.CloseClipboard()
+
+            global _kb_controller
+            if _kb_controller is None:
+                from pynput.keyboard import Controller
+                _kb_controller = Controller()
+            from pynput.keyboard import Key
+            _kb_controller.press(Key.ctrl)
+            _kb_controller.press("v")
+            _kb_controller.release("v")
+            _kb_controller.release(Key.ctrl)
+            _log.info("_inject_text completed OK (clipboard paste)")
+        else:
+            if _kb_controller is None:
+                from pynput.keyboard import Controller
+                _kb_controller = Controller()
+            words = inject.split()
+            for i, word in enumerate(words):
+                if i > 0:
+                    _kb_controller.type(" ")
+                _kb_controller.type(word)
+            _log.info("_inject_text completed OK (keyboard type)")
     except Exception as e:
         _log.error(f"_inject_text FAILED: {e}", exc_info=True)
 
@@ -634,8 +692,29 @@ def _start_hotkey_listener():
 
     _reload_hotkey_cache()
 
+    def _activate_dictation():
+        """Send activation to server with confirmation retry."""
+        global _server_confirmed_active
+        _log = logging.getLogger("tray")
+        _server_confirmed_active = False
+        sent = _send_ws({"type": "set_dictation_active", "active": True})
+        if not sent:
+            _log.warning("Activation send failed, will retry in 1s")
+        def _check_confirm():
+            if not _server_confirmed_active and _dictation_active:
+                _log.warning("No server confirmation after 2s — retrying activation")
+                _send_ws({"type": "set_dictation_active", "active": True})
+        threading.Timer(2.0, _check_confirm).start()
+
+    def _deactivate_dictation():
+        """Send deactivation to server."""
+        global _server_confirmed_active
+        _server_confirmed_active = False
+        _send_ws({"type": "set_dictation_active", "active": False})
+
     def on_press(key):
         global _dictation_active, _grace_timer
+        _log = logging.getLogger("tray")
 
         if _is_modifier(key):
             _pressed_modifiers.add(_key_to_code(key))
@@ -644,17 +723,18 @@ def _start_hotkey_listener():
         if not _match_hotkey(key):
             return
 
+        _log.info(f"Hotkey PRESS detected: mode={_cached_mode}, active={_dictation_active}, ws_connected={_ws_connected}")
         mode = _cached_mode or "hold"
 
         if mode == "toggle":
             if _dictation_active:
                 _dictation_active = False
-                _send_ws({"type": "set_dictation_active", "active": False})
+                _deactivate_dictation()
                 _update_tray_icon("idle")
                 _hide_overlay()
             else:
                 _dictation_active = True
-                _send_ws({"type": "set_dictation_active", "active": True})
+                _activate_dictation()
                 _update_tray_icon("active")
                 _show_overlay()
         else:
@@ -663,12 +743,13 @@ def _start_hotkey_listener():
                 _grace_timer = None
             if not _dictation_active:
                 _dictation_active = True
-                _send_ws({"type": "set_dictation_active", "active": True})
+                _activate_dictation()
                 _update_tray_icon("active")
                 _show_overlay()
 
     def on_release(key):
         global _dictation_active, _grace_timer
+        _log = logging.getLogger("tray")
 
         if _is_modifier(key):
             _pressed_modifiers.discard(_key_to_code(key))
@@ -681,13 +762,15 @@ def _start_hotkey_listener():
         if mode != "hold":
             return
 
+        _log.info(f"Hotkey RELEASE: active={_dictation_active}")
+
         if _dictation_active:
             def _grace_expired():
                 global _dictation_active, _grace_timer
                 _grace_timer = None
                 if _dictation_active:
                     _dictation_active = False
-                    _send_ws({"type": "set_dictation_active", "active": False})
+                    _deactivate_dictation()
                     _update_tray_icon("idle")
                     _hide_overlay()
 
