@@ -2683,6 +2683,16 @@ async def dict_save(text: str = Form(...), filename: str = Form(None)):
     log.info(f"Dictation saved: {fp}")
     return JSONResponse({"status": "ok", "path": str(fp)})
 
+@dictation_app.post("/api/dictation-active")
+async def dict_set_active(req: Request):
+    """Set dictation active state via HTTP (thread-safe alternative to WebSocket send)."""
+    global dictation_active
+    body = await req.json()
+    dictation_active = bool(body.get("active", False))
+    log.info(f"Dictation {'ACTIVE' if dictation_active else 'STOPPED'} (via HTTP)")
+    await broadcast_dictation({"type":"dictation_active","active":dictation_active})
+    return JSONResponse({"active": dictation_active})
+
 @dictation_app.websocket("/ws")
 async def dict_ws(ws: WebSocket):
     global dictation_active

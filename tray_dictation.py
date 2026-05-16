@@ -692,25 +692,40 @@ def _start_hotkey_listener():
 
     _reload_hotkey_cache()
 
+    def _http_set_active(active: bool):
+        """Set dictation active state via HTTP POST (thread-safe)."""
+        _log = logging.getLogger("tray")
+        import urllib.request
+        url = f"http://localhost:{DICTATION_PORT}/api/dictation-active"
+        data = json.dumps({"active": active}).encode()
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                _log.info(f"HTTP dictation-active={active} -> {resp.status}")
+                return True
+        except Exception as e:
+            _log.error(f"HTTP dictation-active={active} FAILED: {e}")
+            return False
+
     def _activate_dictation():
-        """Send activation to server with confirmation retry."""
+        """Send activation to server via HTTP POST."""
         global _server_confirmed_active
         _log = logging.getLogger("tray")
         _server_confirmed_active = False
-        sent = _send_ws({"type": "set_dictation_active", "active": True})
+        sent = _http_set_active(True)
         if not sent:
-            _log.warning("Activation send failed, will retry in 1s")
-        def _check_confirm():
-            if not _server_confirmed_active and _dictation_active:
-                _log.warning("No server confirmation after 2s — retrying activation")
-                _send_ws({"type": "set_dictation_active", "active": True})
-        threading.Timer(2.0, _check_confirm).start()
+            _log.warning("Activation HTTP failed, will retry in 2s")
+            def _retry():
+                if not _server_confirmed_active and _dictation_active:
+                    _log.warning("Retrying activation via HTTP")
+                    _http_set_active(True)
+            threading.Timer(2.0, _retry).start()
 
     def _deactivate_dictation():
-        """Send deactivation to server."""
+        """Send deactivation to server via HTTP POST."""
         global _server_confirmed_active
         _server_confirmed_active = False
-        _send_ws({"type": "set_dictation_active", "active": False})
+        _http_set_active(False)
 
     def on_press(key):
         global _dictation_active, _grace_timer
@@ -738,14 +753,15 @@ def _start_hotkey_listener():
                 _update_tray_icon("active")
                 _show_overlay()
         else:
+            if _dictation_active:
+                return
             if _grace_timer:
                 _grace_timer.cancel()
                 _grace_timer = None
-            if not _dictation_active:
-                _dictation_active = True
-                _activate_dictation()
-                _update_tray_icon("active")
-                _show_overlay()
+            _dictation_active = True
+            _activate_dictation()
+            _update_tray_icon("active")
+            _show_overlay()
 
     def on_release(key):
         global _dictation_active, _grace_timer
