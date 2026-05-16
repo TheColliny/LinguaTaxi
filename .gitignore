@@ -30,6 +30,7 @@ build/windows/models_prebuilt/
 live-caption/
 71Coallition/
 .superpowers/
+qa_output/
 
 # OS
 .DS_Store
