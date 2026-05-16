@@ -695,7 +695,7 @@ def _start_hotkey_listener():
     def _http_set_active(active: bool):
         """Set dictation active state via HTTP POST (thread-safe)."""
         _log = logging.getLogger("tray")
-        import urllib.request
+        import urllib.request, urllib.error
         url = f"http://localhost:{DICTATION_PORT}/api/dictation-active"
         data = json.dumps({"active": active}).encode()
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -703,6 +703,14 @@ def _start_hotkey_listener():
             with urllib.request.urlopen(req, timeout=3) as resp:
                 _log.info(f"HTTP dictation-active={active} -> {resp.status}")
                 return True
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode()
+            except Exception:
+                pass
+            _log.error(f"HTTP dictation-active={active} FAILED: {e.code} {body}")
+            return False
         except Exception as e:
             _log.error(f"HTTP dictation-active={active} FAILED: {e}")
             return False
@@ -738,8 +746,12 @@ def _start_hotkey_listener():
         if not _match_hotkey(key):
             return
 
-        _log.info(f"Hotkey PRESS detected: mode={_cached_mode}, active={_dictation_active}, ws_connected={_ws_connected}")
         mode = _cached_mode or "hold"
+
+        if mode == "hold" and _dictation_active:
+            return
+
+        _log.info(f"Hotkey PRESS detected: mode={mode}, active={_dictation_active}, ws_connected={_ws_connected}")
 
         if mode == "toggle":
             if _dictation_active:
@@ -753,8 +765,6 @@ def _start_hotkey_listener():
                 _update_tray_icon("active")
                 _show_overlay()
         else:
-            if _dictation_active:
-                return
             if _grace_timer:
                 _grace_timer.cancel()
                 _grace_timer = None

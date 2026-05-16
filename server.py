@@ -2687,11 +2687,15 @@ async def dict_save(text: str = Form(...), filename: str = Form(None)):
 async def dict_set_active(req: Request):
     """Set dictation active state via HTTP (thread-safe alternative to WebSocket send)."""
     global dictation_active
-    body = await req.json()
-    dictation_active = bool(body.get("active", False))
-    log.info(f"Dictation {'ACTIVE' if dictation_active else 'STOPPED'} (via HTTP)")
-    await broadcast_dictation({"type":"dictation_active","active":dictation_active})
-    return JSONResponse({"active": dictation_active})
+    try:
+        body = await req.json()
+        dictation_active = bool(body.get("active", False))
+        log.info(f"Dictation {'ACTIVE' if dictation_active else 'STOPPED'} (via HTTP)")
+        await broadcast_dictation({"type":"dictation_active","active":dictation_active})
+        return JSONResponse({"active": dictation_active})
+    except Exception as e:
+        log.error(f"dict_set_active FAILED: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @dictation_app.websocket("/ws")
 async def dict_ws(ws: WebSocket):
