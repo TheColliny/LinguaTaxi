@@ -9,9 +9,13 @@ transcribed text into the focused application using OS keystroke simulation.
 import atexit, json, logging, os, subprocess, sys, threading, time
 from pathlib import Path
 
-# ── Paths (same as launcher.pyw) ──
+from linguataxi.constants import IS_WIN, DICTATION_PORT, GRACE_MS
+from linguataxi.settings import (
+    SETTINGS_DIR, SETTINGS_FILE,
+    load_settings, save_settings, get_setting, set_setting,
+)
 
-IS_WIN = sys.platform == "win32"
+# ── Paths ──
 
 if os.environ.get("LINGUATAXI_APP_DIR"):
     APP_DIR = Path(os.environ["LINGUATAXI_APP_DIR"])
@@ -22,44 +26,7 @@ else:
 
 SERVER_PY = APP_DIR / "server.py"
 
-if IS_WIN:
-    SETTINGS_DIR = Path(os.environ.get("APPDATA", Path.home())) / "LinguaTaxi"
-else:
-    SETTINGS_DIR = Path.home() / ".config" / "linguataxi"
-
-SETTINGS_FILE = SETTINGS_DIR / "launcher_settings.json"
-
 DEFAULT_TRANSCRIPTS = Path.home() / "Documents" / "LinguaTaxi Transcripts"
-
-DICTATION_PORT = 3005
-GRACE_MS = 750
-
-# ── Settings ──
-
-def load_settings():
-    try:
-        if SETTINGS_FILE.exists():
-            with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
-
-def save_settings(cfg):
-    try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(cfg, f, indent=2)
-    except Exception:
-        pass
-
-def get_setting(key, default=None):
-    return load_settings().get(key, default)
-
-def set_setting(key, value):
-    cfg = load_settings()
-    cfg[key] = value
-    save_settings(cfg)
 
 # ── Tray Icon Images ──
 

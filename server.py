@@ -64,144 +64,20 @@ from typing import List, Optional
 from plugin_loader import PluginDispatcher
 from plugin_registry import PluginRegistry
 
-# ── Paths ──
+# ── Extracted constants & settings ──
+from linguataxi.constants import (
+    DEEPL_SOURCE_LANGS, DEEPL_TARGET_LANGS, DEEPL_TO_WHISPER,
+    DEEPL_TARGET_DEFAULTS, VOSK_DIR_LANGS, COLOR_PALETTE, BG_OPTIONS,
+    FONT_OPTIONS, DEFAULT_CONFIG, SAMPLE_RATE, CHANNELS, DTYPE,
+    CHUNK_DURATION, SILENCE_THRESHOLD, SILENCE_DURATION,
+    MAX_SEGMENT_DURATION, INTERIM_INTERVAL, MIN_SPEECH_DURATION,
+)
+from linguataxi.settings import (
+    CONFIG_PATH, UPLOADS_DIR, MODELS_DIR, TRANSCRIPTS_DIR,
+    load_config, save_config,
+)
+
 BASE_DIR = Path(__file__).parent
-if sys.platform == "win32":
-    _config_dir = Path(os.environ.get("APPDATA", Path.home())) / "LinguaTaxi"
-elif sys.platform == "darwin":
-    _config_dir = Path.home() / "Library" / "Application Support" / "LinguaTaxi"
-else:
-    _config_dir = Path.home() / ".config" / "linguataxi"
-_config_dir.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = _config_dir / "config.json"
-UPLOADS_DIR = BASE_DIR / "uploads"
-MODELS_DIR = BASE_DIR / "models"
-TRANSCRIPTS_DIR = Path(os.environ.get("LINGUATAXI_TRANSCRIPTS",
-    str(Path.home() / "Documents" / "LinguaTaxi Transcripts")))
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
-TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-
-# ── Language data ──
-DEEPL_SOURCE_LANGS = {
-    "AR":"Arabic","BG":"Bulgarian","CS":"Czech","DA":"Danish","DE":"German",
-    "EL":"Greek","EN":"English","ES":"Spanish","ET":"Estonian","FI":"Finnish",
-    "FR":"French","HU":"Hungarian","ID":"Indonesian","IT":"Italian","JA":"Japanese",
-    "KO":"Korean","LT":"Lithuanian","LV":"Latvian","NB":"Norwegian","NL":"Dutch",
-    "PL":"Polish","PT":"Portuguese","RO":"Romanian","RU":"Russian","SK":"Slovak",
-    "SL":"Slovenian","SV":"Swedish","TR":"Turkish","UK":"Ukrainian","ZH":"Chinese",
-}
-DEEPL_TARGET_LANGS = {
-    "AR":"Arabic","BG":"Bulgarian","CS":"Czech","DA":"Danish","DE":"German",
-    "EL":"Greek","EN-GB":"English (UK)","EN-US":"English (US)","ES":"Spanish",
-    "ET":"Estonian","FI":"Finnish","FR":"French","HU":"Hungarian","ID":"Indonesian",
-    "IT":"Italian","JA":"Japanese","KO":"Korean","LT":"Lithuanian","LV":"Latvian",
-    "NB":"Norwegian","NL":"Dutch","PL":"Polish","PT-BR":"Portuguese (BR)",
-    "PT-PT":"Portuguese (PT)","RO":"Romanian","RU":"Russian","SK":"Slovak",
-    "SL":"Slovenian","SV":"Swedish","TR":"Turkish","UK":"Ukrainian",
-    "ZH-HANS":"Chinese (Simplified)","ZH-HANT":"Chinese (Traditional)",
-}
-# DeepL code → Whisper language code
-DEEPL_TO_WHISPER = {
-    "AR":"ar","BG":"bg","CS":"cs","DA":"da","DE":"de","EL":"el","EN":"en",
-    "ES":"es","ET":"et","FI":"fi","FR":"fr","HU":"hu","ID":"id","IT":"it",
-    "JA":"ja","KO":"ko","LT":"lt","LV":"lv","NB":"no","NL":"nl","PL":"pl",
-    "PT":"pt","RO":"ro","RU":"ru","SK":"sk","SL":"sl","SV":"sv","TR":"tr",
-    "UK":"uk","ZH":"zh",
-}
-# DeepL source code → preferred DeepL target code (for languages with regional variants)
-DEEPL_TARGET_DEFAULTS = {
-    "EN": "EN-US", "PT": "PT-BR", "ZH": "ZH-HANS",
-}
-# Vosk model directory name patterns → Whisper/DeepL language codes
-VOSK_DIR_LANGS = {
-    "en-us": "en", "en-in": "en", "de": "de", "fr": "fr", "es": "es",
-    "ru": "ru", "it": "it", "ja": "ja", "cn": "zh", "zh": "zh",
-    "ar": "ar", "pt": "pt", "tr": "tr", "ko": "ko", "nl": "nl",
-    "uk": "uk", "pl": "pl", "hi": "hi", "fa": "fa", "ca": "ca",
-}
-
-COLOR_PALETTE = [
-    {"id":"white","hex":"#FFFFFF","name":"White"},
-    {"id":"cream","hex":"#FFF8E1","name":"Cream"},
-    {"id":"gold","hex":"#FFD54F","name":"Gold"},
-    {"id":"cyan","hex":"#4FC3F7","name":"Cyan"},
-    {"id":"mint","hex":"#81C784","name":"Mint"},
-    {"id":"coral","hex":"#FF8A80","name":"Coral"},
-    {"id":"peach","hex":"#FFAB91","name":"Peach"},
-    {"id":"lavender","hex":"#CE93D8","name":"Lavender"},
-    {"id":"sky","hex":"#90CAF9","name":"Sky Blue"},
-    {"id":"lime","hex":"#C5E1A5","name":"Lime"},
-    {"id":"rose","hex":"#F48FB1","name":"Rose"},
-    {"id":"aqua","hex":"#80DEEA","name":"Aqua"},
-]
-
-BG_OPTIONS = [
-    {"id":"navy","hex":"#00004D","name":"Deep Navy"},
-    {"id":"indigo","hex":"#1B1B3A","name":"Dark Indigo"},
-    {"id":"midnight","hex":"#0D1B2A","name":"Midnight"},
-    {"id":"charcoal","hex":"#2D2D2D","name":"Charcoal"},
-]
-
-FONT_OPTIONS = [
-    {"id":"atkinson","name":"Atkinson Hyperlegible","css":"'Atkinson Hyperlegible Next', sans-serif",
-     "note":"Maximum legibility (Latin)"},
-    {"id":"noto","name":"Noto Sans","css":"'Noto Sans', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans Arabic', sans-serif",
-     "note":"Universal (150+ scripts incl. CJK/Arabic)"},
-    {"id":"ibm","name":"IBM Plex Sans","css":"'IBM Plex Sans', 'Noto Sans', sans-serif",
-     "note":"Clear, professional, multilingual"},
-    {"id":"source","name":"Source Sans 3","css":"'Source Sans 3', 'Noto Sans', sans-serif",
-     "note":"Excellent readability, wide support"},
-    {"id":"inter","name":"Inter","css":"'Inter', 'Noto Sans', sans-serif",
-     "note":"Modern, clean, wide support"},
-]
-
-# ── Config ──
-DEFAULT_CONFIG = {
-    "deepl_api_key": "",
-    "session_title": "Live Captioning",
-    "input_lang": "EN",
-    "translation_count": 1,
-    "translations": [{"lang": "ES", "color": "#FFD54F"}],
-    "speakers": [],
-    "footer_image": None,
-    "footer_text": "",
-    "font_size": 42,
-    "max_lines": 3,
-    "bg_color": "#00004D",
-    "font_family": "atkinson",
-    "caption_color": "#FFFFFF",
-    "backend": "auto",
-    "ui_language": "EN",
-    "bidirectional_enabled": False,
-    "bidirectional_langs": [],        # e.g., ["EN", "AR"]
-    "bidirectional_tuned_swap": False,
-    "voice_id_enabled": True,
-    "voice_id_threshold": 0.65,
-    "translate_cores": 0,
-    "collapsed_sections": ["languages"],
-    "footer_position": 50,
-    # display_grids: per-display 4x4 grid layout pushed by operator panel
-    # Format: {"main": {"<row>-<col>": {pluginId, row, col, colSpan, rowSpan}, ...},
-    #          "extended": {...}}
-    "display_grids": {"main": {}, "extended": {}},
-}
-
-def load_config():
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return {**DEFAULT_CONFIG, **json.load(f)}
-        except Exception:
-            pass
-    return dict(DEFAULT_CONFIG)
-
-_config_lock = threading.Lock()
-
-def save_config(cfg):
-    with _config_lock:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 config = load_config()
 _configured_cores = config.get("translate_cores", 0)
@@ -286,10 +162,7 @@ def translate_text(text, target_lang, source_lang=None, mode="deepl"):
                    f"(model may not be downloaded)")
     return result
 
-# ── Audio ──
-SAMPLE_RATE = 16000; CHANNELS = 1; DTYPE = "float32"; CHUNK_DURATION = 0.5
-SILENCE_THRESHOLD = 0.008; SILENCE_DURATION = 0.7; MAX_SEGMENT_DURATION = 8
-INTERIM_INTERVAL = 1.5; MIN_SPEECH_DURATION = 0.3
+# ── Audio (constants imported from linguataxi.constants) ──
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("livecaption")
