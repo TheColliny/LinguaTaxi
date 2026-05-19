@@ -158,11 +158,10 @@ class VoskBackend(SpeechBackend):
         Args:
             loop: The asyncio event loop for broadcasting results.
         """
-        # Deferred import: source registry still lives in server.py
-        import server as _srv
+        from linguataxi.server.audio import _sources, _sources_lock
 
-        with _srv._sources_lock:
-            for src in _srv._sources:
+        with _sources_lock:
+            for src in _sources:
                 t = threading.Thread(
                     target=self._vosk_source_loop,
                     args=(loop, src),

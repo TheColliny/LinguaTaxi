@@ -88,19 +88,20 @@ class WhisperBackend(SpeechBackend):
         Args:
             loop: The asyncio event loop for broadcasting results.
         """
-        # Deferred imports: these functions still live in server.py
-        import server as _srv
+        from linguataxi.server.audio import (
+            _sources, _sources_lock, _buffer_audio_loop, _transcription_worker,
+        )
 
         threading.Thread(
-            target=_srv._transcription_worker,
+            target=_transcription_worker,
             args=(self._transcribe, loop),
             daemon=True,
         ).start()
 
-        with _srv._sources_lock:
-            for src in _srv._sources:
+        with _sources_lock:
+            for src in _sources:
                 t = threading.Thread(
-                    target=_srv._buffer_audio_loop,
+                    target=_buffer_audio_loop,
                     args=(self._transcribe, loop, src),
                     daemon=True,
                 )
