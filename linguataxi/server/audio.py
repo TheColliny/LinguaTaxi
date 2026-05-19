@@ -262,7 +262,7 @@ def _transcription_worker(
                         isinstance(_srv.stt_backend, WhisperBackend)):
                     current_model_lang = getattr(_srv.stt_backend, '_tuned_lang', None)
                     if current_model_lang != detected_lang:
-                        from tuned_models import TUNED_MODELS, get_model_path
+                        from linguataxi.models.tuned import TUNED_MODELS, get_model_path
                         from faster_whisper import WhisperModel
                         if detected_lang in TUNED_MODELS:
                             model_path = get_model_path(_srv.MODELS_DIR, detected_lang)
@@ -351,7 +351,7 @@ def _voice_id_try_enroll(
         loop: Asyncio event loop for broadcasting status (optional).
     """
     import server as _srv
-    import voice_id
+    from linguataxi.models import voice_id
     from linguataxi.server.websocket import _bc
 
     pending = source.voice_id_enroll_pending
@@ -402,7 +402,7 @@ def _voice_id_try_identify(
         True if the speaker was auto-switched.
     """
     import server as _srv
-    import voice_id
+    from linguataxi.models import voice_id
     from linguataxi.server.websocket import _bc
 
     if not _srv.config.get("voice_id_enabled", True):

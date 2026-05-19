@@ -34,7 +34,7 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
 config: Dict[str, Any] = load_config()
 
 # ── Apply configured translation cores ──
-import offline_translate  # noqa: E402 — must happen after config load
+from linguataxi.models import offline_translate  # noqa: E402 — must happen after config load
 
 _configured_cores: int = config.get("translate_cores", 0)
 if _configured_cores > 0:
@@ -66,8 +66,8 @@ from linguataxi.constants import SILENCE_THRESHOLD  # noqa: E402
 silence_threshold = SILENCE_THRESHOLD
 
 # ── Plugin System ──
-from plugin_loader import PluginDispatcher  # noqa: E402
-from plugin_registry import PluginRegistry  # noqa: E402
+from linguataxi.plugins.loader import PluginDispatcher  # noqa: E402
+from linguataxi.plugins.registry import PluginRegistry  # noqa: E402
 
 PLUGINS_DIR: Path = BASE_DIR / "plugins"
 PLUGINS_DIR.mkdir(exist_ok=True)

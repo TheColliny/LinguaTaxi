@@ -64,7 +64,7 @@ def register_transcribe_routes(app: FastAPI) -> None:
     Args:
         app: The operator FastAPI application (port 3001).
     """
-    import transcribe_file
+    from linguataxi.models import transcribe_file
 
     @app.post("/api/transcribe-file/batch")
     async def o_transcribe_batch(req: BatchRequest) -> JSONResponse:

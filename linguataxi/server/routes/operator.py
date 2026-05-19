@@ -133,9 +133,9 @@ def register_operator_routes(app: FastAPI) -> None:
     Args:
         app: The operator FastAPI application (port 3001).
     """
-    import tuned_models
-    import offline_translate
-    import voice_id
+    from linguataxi.models import tuned as tuned_models
+    from linguataxi.models import offline_translate
+    from linguataxi.models import voice_id
     from linguataxi.server.backends.whisper import WhisperBackend
     from linguataxi.server.backends import model_lock as _model_lock
 

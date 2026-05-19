@@ -1,1 +1,1 @@
-"""Plugin loading and registry."""
+"""Plugin loading and registry — discovery, lifecycle, and marketplace."""

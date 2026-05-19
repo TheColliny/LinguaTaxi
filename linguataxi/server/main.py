@@ -355,7 +355,7 @@ def main() -> None:
     from linguataxi.server.backends.vosk import VoskBackend
     from linguataxi.server.backends.mlx_whisper import MLXWhisperBackend
     import linguataxi.settings as _settings
-    import voice_id
+    from linguataxi.models import voice_id
 
     parser = argparse.ArgumentParser(description="Live Caption Server")
     parser.add_argument("--backend", default="auto",
@@ -469,7 +469,7 @@ def main() -> None:
 
     # Initialize Silero language detection if available
     try:
-        import lang_detect
+        from linguataxi.models import lang_detect
         lang_detect.set_models_dir(_settings.MODELS_DIR)
         if not lang_detect.is_available():
             log.info(

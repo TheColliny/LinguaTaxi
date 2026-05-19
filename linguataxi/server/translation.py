@@ -100,7 +100,7 @@ def translate_text(
         Translated text, or empty string on failure.
     """
     import server as _srv
-    import offline_translate
+    from linguataxi.models import offline_translate
 
     if not text.strip():
         return ""
@@ -227,7 +227,7 @@ def _do_translate(
         generation: Generation counter for stale-result detection, or None.
     """
     import server as _srv
-    import offline_translate
+    from linguataxi.models import offline_translate
     from linguataxi.server.websocket import _bc
     from linguataxi.server.transcripts import _save_line
 
