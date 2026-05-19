@@ -1,0 +1,1 @@
+"""Global dictation tray application."""

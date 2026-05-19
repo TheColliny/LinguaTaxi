@@ -1,0 +1,1 @@
+"""Desktop launcher GUI package."""
