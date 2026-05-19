@@ -181,8 +181,8 @@ def _check_speaker_change(
     Returns:
         Tuple of (new_buf, new_seg_start, changed).
     """
-    # Late imports for cross-module references still in server.py
-    import server as _srv
+    # Late imports for cross-module references
+    from linguataxi.server.transcripts import _broadcast_final
 
     with source.speaker_lock:
         sc = source.speaker_change_pending
@@ -206,7 +206,7 @@ def _check_speaker_change(
             source.speaker = old_speaker  # keep old label for this segment
             text = transcribe_fn(old_buf, lang=source.current_lang)
             if text:
-                _srv._broadcast_final(text, loop, source, detected_lang=source.current_lang)
+                _broadcast_final(text, loop, source, detected_lang=source.current_lang)
             source.speaker = new_speaker
             source.color = new_color
             return buf[split_samples:], split_time, True
@@ -215,7 +215,7 @@ def _check_speaker_change(
             source.speaker = old_speaker
             text = transcribe_fn(buf, lang=source.current_lang)
             if text:
-                _srv._broadcast_final(text, loop, source, detected_lang=source.current_lang)
+                _broadcast_final(text, loop, source, detected_lang=source.current_lang)
             source.speaker = new_speaker
             source.color = new_color
             return np.empty((0, 1), dtype=np.float32), sc["time"], True
@@ -245,8 +245,9 @@ def _transcription_worker(
         transcribe_fn: Backend transcription function.
         loop: Asyncio event loop for broadcasting results.
     """
-    # Late imports for cross-module references still in server.py
+    # Late imports for cross-module references
     import server as _srv
+    from linguataxi.server.transcripts import _broadcast_final
     from linguataxi.server.backends import model_lock as _model_lock
     from linguataxi.server.backends.whisper import WhisperBackend
 
@@ -284,7 +285,7 @@ def _transcription_worker(
                                         _os.environ["HF_HUB_OFFLINE"] = _prev_hf
                 text = transcribe_fn(buf, lang=detected_lang)
             if text and text.strip():
-                _srv._broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
+                _broadcast_final(text.strip(), loop, source, detected_lang=detected_lang)
         except queue.Empty:
             continue
         except Exception as e:
@@ -351,6 +352,7 @@ def _voice_id_try_enroll(
     """
     import server as _srv
     import voice_id
+    from linguataxi.server.websocket import _bc
 
     pending = source.voice_id_enroll_pending
     if not pending:
@@ -368,15 +370,15 @@ def _voice_id_try_enroll(
             "speaker": pending, "source_id": source.id
         })
         if loop is not None:
-            _srv._bc(loop, {"type": "voice_id_enrolled", "speaker": pending,
-                            "source_id": source.id})
+            _bc(loop, {"type": "voice_id_enrolled", "speaker": pending,
+                       "source_id": source.id})
     except RuntimeError as e:
         # Model unavailable (e.g. download failed) -- give up to avoid retry spam
         log.warning(f"[Voice ID] Enrollment aborted for '{pending}': {e}")
         source.voice_id_enroll_pending = None
         if loop is not None:
-            _srv._bc(loop, {"type": "voice_id_error", "speaker": pending,
-                            "error": str(e)[:200]})
+            _bc(loop, {"type": "voice_id_error", "speaker": pending,
+                       "error": str(e)[:200]})
     except Exception as e:
         # Transient errors: log and retry on next segment
         log.debug(f"[Voice ID] Enrollment attempt failed for '{pending}': {e}")
@@ -401,6 +403,7 @@ def _voice_id_try_identify(
     """
     import server as _srv
     import voice_id
+    from linguataxi.server.websocket import _bc
 
     if not _srv.config.get("voice_id_enabled", True):
         return False
@@ -436,8 +439,8 @@ def _voice_id_try_identify(
                 break
         log.info(f"[Voice ID] Auto-detected '{name}' (confidence: {confidence:.2f}, "
                  f"was '{old_speaker}') on [{source.name}]")
-        _srv._bc(loop, {"type": "speaker_change", "speaker": name, "auto": True,
-                        "confidence": round(confidence, 2), "previous": old_speaker})
+        _bc(loop, {"type": "speaker_change", "speaker": name, "auto": True,
+                    "confidence": round(confidence, 2), "previous": old_speaker})
         _srv.plugin_dispatcher.fire("on_auto_speaker_change", {
             "speaker": name, "previous": old_speaker,
             "confidence": confidence, "source_id": source.id
@@ -471,6 +474,8 @@ def _buffer_audio_loop(
         source: The AudioSource to process.
     """
     import server as _srv
+    from linguataxi.server.websocket import _bc
+    from linguataxi.server.translation import _translate_all
 
     buf = np.empty((0, 1), dtype=np.float32)
     is_speech: bool = False
@@ -515,7 +520,7 @@ def _buffer_audio_loop(
                 is_speech = True
                 seg_start = seg_start or now
                 silence_start = None
-                _srv._bc(loop, {"type": "status", "state": "speech"})
+                _bc(loop, {"type": "status", "state": "speech"})
             else:
                 silence_start = None
             dur = len(buf) / SAMPLE_RATE
@@ -523,13 +528,13 @@ def _buffer_audio_loop(
                 last_interim = now
                 text = transcribe_fn(buf, lang=source.current_lang)
                 if text:
-                    _srv._bc(loop, {"type": "interim", "text": text, "speaker": source.speaker,
-                                    "color": source.color, "source_id": source.id})
+                    _bc(loop, {"type": "interim", "text": text, "speaker": source.speaker,
+                               "color": source.color, "source_id": source.id})
                     _srv.plugin_dispatcher.fire("on_interim", {
                         "text": text, "speaker": source.speaker, "source_id": source.id
                     })
-                    _srv._translate_all(text, "interim_translation", loop, max_slots=2,
-                                        source_lang=source.current_lang)
+                    _translate_all(text, "interim_translation", loop, max_slots=2,
+                                   source_lang=source.current_lang)
         else:
             if is_speech:
                 if silence_start is None:
@@ -548,7 +553,7 @@ def _buffer_audio_loop(
                     silence_start = None
                     seg_start = None
                     last_interim = 0
-                    _srv._bc(loop, {"type": "status", "state": "silence"})
+                    _bc(loop, {"type": "status", "state": "silence"})
 
         if is_speech and seg_start and (now - seg_start) >= MAX_SEGMENT_DURATION:
             # Voice ID: identify speaker before transcription

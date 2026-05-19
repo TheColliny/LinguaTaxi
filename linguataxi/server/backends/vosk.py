@@ -183,6 +183,9 @@ class VoskBackend(SpeechBackend):
         # Deferred imports: globals still live in server.py
         import server as _srv
         import vosk
+        from linguataxi.server.websocket import _bc
+        from linguataxi.server.transcripts import _broadcast_final
+        from linguataxi.server.translation import _translate_all
 
         rec = vosk.KaldiRecognizer(self._model, SAMPLE_RATE)
         bidir_rec: Any = None  # secondary recognizer (lazy-loaded)
@@ -235,7 +238,7 @@ class VoskBackend(SpeechBackend):
                     result = json.loads(bidir_rec.FinalResult())
                     text = result.get("text", "").strip()
                     if text:
-                        _srv._broadcast_final(text, loop, source, detected_lang=source.current_lang)
+                        _broadcast_final(text, loop, source, detected_lang=source.current_lang)
                     active_rec = rec
                 bidir_rec = None
                 self._bidir_model = None
@@ -260,7 +263,7 @@ class VoskBackend(SpeechBackend):
                 result = json.loads(active_rec.FinalResult())
                 text = result.get("text", "").strip()
                 if text:
-                    _srv._broadcast_final(text, loop, source, detected_lang=source.current_lang)
+                    _broadcast_final(text, loop, source, detected_lang=source.current_lang)
                 source.speaker = new_speaker
                 last_partial = ""
                 in_speech = False
@@ -276,7 +279,7 @@ class VoskBackend(SpeechBackend):
             rms = float(np.sqrt(np.mean(chunk**2)))
             if rms >= _srv.silence_threshold and not in_speech:
                 in_speech = True
-                _srv._bc(loop, {"type": "status", "state": "speech"})
+                _bc(loop, {"type": "status", "state": "speech"})
 
             # Language detection for bi-directional mode
             if bidir_on and bidir_rec is not None and rms >= _srv.silence_threshold:
@@ -291,7 +294,7 @@ class VoskBackend(SpeechBackend):
                         result = json.loads(active_rec.FinalResult())
                         text = result.get("text", "").strip()
                         if text:
-                            _srv._broadcast_final(text, loop, source, detected_lang=old_lang)
+                            _broadcast_final(text, loop, source, detected_lang=old_lang)
                         last_partial = ""
                         in_speech = False
                         primary_lang = _srv.config.get("input_lang", "EN")
@@ -314,17 +317,17 @@ class VoskBackend(SpeechBackend):
                 _srv._voice_id_try_identify(source, voice_id_buf, loop)
                 text = json.loads(active_rec.Result()).get("text", "").strip()
                 if text:
-                    _srv._broadcast_final(text, loop, source, detected_lang=source.current_lang)
+                    _broadcast_final(text, loop, source, detected_lang=source.current_lang)
                 last_partial = ""
                 in_speech = False
-                _srv._bc(loop, {"type": "status", "state": "silence"})
+                _bc(loop, {"type": "status", "state": "silence"})
                 lang_detect_buf = np.empty((0, 1), dtype=np.float32)
                 voice_id_buf = np.empty((0, 1), dtype=np.float32)
             else:
                 pt = json.loads(active_rec.PartialResult()).get("partial", "").strip()
                 if pt and pt != last_partial:
                     last_partial = pt
-                    _srv._bc(
+                    _bc(
                         loop,
                         {
                             "type": "interim",
@@ -341,7 +344,7 @@ class VoskBackend(SpeechBackend):
                     now = time.time()
                     if (now - last_pt) >= 2.0 and len(pt) > 20:
                         last_pt = now
-                        _srv._translate_all(
+                        _translate_all(
                             pt,
                             "interim_translation",
                             loop,

@@ -46,11 +46,11 @@ for p in _cuda_lib_paths:
         if p not in os.environ.get("PATH", ""):
             os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
 
-import argparse, asyncio, collections, concurrent.futures, json, logging, queue, shutil, subprocess, threading, time
+import argparse, asyncio, json, logging, queue, shutil, subprocess, threading, time
 import urllib.request, zipfile
 from pathlib import Path
 
-import numpy as np, requests, sounddevice as sd, uvicorn
+import numpy as np, sounddevice as sd, uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -74,6 +74,19 @@ from linguataxi.constants import (
 from linguataxi.settings import (
     CONFIG_PATH, UPLOADS_DIR, MODELS_DIR, TRANSCRIPTS_DIR,
     load_config, save_config,
+)
+from linguataxi.server.websocket import (
+    display_clients, extended_clients, operator_clients, dictation_clients,
+    broadcast_all, broadcast_dictation, _bc,
+)
+from linguataxi.server.transcripts import (
+    _session_stamp, _line_id_lock, _recent_lines,
+    _save_line, _next_line_id, _store_recent_line, _broadcast_final,
+)
+from linguataxi.server.translation import (
+    get_deepl_url, _translate_deepl, translate_text,
+    _translate_pool, _translate_gen, _translate_gen_lock,
+    _translate_all, _do_translate,
 )
 
 BASE_DIR = Path(__file__).parent
@@ -112,55 +125,6 @@ def _load_speaker_config():
                 s.speaker = sc[key].get("speaker", s.speaker)
                 s.color = sc[key].get("color", "")
 
-# ── DeepL ──
-def get_deepl_url(key):
-    return "https://api-free.deepl.com/v2/translate" if key.strip().endswith(":fx") else "https://api.deepl.com/v2/translate"
-
-def _translate_deepl(text, target_lang, source_lang=None):
-    """Translate using DeepL API."""
-    api_key = config.get("deepl_api_key", "")
-    if not text.strip() or not api_key:
-        return ""
-    src = source_lang or config.get("input_lang", "EN")
-    # Strip region from source (DeepL source doesn't use regions)
-    if "-" in src and src not in DEEPL_SOURCE_LANGS:
-        src = src.split("-")[0]
-    try:
-        r = requests.post(get_deepl_url(api_key),
-            headers={"Authorization": f"DeepL-Auth-Key {api_key}", "Content-Type": "application/json"},
-            json={"text": [text], "source_lang": src, "target_lang": target_lang}, timeout=10)
-        result = r.json()
-        if "translations" in result and result["translations"]:
-            return result["translations"][0]["text"]
-        return ""
-    except Exception as e:
-        log.error(f"DeepL translation error: {e}")
-        return ""
-
-def translate_text(text, target_lang, source_lang=None, mode="deepl"):
-    """Translate text using DeepL or offline models.
-
-    Args:
-        mode: "deepl", "offline-auto", "offline-opus", or "offline-m2m"
-    """
-    if not text.strip():
-        return ""
-    if mode == "deepl":
-        return _translate_deepl(text, target_lang, source_lang)
-    # Offline translation
-    engine = "auto"
-    if mode == "offline-opus":
-        engine = "opus-mt"
-    elif mode == "offline-m2m":
-        engine = "m2m100"
-    src = source_lang or config.get("input_lang", "EN")
-    result = offline_translate.translate_offline(text, src, target_lang,
-                                                 str(MODELS_DIR), engine=engine)
-    if not result:
-        log.debug(f"Offline translate ({engine}) {src}->{target_lang}: no result "
-                   f"(model may not be downloaded)")
-    return result
-
 # ── Audio (constants imported from linguataxi.constants) ──
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
@@ -172,10 +136,6 @@ extended_app = FastAPI()
 operator_app = FastAPI()
 dictation_app = FastAPI()
 stt_backend = None
-display_clients = set()
-extended_clients = set()
-operator_clients = set()
-dictation_clients = set()
 shutdown_event = threading.Event()
 mic_restart_event = threading.Event()   # signal audio capture to restart
 current_mic_index = None                # active mic device index (None = default)
@@ -185,15 +145,6 @@ captioning_paused = True
 dictation_active = False
 _dictation_loop = None  # asyncio loop for dictation app (set during startup)
 save_transcripts = True
-_session_stamp = time.strftime("%Y%m%d_%H%M%S")
-_line_id = 0               # monotonic counter for final lines
-_line_id_lock = threading.Lock()
-# _model_lock: imported from linguataxi.server.backends (see below)
-_recent_lines = collections.deque(maxlen=50)  # last N final lines
-_translate_gen = {}
-_translate_gen_lock = threading.Lock()
-_RECENT_LINES_MAX = 50
-_translate_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="translate")
 
 # ── Plugin Registry (marketplace) ──
 _plugin_registry = None
@@ -237,172 +188,8 @@ from linguataxi.server.backends.vosk import VoskBackend, _load_vosk_bidir_model
 from linguataxi.server.backends.mlx_whisper import MLXWhisperBackend
 
 
-# ── Broadcasting ──
-def _bc(loop, msg):
-    """Broadcast to appropriate clients based on mode.
-    In dictation-only mode (captioning paused but dictation active),
-    only send to dictation clients.
-    Dictation clients always use _dictation_loop to avoid cross-loop corruption."""
-    if captioning_paused and dictation_active:
-        dl = _dictation_loop or loop
-        asyncio.run_coroutine_threadsafe(broadcast_dictation(msg), dl)
-    else:
-        asyncio.run_coroutine_threadsafe(broadcast_all(msg), loop)
-        if dictation_clients and _dictation_loop:
-            asyncio.run_coroutine_threadsafe(broadcast_dictation(msg), _dictation_loop)
-
-async def broadcast_all(msg):
-    data = json.dumps(msg)
-    for cs in [display_clients, extended_clients, operator_clients]:
-        dead = set()
-        for ws in list(cs):  # iterate over copy to avoid RuntimeError
-            try: await ws.send_text(data)
-            except Exception: dead.add(ws)
-        cs -= dead
-
-async def broadcast_dictation(msg):
-    """Broadcast only to dictation clients."""
-    data = json.dumps(msg)
-    dead = set()
-    for ws in list(dictation_clients):  # iterate over copy
-        try: await ws.send_text(data)
-        except Exception: dead.add(ws)
-    dictation_clients -= dead
-
-def _save_line(lang_code, text):
-    """Append a timestamped line to the transcript file for this language."""
-    if not save_transcripts or not text.strip():
-        return
-    try:
-        name = DEEPL_TARGET_LANGS.get(lang_code, DEEPL_SOURCE_LANGS.get(lang_code, lang_code))
-        safe_name = "".join(c if c.isalnum() or c in " -_" else "" for c in name).strip().replace(" ","_")
-        fn = f"transcript_{_session_stamp}_{safe_name}_{lang_code}.txt"
-        ts = time.strftime("%H:%M:%S")
-        with open(TRANSCRIPTS_DIR / fn, "a", encoding="utf-8") as f:
-            f.write(f"[{ts}] {text}\n")
-    except Exception as e:
-        log.warning(f"Transcript save error: {e}")
-
-def _next_line_id():
-    global _line_id
-    with _line_id_lock:
-        _line_id += 1
-        return _line_id
-
-def _store_recent_line(lid, text, speaker, src_lang):
-    with _line_id_lock:
-        _recent_lines.append({"id": lid, "text": text, "speaker": speaker, "src_lang": src_lang})
-
-def _broadcast_final(text, loop, source=None, detected_lang=None):
-    """Broadcast final source text with speaker, save transcript, trigger translations.
-    In dictation-only mode, only sends to dictation clients (no translations/transcripts).
-    source: AudioSource instance (required for speaker/color/source_id; defaults to empty strings if None)."""
-    speaker = source.speaker if source else ""
-    color = source.color if source else ""
-    source_id = source.id if source else 0
-    lid = _next_line_id()
-    if captioning_paused and dictation_active:
-        # Dictation-only mode: just send final text to dictation clients
-        dl = _dictation_loop or loop
-        asyncio.run_coroutine_threadsafe(
-            broadcast_dictation({"type":"final","text":text,"speaker":speaker,
-                                 "color":color,"source_id":source_id,"line_id":lid,
-                                 "detected_lang":detected_lang}), dl)
-        log.info(f"   DICTATION: {text}")
-        return
-    _bc(loop, {"type":"final","text":text,"speaker":speaker,"color":color,
-               "source_id":source_id,"line_id":lid,"detected_lang":detected_lang,"is_translation":False})
-    prefix = f"{speaker}: " if speaker else ""
-    log.info(f"   IN: {prefix}{text}")
-    src = config.get("input_lang", "EN")
-    _save_line(src, f"{prefix}{text}")
-    _store_recent_line(lid, text, speaker, src)
-    _translate_all(text, "final_translation", loop, line_id=lid, source_lang=detected_lang)
-    plugin_dispatcher.fire("on_final", {
-        "text": text, "speaker": speaker, "color": color,
-        "source_id": source_id, "line_id": lid, "detected_lang": detected_lang
-    })
-
-def _translate_all(text, msg_type, loop, max_slots=99, line_id=None, speaker_override=None, source_lang=None):
-    if translation_paused:
-        return
-    if captioning_paused and dictation_active:
-        return  # Dictation-only mode: no translations
-    translations = config.get("translations", [])
-    effective_src = source_lang or config.get("input_lang", "EN")
-
-    for i, t in enumerate(translations):
-        if i >= max_slots: break
-
-        tgt_base = t["lang"].split("-")[0]
-        src_base = effective_src.split("-")[0]
-        if src_base == tgt_base:
-            # Same language as source — copy caption text directly to this
-            # slot so it stays in its fixed screen position (no API call)
-            speaker = speaker_override if speaker_override is not None else ""
-            msg = {"type": msg_type, "translated": text, "lang": t["lang"],
-                   "slot": i, "speaker": speaker, "is_translation": True}
-            if line_id is not None:
-                msg["line_id"] = line_id
-            _bc(loop, msg)
-            continue
-
-        gen = None
-        if msg_type == "interim_translation":
-            with _translate_gen_lock:
-                gen = _translate_gen.get(i, 0) + 1
-                _translate_gen[i] = gen
-        _translate_pool.submit(_do_translate,
-            text, t["lang"], i, msg_type, loop, line_id, speaker_override, source_lang, gen)
-
-def _do_translate(text, lang, slot, msg_type, loop, line_id=None, speaker_override=None, source_lang=None, generation=None):
-    if generation is not None:
-        with _translate_gen_lock:
-            if _translate_gen.get(slot, 0) != generation:
-                return
-    translations = config.get("translations", [])
-    mode = "deepl"
-    if slot < len(translations):
-        mode = translations[slot].get("mode", "deepl")
-    try:
-        translated = translate_text(text, lang, source_lang=source_lang, mode=mode)
-    except Exception as e:
-        engine = "offline" if mode.startswith("offline") else "DeepL"
-        log.error(f"   [{slot}] {lang} ({engine}) translation error: {e}")
-        return
-    if not translated:
-        if msg_type == "final_translation" and mode.startswith("offline"):
-            # Get the specific failure reason recorded by offline_translate
-            engine_key = {"offline-opus": "opus-mt", "offline-m2m": "m2m100"}.get(mode, "auto")
-            reason = offline_translate.get_last_offline_error(
-                source_lang or config.get("input_lang", "EN"), lang, engine_key)
-            if not reason:
-                reason = "unknown (check model downloads + ctranslate2 install)"
-            log.warning(f"   [{slot}] {lang} offline translation returned empty "
-                        f"(mode={mode}) — {reason}")
-            # Surface the error to the operator panel so the user sees it
-            _bc(loop, {"type": "offline_translate_error",
-                       "slot": slot, "lang": lang, "mode": mode,
-                       "reason": reason})
-        return
-    speaker = speaker_override if speaker_override is not None else ""
-    msg = {"type": msg_type, "translated": translated, "lang": lang, "slot": slot, "speaker": speaker, "is_translation": True}
-    if line_id is not None:
-        msg["line_id"] = line_id
-    _bc(loop, msg)
-    plugin_dispatcher.fire("on_translation", {
-        "translated": translated, "lang": lang, "slot": slot,
-        "speaker": speaker_override or "", "line_id": line_id, "source_lang": source_lang
-    })
-    if msg_type == "final_translation":
-        prefix = f"{speaker}: " if speaker else ""
-        engine = "offline" if mode.startswith("offline") else "DeepL"
-        log.info(f"   [{slot}] {lang} ({engine}): {prefix}{translated}")
-        _save_line(lang, f"{prefix}{translated}")
-    elif msg_type == "correct_translation":
-        prefix = f"{speaker}: " if speaker else ""
-        log.info(f"   [{slot}] {lang} CORRECTED: {prefix}{translated}")
-        _save_line(lang, f"[corrected] {prefix}{translated}")
+# ── Broadcasting, transcripts, translation: extracted → linguataxi.server.websocket,
+# ── linguataxi.server.transcripts, linguataxi.server.translation (see imports above)
 
 
 # ══════════════════════════════════════════════
