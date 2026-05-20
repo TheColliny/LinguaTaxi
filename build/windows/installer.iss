@@ -21,7 +21,7 @@
 
 #define MyAppName "LinguaTaxi - Live Caption and Translation"
 #define MyAppShortName "LinguaTaxi"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.3b"
 #define MyAppPublisher "LinguaTaxi"
 #define MyAppURL "https://github.com/linguataxi"
 
@@ -197,6 +197,16 @@ Source: "..\..\voice_id.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\transcribe_file.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\model_manager.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\models-manifest.json"; DestDir: "{app}"; Flags: ignoreversion
+
+; ── Python package (linguataxi/) ──
+Source: "..\..\linguataxi\*.py"; DestDir: "{app}\linguataxi"; Flags: ignoreversion
+Source: "..\..\linguataxi\server\*.py"; DestDir: "{app}\linguataxi\server"; Flags: ignoreversion
+Source: "..\..\linguataxi\server\backends\*.py"; DestDir: "{app}\linguataxi\server\backends"; Flags: ignoreversion
+Source: "..\..\linguataxi\server\routes\*.py"; DestDir: "{app}\linguataxi\server\routes"; Flags: ignoreversion
+Source: "..\..\linguataxi\launcher\*.py"; DestDir: "{app}\linguataxi\launcher"; Flags: ignoreversion
+Source: "..\..\linguataxi\dictation\*.py"; DestDir: "{app}\linguataxi\dictation"; Flags: ignoreversion
+Source: "..\..\linguataxi\models\*.py"; DestDir: "{app}\linguataxi\models"; Flags: ignoreversion
+Source: "..\..\linguataxi\plugins\*.py"; DestDir: "{app}\linguataxi\plugins"; Flags: ignoreversion
 Source: "..\..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\version.json"; DestDir: "{app}"; Flags: ignoreversion

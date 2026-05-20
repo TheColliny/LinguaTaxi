@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 APP_NAME = "LinguaTaxi"
 APP_FULL = "LinguaTaxi \u2014 Live Caption & Translation"
-VERSION = "1.0.3"
+VERSION = "1.0.3b"
 
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
