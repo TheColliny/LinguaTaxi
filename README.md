@@ -16,6 +16,20 @@ Highly accurate live speech caption and multi-language translation using CPU (Vo
 - **Translation & captioning pause**: Configure everything before going live
 - **Language-tuned Whisper models**: Download fine-tuned models for improved accuracy in specific languages
 
+## Architecture
+
+LinguaTaxi is organized as a Python package (`linguataxi/`) with thin entry-point
+scripts at the repository root for installer compatibility.
+
+- `linguataxi/server/` — FastAPI backend: audio capture, STT backends, translation, WebSocket broadcast
+- `linguataxi/launcher/` — Desktop GUI: server management, settings, model downloads
+- `linguataxi/dictation/` — System tray push-to-talk application
+- `linguataxi/models/` — Model management and download utilities
+- `linguataxi/plugins/` — Plugin loading and registry
+- `templates/` — HTML page templates
+- `static/` — CSS, JavaScript, and plugin assets
+- `plugins/` — Installed plugins (each with manifest.json, routes, panel)
+
 ## Installation
 
 ### Windows — Installer (Recommended)
