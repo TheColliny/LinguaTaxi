@@ -188,10 +188,10 @@ Source: "..\..\offline_translate.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\plugin_loader.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\plugin_registry.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\tray_dictation.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\display.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\operator.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dictation.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\bidirectional.html"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\templates\display.html"; DestDir: "{app}\templates"; Flags: ignoreversion
+Source: "..\..\templates\operator.html"; DestDir: "{app}\templates"; Flags: ignoreversion
+Source: "..\..\templates\dictation.html"; DestDir: "{app}\templates"; Flags: ignoreversion
+Source: "..\..\templates\bidirectional.html"; DestDir: "{app}\templates"; Flags: ignoreversion
 Source: "..\..\lang_detect.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\voice_id.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\transcribe_file.py"; DestDir: "{app}"; Flags: ignoreversion

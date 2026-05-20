@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Operator — Live Caption</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=Noto+Sans:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/operator.css">
+<link rel="stylesheet" href="/static/plugin_panel.css">
+<!-- PLUGIN_CSS -->
+</head>
+<body>
+
+<div class="ctrl" id="ctrlPanel">
+  <div class="ptitle"><span class="dot" id="sDot"></span><span data-i18n="operator.panel_title">Operator —</span> <span id="sTxt" data-i18n="operator.status_connecting">Connecting...</span></div>
+  <div class="warn" id="warn" style="display:none" data-i18n="operator.warn_no_api_key">No DeepL API key set. Translation disabled.</div>
+
+  <!-- 1. Session (collapsible, default expanded) -->
+  <div class="coll-section" id="section-session">
+    <div class="coll-hdr" onclick="toggleSection('session')">
+      <span class="coll-title" data-i18n="operator.session_label">Session</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <div class="row">
+        <input type="text" id="iTitle" placeholder="Session title..." data-i18n="operator.session_title_placeholder" data-i18n-ph>
+        <button class="btn btn-p" onclick="saveAll()" data-i18n="operator.save_btn">Save</button>
+      </div>
+      <div class="row">
+        <input type="password" id="iKey" placeholder="DeepL API key" data-i18n="operator.deepl_key_placeholder" data-i18n-ph>
+        <button class="btn btn-p" onclick="saveAll()" data-i18n="operator.save_btn">Save</button>
+      </div>
+      <span class="hint"><span data-i18n="operator.deepl_hint">Free key:</span> <a href="https://www.deepl.com/pro-api" target="_blank" style="color:var(--ac)" data-i18n="operator.deepl_link_text">deepl.com/pro-api</a></span>
+      <button class="btn" id="liveBtn" onclick="toggleLive()" style="width:100%;padding:12px;font-size:14px;font-weight:800;background:#4CAF50;color:#fff;letter-spacing:.06em" data-i18n="operator.go_live">&#9654; GO LIVE — Start Captioning</button>
+      <button class="btn" id="pauseBtn" onclick="togglePause()" style="width:100%;background:rgba(255,255,255,.08);color:rgba(255,255,255,.55);font-weight:800;border:1px solid rgba(255,255,255,.1)" data-i18n="operator.resume_translation_credits">&#9654; Resume Translation (uses API credits)</button>
+      <div class="hint" id="sessionHint" data-i18n="operator.session_hint_both_paused">Both captioning and translation are paused. Configure your settings, then go live.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+        <div>
+          <span style="font-size:11px;font-weight:700" data-i18n="operator.save_transcripts">Save Transcripts</span>
+          <div class="hint" data-i18n="operator.save_transcripts_hint">One .txt file per language in /transcripts</div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+          <input type="checkbox" id="iSaveTranscripts" checked onchange="toggleSaveTranscripts()" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,.15);border-radius:12px;transition:.3s"></span>
+          <span id="saveToggleKnob" style="position:absolute;top:2px;left:22px;width:20px;height:20px;background:#4CAF50;border-radius:50%;transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Language Slots (collapsible, default collapsed) -->
+  <div class="coll-section" id="section-languages">
+    <div class="coll-hdr" onclick="toggleSection('languages')">
+      <span class="coll-title" data-i18n="operator.languages_label">Languages</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <div>
+        <span style="font-size:11px" data-i18n="operator.input_language">Input Language (what speakers speak)</span>
+        <select id="iInputLang" onchange="onInputLangChange()"></select>
+      </div>
+      <div id="tunedRow" style="display:none;margin-top:4px">
+        <div style="display:flex;align-items:center;gap:6px;padding:8px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid var(--bdr)">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.55)" id="tunedLabel">Tuned Model</div>
+            <div style="font-size:11px;margin-top:2px" id="tunedStatus">—</div>
+            <div id="tunedProgressWrap" style="display:none;margin-top:4px">
+              <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden">
+                <div id="tunedProgressBar" style="height:100%;background:var(--ac);width:0%;transition:width .3s"></div>
+              </div>
+              <div style="font-size:9px;color:rgba(255,255,255,.45);margin-top:2px" id="tunedProgressMsg"></div>
+            </div>
+          </div>
+          <button class="btn btn-g" id="tunedBtn" onclick="onTunedAction()" style="white-space:nowrap;font-size:10px" data-i18n="operator.tuned_btn_download">Download</button>
+        </div>
+      </div>
+      <!-- Bi-directional Mode -->
+      <div id="bidirSection" style="margin-bottom:4px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600">
+          <input type="checkbox" id="bidirToggle" onchange="toggleBidir()" style="accent-color:var(--ac);width:15px;height:15px;cursor:pointer">
+          <span data-i18n="operator.bidirectional_mode">Bi-directional Mode</span>
+        </label>
+        <div id="bidirControls" style="display:none;margin-top:8px;">
+          <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;">
+            <select id="bidirLangA" onchange="onBidirLangChange()" style="flex:1;"></select>
+            <button class="btn" onclick="swapBidirLangs()" title="Swap languages (Keyboard: X)" style="flex-shrink:0;padding:4px 10px;font-size:16px;min-width:0;line-height:1">&#8644;</button>
+            <select id="bidirLangB" onchange="onBidirLangChange()" style="flex:1;"></select>
+          </div>
+          <label id="tunedSwapLabel" style="display:none;font-size:11px;color:rgba(255,255,255,.55);cursor:pointer;align-items:center;gap:6px">
+            <input type="checkbox" id="tunedSwapToggle" onchange="onTunedSwapChange()" style="accent-color:var(--ac);cursor:pointer">
+            <span data-i18n="operator.tuned_swap">Use tuned model when available (~1s swap delay)</span>
+          </label>
+          <div id="detectionIndicator" style="margin-top:6px;font-size:11px;color:rgba(255,255,255,.5)"></div>
+          <button class="btn btn-g" id="bidirDisplayBtn" onclick="window.open(location.protocol+'//'+location.hostname+':3000/bidirectional?mode=split','_blank')" style="margin-top:8px;width:100%;font-size:11px">
+            <span data-i18n="operator.bidirectional_display">Bi-directional Display</span>
+          </button>
+        </div>
+      </div>
+      <div>
+        <span style="font-size:11px" data-i18n="operator.num_translations">Number of Translations</span>
+        <select id="iTransCount" onchange="onTransCountChange()">
+          <option value="0" data-i18n="operator.trans_count_0">0 — Captioning only</option>
+          <option value="1" data-i18n="operator.trans_count_1">1 — Single translation</option>
+          <option value="2" selected data-i18n="operator.trans_count_2">2 — Dual translation</option>
+          <option value="3" data-i18n="operator.trans_count_3">3 — Dual + extended window (1)</option>
+          <option value="4" data-i18n="operator.trans_count_4">4 — Dual + extended window (2)</option>
+          <option value="5" data-i18n="operator.trans_count_5">5 — Dual + extended window (3)</option>
+        </select>
+      </div>
+      <div id="transSlots"></div>
+      <div id="extNote" class="hint" style="display:none" data-i18n="operator.ext_note">Translations 3+ appear on the Extended display (port 3002)</div>
+      <div id="translateCoresRow" style="margin-top:10px;display:none">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px">CPU Cores for Translation</span>
+          <span id="translateCoresInfo" title="" style="cursor:help;font-size:11px;width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.3);display:inline-flex;align-items:center;justify-content:center;color:rgba(255,255,255,.5)">i</span>
+        </div>
+        <input type="number" id="iTranslateCores" min="1" max="1" value="1"
+               onchange="onTranslateCoresChange(this.value)"
+               style="width:60px;margin-top:4px">
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Audio Sources (collapsible, expanded) -->
+  <div class="coll-section" id="section-sources">
+    <div class="coll-hdr" onclick="toggleSection('sources')">
+      <span class="coll-title" data-i18n="operator.audio_sources_label">Audio Sources</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <div id="sourceList" class="source-list"></div>
+    </div>
+  </div>
+
+  <!-- 4. Speakers (collapsible, expanded) -->
+  <div class="coll-section" id="section-speakers">
+    <div class="coll-hdr" onclick="toggleSection('speakers')">
+      <span class="coll-title" data-i18n="operator.speakers_label">Speakers</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <span class="hint" data-i18n="operator.speakers_hint">Speakers (keys 1-9, 0=none, double-click to edit)</span>
+      <div class="spgrid" id="spGrid"></div>
+      <div class="row">
+        <input type="text" id="iNewSp" placeholder="Add speaker..." data-i18n="operator.speaker_add_placeholder" data-i18n-ph onkeydown="if(event.key==='Enter')addSp()">
+        <button class="btn btn-g" onclick="addSp()" data-i18n="operator.speaker_add_btn">Add</button>
+      </div>
+      <div id="resetContainer" style="margin-top:8px">
+        <button class="btn" onclick="resetSpeakers()" data-i18n="operator.reset_speakers">Reset Speakers</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Clear Captions (standalone, not collapsible) -->
+  <button class="btn btn-d" onclick="clearCaptions()" style="width:100%" data-i18n="operator.clear_captions">Clear Captions (C)</button>
+
+  <!-- 6. Display & Sensitivity (collapsible, expanded) -->
+  <div class="coll-section" id="section-display">
+    <div class="coll-hdr" onclick="toggleSection('display')">
+      <span class="coll-title">Display &amp; Sensitivity</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <span class="clbl"><span data-i18n="operator.font_size_label">Font Size:</span> <span class="vd" id="vFs">42px</span></span>
+      <input type="range" id="iFs" min="24" max="960" value="42" oninput="onFsChange(this.value)">
+      <div style="display:flex;justify-content:space-between" class="hint"><span>24px</span><span>960px</span></div>
+
+      <span class="clbl"><span data-i18n="operator.visible_lines_label">Visible Lines:</span> <span class="vd" id="vLn">3</span></span>
+      <input type="range" id="iLn" min="1" max="8" value="3" oninput="onLnChange(this.value)">
+      <div style="display:flex;justify-content:space-between" class="hint"><span>1</span><span>8</span></div>
+
+      <span class="clbl" data-i18n="operator.mic_sensitivity_label">Mic Sensitivity</span>
+      <input type="range" id="iMic" min="1" max="50" value="8" oninput="onMicChange(this.value)">
+      <div style="display:flex;justify-content:space-between" class="hint"><span data-i18n="operator.mic_more_sensitive">More sensitive</span><span data-i18n="operator.mic_less_sensitive">Less sensitive</span></div>
+    </div>
+  </div>
+
+  <!-- 7. Background & Text Styling (collapsible, expanded) — COMBINED -->
+  <div class="coll-section" id="section-styling">
+    <div class="coll-hdr" onclick="toggleSection('styling')">
+      <span class="coll-title">Background &amp; Text Styling</span>
+      <span class="coll-chevron">&#9660;</span>
+    </div>
+    <div class="coll-body">
+      <span class="clbl" data-i18n="operator.background_label">Background</span>
+      <div class="bg-opts" id="bgOpts"></div>
+      <div style="height:8px"></div>
+
+      <span class="clbl" data-i18n="operator.font_label">Font</span>
+      <div class="font-opts" id="fontOpts"></div>
+      <div style="height:8px"></div>
+
+      <span class="clbl" data-i18n="operator.caption_text_color_label">Caption Text Color</span>
+      <div class="swatch-row" id="captionColors"></div>
+      <div id="transColors"></div>
+      <div style="height:8px"></div>
+
+      <!-- Footer (slim bar for logo/text) -->
+      <span class="clbl">Footer (optional slim bar)</span>
+      <input type="text" id="iFooterText" placeholder="Footer text (e.g. company name)" oninput="debouncedSaveAll()" style="font-size:11px">
+      <span class="clbl" style="margin-top:4px">Footer Image</span>
+      <input type="file" id="iFooter" accept="image/*" onchange="uploadFooter(this)" style="font-size:11px">
+      <div id="footerPrev" style="display:none">
+        <img id="footerPrevImg" style="max-height:40px;border-radius:3px">
+        <button class="btn btn-g" onclick="rmFooter()" style="margin-top:4px;font-size:10px" data-i18n="operator.footer_remove">Remove</button>
+      </div>
+
+      <!-- Footer Position -->
+      <div id="footerPosControls">
+        <span class="clbl" style="margin-top:4px">Footer Alignment</span>
+        <div style="display:flex;gap:4px;margin:4px 0">
+          <button class="btn btn-g" onclick="setFooterPos(0)" style="flex:1;font-size:9px;padding:5px 2px">Left</button>
+          <button class="btn btn-g" onclick="setFooterPos(25)" style="flex:1;font-size:9px;padding:5px 2px">C-Left</button>
+          <button class="btn btn-g" onclick="setFooterPos(50)" style="flex:1;font-size:9px;padding:5px 2px">Center</button>
+          <button class="btn btn-g" onclick="setFooterPos(75)" style="flex:1;font-size:9px;padding:5px 2px">C-Right</button>
+          <button class="btn btn-g" onclick="setFooterPos(100)" style="flex:1;font-size:9px;padding:5px 2px">Right</button>
+        </div>
+        <input type="range" id="iFooterPos" min="0" max="100" value="50" oninput="setFooterPos(parseInt(this.value))">
+      </div>
+    </div>
+  </div>
+
+  <div class="badge" id="badge">—</div>
+</div>
+
+<!-- Center: Plugin Grid (4x4 with drag/drop/resize + palette + profiles) -->
+<div class="plugin-grid-area" id="pluginGridArea">
+  <div class="pg-header">
+    <span class="pg-title">Layout</span>
+    <select class="pg-profile-sel" id="pgProfileSel" onchange="loadProfile(this.value)"></select>
+    <span class="pg-unsaved-dot" id="pgUnsavedDot" style="display:none" title="Unsaved changes">●</span>
+    <button class="pg-btn pg-btn-p" onclick="saveCurrentProfile()" title="Save current layout">Save</button>
+    <button class="pg-btn" onclick="saveAsNewProfile()" title="Save as new profile">Save As…</button>
+    <button class="pg-btn pg-btn-d" onclick="deleteCurrentProfile()" title="Delete profile">Delete</button>
+    <div class="pg-display-tab" id="pgDisplayTab" title="Each display has its own grid layout">
+      <button class="act" data-display="main" onclick="setActiveDisplay('main')">Main</button>
+      <button data-display="extended" onclick="setActiveDisplay('extended')">Extended</button>
+    </div>
+    <select class="pg-theme-sel" id="pgThemeSel" onchange="setOpTheme(this.value)" title="Operator theme">
+      <option value="hc">High Contrast</option>
+      <option value="default">Standard</option>
+      <option value="midnight">Midnight Blue</option>
+      <option value="warm">Warm</option>
+    </select>
+    <button class="pg-btn" onclick="openGridLayoutEditor()" id="pgLayoutBtn" style="margin-left:auto" title="Adjust grid layout and sizing">⊞ Adjust Grid</button>
+    <button class="pg-btn" onclick="togglePalette()" id="pgPaletteToggle" title="Show/hide plugin palette">☷ Palette</button>
+    <button class="pg-btn" onclick="clearGrid()" title="Remove all plugins from grid">Clear</button>
+    <button class="pg-btn" onclick="openPluginStore()">Plugins</button>
+  </div>
+  <div class="pg-main">
+    <div class="pg-grid-wrap">
+      <div class="plugin-grid" id="pluginGrid">
+        <!-- 16 cells built dynamically by buildPluginGrid() -->
+      </div>
+    </div>
+    <div class="pg-palette" id="pgPalette">
+      <div class="pg-palette-title" style="display:flex;align-items:center;justify-content:space-between">Available plugins<button onclick="if(typeof refreshPluginPalette==='function')refreshPluginPalette()" style="background:none;border:none;color:rgba(255,255,255,.4);cursor:pointer;font-size:11px;padding:0 2px" title="Refresh available plugins">&#x21bb;</button></div>
+      <div id="pgPaletteItems"></div>
+    </div>
+  </div>
+  <!-- Hidden container: server injects plugin panel HTML here, grid JS relocates it -->
+  <div id="pluginPanelsHidden" style="display:none">
+    <!-- PLUGIN_PANELS -->
+  </div>
+</div>
+
+<!-- Right: Preview -->
+<div class="preview">
+  <div class="prev-title" data-i18n="operator.preview_title">Live Preview (mirrors audience display) — right-click a line to correct</div>
+  <div class="prev-box" id="prevBox">
+    <div class="prev-session" id="pTitle">Live Captioning</div>
+    <div class="prev-speaker" id="pSpeaker"></div>
+    <div id="pSections"></div>
+    <div class="prev-footer" id="pFooter" style="display:none"><img id="pFooterImg" src=""></div>
+  </div>
+</div>
+
+<script src="/static/js/operator.js"></script>
+
+<!-- Color Picker Overlay -->
+<div id="colorPickerOverlay" class="cp-overlay" style="display:none" onclick="closeColorPicker()">
+  <div class="cp-popup" onclick="event.stopPropagation()">
+    <div class="cp-presets" id="cpPresets"></div>
+    <canvas id="cpSquare" width="256" height="256"></canvas>
+    <canvas id="cpHue" width="256" height="20"></canvas>
+    <div class="cp-preview">
+      <span id="cpPreview" class="cp-preview-swatch"></span>
+      <span id="cpHex" class="cp-hex">#FFFFFF</span>
+    </div>
+    <div class="cp-btns">
+      <button class="btn" onclick="cpReset()" data-i18n="operator.color_picker_reset">Reset</button>
+      <button class="btn btn-g" onclick="cpApply()" data-i18n="operator.color_picker_done">Done</button>
+    </div>
+  </div>
+</div>
+<script src="/static/plugin_dispatcher.js"></script>
+<script src="/static/plugin_grid.js"></script>
+<!-- PLUGIN_JS -->
+<script src="/static/js/grid-editor.js"></script>
+</body>
+</html>

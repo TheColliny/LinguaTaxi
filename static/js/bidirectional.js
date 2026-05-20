@@ -1,64 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Bidirectional Captioning</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700;800&family=Noto+Sans:wght@400;600;700&family=Noto+Sans+SC:wght@400;600;700&family=Noto+Sans+TC:wght@400;600;700&family=Noto+Sans+JP:wght@400;600;700&family=Noto+Sans+KR:wght@400;600;700&family=Noto+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#1a1a2e; --fs:42px; --max-lines:4; --font:'Atkinson Hyperlegible Next',sans-serif;
-  --primary-color:#e8e8e8; --secondary-color:#8899aa;
-  --accent:#4FC3F7; --label:#90CAF9;
-}
-html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:#fff}
-.app{display:flex;flex-direction:column;height:100vh;padding:1.5vh 2vw}
-
-.header{text-align:center;padding:1vh 0 1.2vh;flex-shrink:0}
-.header h1{font-weight:800;font-size:clamp(20px,2.5vw,40px);letter-spacing:.02em;text-transform:uppercase;text-shadow:0 2px 15px rgba(79,195,247,.25)}
-.header .bar{width:100px;height:3px;margin:.6vh auto 0;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
-
-.zones{flex:1;display:flex;gap:1.5vw;min-height:0;overflow:hidden}
-.zones.vertical{flex-direction:column;gap:1.5vh}
-.zones.single-zone .zone{flex:1}
-.zone{flex:1;display:flex;flex-direction:column;min-height:0;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:1vh 1.5vw;background:rgba(255,255,255,.02)}
-
-.zone-hdr{font-weight:700;font-size:clamp(12px,1.3vw,20px);color:var(--label);text-transform:uppercase;letter-spacing:.12em;margin-bottom:.5vh;display:flex;align-items:center;gap:6px;flex-shrink:0}
-.zone-hdr .dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0;transition:.3s}
-.dot.live{background:#f44336;box-shadow:0 0 6px #f44336;animation:pdot 1.5s ease-in-out infinite}
-.dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
-@keyframes pdot{0%,100%{opacity:1}50%{opacity:.4}}
-
-.scroll-box{flex:1;overflow-y:hidden;scroll-behavior:smooth;display:flex;flex-direction:column;justify-content:flex-end;min-height:0}
-.scroll-inner{display:flex;flex-direction:column}
-
-.line{font-weight:600;font-size:var(--fs);line-height:1.35;padding:.05em 0;word-wrap:break-word;overflow-wrap:break-word}
-.line.interim{opacity:.45}
-.line.translated{font-style:italic;font-weight:400}
-.speaker-tag{font-weight:800;text-transform:uppercase;opacity:.9}
-
-.divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);flex-shrink:0;margin:.3vh 0}
-
-.footer-banner{flex-shrink:0;text-align:center;padding:.8vh 0 .3vh;display:none}
-.footer-banner img{max-width:min(95%,1000px);height:auto;max-height:7vh;object-fit:contain;border-radius:5px}
-.footer-banner.vis{display:block}
-
-.no-config{text-align:center;color:rgba(255,255,255,.25);font-size:18px;padding:60px 20px;line-height:1.6}
-</style>
-</head>
-<body>
-<div class="app">
-  <div class="header">
-    <h1 id="title">Bidirectional Captioning</h1>
-    <div class="bar"></div>
-  </div>
-  <div class="zones" id="zones"></div>
-  <div class="footer-banner" id="footerWrap"><img id="footerImg" src="" alt=""></div>
-</div>
-<script>
 /* ═══════════════════════════════════════════════
    Bidirectional Display — split-screen / single-language caption viewer
    ═══════════════════════════════════════════════ */
@@ -465,6 +404,3 @@ fetch('/api/config').then(r => r.json()).then(c => {
   applyStyle(c);
   connect();
 }).catch(() => connect());
-</script>
-</body>
-</html>

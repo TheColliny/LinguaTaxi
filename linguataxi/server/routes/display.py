@@ -29,7 +29,7 @@ def _render_display_html(display_target: str) -> str:
     """
     import server as _srv
 
-    html = (_srv.BASE_DIR / "display.html").read_text(encoding="utf-8")
+    html = (_srv.BASE_DIR / "templates" / "display.html").read_text(encoding="utf-8")
     html = html.replace("<!-- DISPLAY_TARGET -->", display_target)
     html = html.replace("<!-- PLUGIN_CSS -->", _srv.plugin_dispatcher.get_css_links())
     html = html.replace("<!-- PLUGIN_PANELS -->", _srv.plugin_dispatcher.get_panel_html())
@@ -148,7 +148,7 @@ def register_display_routes(app: FastAPI, extended_app: FastAPI) -> None:
     async def bidirectional_page() -> FileResponse:
         """Serve the bidirectional captioning page."""
         import server as _srv
-        return FileResponse(_srv.BASE_DIR / "bidirectional.html")
+        return FileResponse(_srv.BASE_DIR / "templates" / "bidirectional.html")
 
     @app.get("/uploads/{fn}")
     async def d_uploads(fn: str) -> Response:

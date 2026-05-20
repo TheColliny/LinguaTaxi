@@ -1,0 +1,1599 @@
+// ── Operator theme (apply immediately to avoid flash) ──
+const _themeClasses=['op-hc','op-midnight','op-warm'];
+function setOpTheme(t){
+  document.body.classList.remove(..._themeClasses);
+  if(t&&t!=='default') document.body.classList.add('op-'+t);
+  localStorage.setItem('lt_op_theme',t||'hc');
+  const sel=document.getElementById('pgThemeSel');
+  if(sel) sel.value=t||'hc';
+}
+(function(){const t=localStorage.getItem('lt_op_theme')||'hc';if(t&&t!=='default')document.body.classList.add('op-'+t)})();
+
+let ws=null, recon=0, cfg={};
+let speakers=[], activeSp=0, editingSpeakerIdx=-1;
+let voiceIdEnrolled=new Set(); // speaker names with voice enrollment
+let sources=[];  // [{id, name, speaker, color}]
+let focusedSourceId=0;
+let palette=[], bgOpts=[], fontOpts=[], srcLangs={}, tgtLangs={};
+let translations=[]; // [{lang, color, mode}]
+let transCount=1;
+let tunedModels={}, activeTunedLang='', isWhisper=false;
+let tunedPollTimer=null;
+let offlineStatus={}; // {opus:{...}, m2m100:{...}}
+let offlinePollTimers={}; // {key: timer}
+let systemCpuCount=4;
+let translateCores=0;
+let translateCoresDefault=1;
+let bidirEnabled=false;
+let bidirLangs=[];  // [langA, langB]
+let bidirTunedSwap=false;
+let speakerLangs={}; // {speakerName: langCode}
+
+// M24: esc() now also escapes double quotes
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML.replace(/"/g, '&quot;')}
+
+// M21-M22/M28: Debounce utility for slider handlers
+function debounce(fn, ms) { let tid; return function(...args) { clearTimeout(tid); tid = setTimeout(() => fn.apply(this, args), ms); }; }
+const debouncedSaveAll = debounce(saveAll, 300);
+const debouncedMicSend = debounce(function(v) { if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'set_threshold',value:v/1000})); }, 300);
+
+// ── Collapsible sections ──
+let collapsedSections = [];
+
+function toggleSection(id) {
+  const el = document.getElementById('section-' + id);
+  if (!el) return;
+  const idx = collapsedSections.indexOf(id);
+  if (idx >= 0) {
+    collapsedSections.splice(idx, 1);
+    el.classList.remove('collapsed');
+  } else {
+    collapsedSections.push(id);
+    el.classList.add('collapsed');
+  }
+  saveCollapsedState();
+}
+
+function saveCollapsedState() {
+  const fd = new FormData();
+  fd.append('collapsed_sections', JSON.stringify(collapsedSections));
+  fetch('/api/config', {method: 'POST', body: fd});
+}
+
+function restoreCollapsedState() {
+  document.querySelectorAll('.coll-section').forEach(el => {
+    const id = el.id.replace('section-', '');
+    if (collapsedSections.includes(id)) {
+      el.classList.add('collapsed');
+    } else {
+      el.classList.remove('collapsed');
+    }
+  });
+}
+
+// ── Internationalization ──
+let _i18n = {};
+let _i18nEn = {};
+let _currentUiLang = 'EN';
+
+function t(key, vars) {
+    let text = _i18n[key] || _i18nEn[key] || key;
+    if (vars) Object.entries(vars).forEach(([k, v]) => {
+        text = text.replaceAll('{' + k + '}', v);
+    });
+    return text;
+}
+
+async function loadTranslations(lang) {
+    try {
+        if (!Object.keys(_i18nEn).length) {
+            const r = await fetch('/api/locales/en');
+            if (r.ok) _i18nEn = await r.json();
+        }
+        const r2 = await fetch('/api/locales/' + lang.toLowerCase());
+        if (r2.ok) _i18n = await r2.json();
+        else _i18n = {..._i18nEn};
+    } catch(e) { _i18n = {..._i18nEn}; }
+    _currentUiLang = lang;
+    applyTranslations();
+}
+
+function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (el.hasAttribute('data-i18n-ph')) el.placeholder = t(key);
+        else if (el.hasAttribute('data-i18n-title')) el.title = t(key);
+        else el.textContent = t(key);
+    });
+    document.documentElement.lang = _currentUiLang.toLowerCase();
+    document.documentElement.dir = _currentUiLang === 'AR' ? 'rtl' : 'ltr';
+}
+
+// ── Load config ──
+let cfgRetries=0;
+async function loadCfg(){
+  try {
+    const r = await fetch('/api/config');
+    if(!r.ok) throw new Error('Config request failed: '+r.status);
+    const c = await r.json();
+    cfgRetries=0;
+    cfg=c;
+    collapsedSections = c.collapsed_sections || ['languages'];
+    palette=c.color_palette||[];
+    bgOpts=c.bg_options||[];
+    fontOpts=c.font_options||[];
+    srcLangs=c.source_langs||{};
+    tgtLangs=c.target_langs||{};
+
+    // IMPORTANT: load locale before any dynamic UI is built. Otherwise
+    // every t() call inside buildTransSlots / buildSpeakerBtns / etc.
+    // resolves to the raw key (e.g. "operator.translation_slot") because
+    // _i18n/_i18nEn are still empty.
+    await loadTranslations(c.ui_language || 'EN');
+
+    document.getElementById('iTitle').value=c.session_title||'';
+    document.getElementById('iKey').value=c.deepl_api_key||'';
+    document.getElementById('iFs').value=c.font_size||42;
+    document.getElementById('vFs').textContent=(c.font_size||42)+'px';
+    document.getElementById('iLn').value=c.max_lines||3;
+    document.getElementById('vLn').textContent=c.max_lines||3;
+
+    transCount=c.translation_count||1;
+    document.getElementById('iTransCount').value=transCount;
+    translations=c.translations||[{lang:'ES',color:'#FFD54F'}];
+    speakers=c.speakers||[];
+
+    // H13: renamed lambda param from t to tr to avoid shadowing i18n function
+    const anyDeepL=translations.some(tr=>!tr.mode||tr.mode==='deepl');
+    if(!c.has_api_key&&anyDeepL)document.getElementById('warn').style.display='block';
+    else document.getElementById('warn').style.display='none';
+    if(c.backend)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:c.backend});
+    tunedModels=c.tuned_models||{};
+    activeTunedLang=c.active_tuned_lang||'';
+    isWhisper=!!c.is_whisper;
+    offlineStatus=c.offline_translate||{opus:{},m2m100:{}};
+    systemCpuCount=c.system_cpu_count||4;
+    translateCores=c.translate_cores||0;
+    translateCoresDefault=c.translate_cores_default||Math.max(1,Math.floor(systemCpuCount/4));
+
+    // Bi-directional state
+    bidirEnabled=!!c.bidirectional_enabled;
+    bidirLangs=c.bidirectional_langs||[];
+    bidirTunedSwap=!!c.bidirectional_tuned_swap;
+    speakerLangs=c.speaker_langs||{};
+
+    buildInputLangSelect(c.input_lang||'EN');
+    updateTunedUI();
+    populateBidirLangs();
+    restoreBidirState();
+    buildBgOpts(c.bg_color||'#00004D');
+    buildFontOpts(c.font_family||'atkinson');
+    buildTransSlots();
+    buildColorSwatches();
+    buildSpeakerBtns();
+    updatePreview();
+    applyPreviewStyle();
+    restoreCollapsedState();
+
+    // Set the Resume Translation button label correctly. Without this, the
+    // button keeps its static data-i18n="operator.resume_translation_credits"
+    // even when all translation slots are offline-only.
+    updateTranslationHint();
+
+    if(c.footer_image){
+      document.getElementById('footerPrevImg').src='/uploads/'+c.footer_image;
+      document.getElementById('footerPrev').style.display='block';
+      document.getElementById('pFooterImg').src='/uploads/'+c.footer_image;
+      document.getElementById('pFooter').style.display='block';
+    }
+    if(c.footer_text){
+      document.getElementById('iFooterText').value = c.footer_text;
+    }
+    if(c.footer_position !== undefined){
+      document.getElementById('iFooterPos').value = c.footer_position;
+    }
+  } catch(e) {
+    console.error('Config load failed:',e);
+    if(cfgRetries<3){
+      cfgRetries++;
+      document.getElementById('sTxt').textContent=t('operator.status_config_retry',{num:cfgRetries});
+      setTimeout(loadCfg,1500);
+    } else {
+      document.getElementById('sTxt').textContent=t('operator.status_config_error',{error:e.message});
+    }
+  }
+}
+loadCfg();
+{const _t=localStorage.getItem('lt_op_theme')||'hc';const _s=document.getElementById('pgThemeSel');if(_s)_s.value=_t}
+
+// ── Input language select ──
+function buildInputLangSelect(cur){
+  const sel=document.getElementById('iInputLang');
+  sel.innerHTML='';
+  Object.entries(srcLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
+    const o=document.createElement('option');o.value=code;o.textContent=name+' ('+code+')';
+    if(code===cur)o.selected=true;
+    sel.appendChild(o);
+  });
+}
+
+// ── Input language change (also updates tuned UI) ──
+function onInputLangChange(){
+  updateTunedUI();
+  saveAll();
+}
+
+// ── Tuned model UI ──
+function updateTunedUI(){
+  const lang=document.getElementById('iInputLang').value;
+  const row=document.getElementById('tunedRow');
+  const info=tunedModels[lang];
+
+  // Only show for Whisper backend + languages that have tuned models
+  if(!isWhisper||!info){
+    row.style.display='none';
+    if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
+    return;
+  }
+
+  row.style.display='block';
+  const label=document.getElementById('tunedLabel');
+  const status=document.getElementById('tunedStatus');
+  const btn=document.getElementById('tunedBtn');
+  const progWrap=document.getElementById('tunedProgressWrap');
+  const progBar=document.getElementById('tunedProgressBar');
+  const progMsg=document.getElementById('tunedProgressMsg');
+
+  label.textContent=t('operator.tuned_model_label',{name:info.name});
+
+  if(info.available){
+    progWrap.style.display='none';
+    if(activeTunedLang===lang){
+      status.innerHTML='<span style="color:#4CAF50">'+t('operator.tuned_status_active')+'</span> — '+t('operator.tuned_status_active_desc');
+      btn.textContent=t('operator.tuned_btn_revert');
+      btn.className='btn btn-g';
+    } else {
+      status.innerHTML='<span style="color:#4FC3F7">'+t('operator.tuned_status_ready')+'</span> — '+t('operator.tuned_status_ready_desc');
+      btn.textContent=t('operator.tuned_btn_switch');
+      btn.className='btn btn-p';
+    }
+    if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
+  } else if(info.download_status==='downloading'||info.download_status==='converting'||info.download_status==='starting'){
+    status.textContent=t('operator.tuned_status_processing');
+    btn.textContent='...';
+    btn.className='btn btn-g';
+    btn.disabled=true;
+    progWrap.style.display='block';
+    progBar.style.width=info.download_pct+'%';
+    progMsg.textContent=info.download_message||'';
+    startTunedPoll(lang);
+  } else if(info.download_status==='error'){
+    status.innerHTML='<span style="color:#f44336">'+t('operator.tuned_status_error')+'</span>: '+esc(info.download_message||'unknown');
+    btn.textContent=t('operator.tuned_btn_retry');
+    btn.className='btn btn-p';
+    btn.disabled=false;
+    progWrap.style.display='none';
+    if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
+  } else {
+    status.textContent=t('operator.tuned_status_not_downloaded',{size:info.size_gb});
+    btn.textContent=t('operator.tuned_btn_download');
+    btn.className='btn btn-p';
+    btn.disabled=false;
+    progWrap.style.display='none';
+    if(tunedPollTimer){clearInterval(tunedPollTimer);tunedPollTimer=null}
+  }
+}
+
+function startTunedPoll(lang){
+  if(tunedPollTimer) return;
+  tunedPollTimer=setInterval(()=>{
+    fetch('/api/tuned-models/progress/'+lang).then(r=>r.json()).then(p=>{
+      if(!tunedModels[lang]) return;
+      tunedModels[lang].download_status=p.status;
+      tunedModels[lang].download_pct=p.pct;
+      tunedModels[lang].download_message=p.message;
+      if(p.status==='ready'){
+        tunedModels[lang].available=true;
+        clearInterval(tunedPollTimer);tunedPollTimer=null;
+      } else if(p.status==='error'){
+        clearInterval(tunedPollTimer);tunedPollTimer=null;
+      }
+      updateTunedUI();
+    }).catch(()=>{});
+  },2000);
+}
+
+function onTunedAction(){
+  const lang=document.getElementById('iInputLang').value;
+  const info=tunedModels[lang];
+  if(!info) return;
+
+  if(info.available && activeTunedLang===lang){
+    // Revert to default model
+    document.getElementById('tunedBtn').disabled=true;
+    document.getElementById('tunedStatus').textContent=t('operator.tuned_reverting');
+    fetch('/api/tuned-models/revert',{method:'POST'}).then(r=>r.json()).then(r=>{
+      if(r.status==='ok'){
+        activeTunedLang='';
+        if(r.model) document.getElementById('badge').textContent=t('operator.engine_badge',{engine:r.model});
+      } else {
+        alert(t('operator.tuned_revert_failed',{error:r.error||'unknown'}));
+      }
+      document.getElementById('tunedBtn').disabled=false;
+      updateTunedUI();
+    }).catch(e=>{alert(t('operator.tuned_revert_failed',{error:e}));document.getElementById('tunedBtn').disabled=false});
+  } else if(info.available){
+    // Switch to tuned model
+    document.getElementById('tunedBtn').disabled=true;
+    document.getElementById('tunedStatus').textContent=t('operator.tuned_switching');
+    const fd=new FormData();fd.append('lang',lang);
+    fetch('/api/tuned-models/switch',{method:'POST',body:fd}).then(r=>r.json()).then(r=>{
+      if(r.status==='ok'){
+        activeTunedLang=lang;
+        if(r.model) document.getElementById('badge').textContent=t('operator.engine_badge',{engine:r.model});
+      } else {
+        alert(t('operator.tuned_switch_failed',{error:r.error||'unknown'}));
+      }
+      document.getElementById('tunedBtn').disabled=false;
+      updateTunedUI();
+    }).catch(e=>{alert(t('operator.tuned_switch_failed',{error:e}));document.getElementById('tunedBtn').disabled=false});
+  } else {
+    // Download
+    document.getElementById('tunedBtn').disabled=true;
+    const fd=new FormData();fd.append('lang',lang);
+    fetch('/api/tuned-models/download',{method:'POST',body:fd}).then(r=>r.json()).then(r=>{
+      if(r.status==='started'||r.status==='already_in_progress'){
+        tunedModels[lang].download_status='starting';
+        tunedModels[lang].download_pct=0;
+        tunedModels[lang].download_message=t('operator.tuned_starting_download');
+        startTunedPoll(lang);
+      } else if(r.status==='already_available'){
+        tunedModels[lang].available=true;
+      } else if(r.error){
+        tunedModels[lang].download_status='error';
+        tunedModels[lang].download_message=r.error;
+      }
+      document.getElementById('tunedBtn').disabled=false;
+      updateTunedUI();
+    }).catch(e=>{
+      tunedModels[lang].download_status='error';
+      tunedModels[lang].download_message=String(e);
+      document.getElementById('tunedBtn').disabled=false;
+      updateTunedUI();
+    });
+  }
+}
+
+// ── BG options ──
+// H9: store hex in data-hex attribute for reliable persistence
+function buildBgOpts(cur){
+  const el=document.getElementById('bgOpts');el.innerHTML='';
+  bgOpts.forEach(b=>{
+    const d=document.createElement('div');d.className='bg-opt'+(b.hex===cur?' active':'');
+    d.style.background=b.hex;d.dataset.hex=b.hex;d.title=b.name;
+    d.onclick=()=>{document.querySelectorAll('.bg-opt').forEach(x=>x.classList.remove('active'));d.classList.add('active');saveAll()};
+    const n=document.createElement('div');n.className='bg-name';n.textContent=b.name;d.appendChild(n);
+    el.appendChild(d);
+  });
+}
+
+// ── Font options ──
+// M23: Use DOM creation methods instead of innerHTML for font config
+function buildFontOpts(cur){
+  const el=document.getElementById('fontOpts');el.innerHTML='';
+  fontOpts.forEach(f=>{
+    const d=document.createElement('div');d.className='font-opt'+(f.id===cur?' active':'');
+    d.onclick=()=>{document.querySelectorAll('.font-opt').forEach(x=>x.classList.remove('active'));d.classList.add('active');saveAll()};
+    const wrap=document.createElement('div');
+    const nameEl=document.createElement('div');nameEl.className='fn';nameEl.style.fontFamily=f.css;nameEl.textContent=f.name;
+    const noteEl=document.createElement('div');noteEl.className='fnote';noteEl.textContent=f.note;
+    wrap.appendChild(nameEl);wrap.appendChild(noteEl);d.appendChild(wrap);
+    d.dataset.id=f.id;
+    el.appendChild(d);
+  });
+}
+
+// ── Translation slots ──
+function onTransCountChange(){
+  transCount=parseInt(document.getElementById('iTransCount').value);
+  // Extend or shrink translations array
+  while(translations.length<transCount){
+    const defaultColors=['#FFD54F','#4FC3F7','#81C784','#FF8A80','#CE93D8'];
+    translations.push({lang:'ES',color:defaultColors[translations.length%5],mode:'deepl'});
+  }
+  translations=translations.slice(0,transCount);
+  buildTransSlots();
+  buildColorSwatches();
+  saveAll();
+}
+
+// ── Bi-directional mode ──
+function populateBidirLangs(){
+  const selA=document.getElementById('bidirLangA');
+  const selB=document.getElementById('bidirLangB');
+  if(!selA||!selB) return;
+  selA.innerHTML='';selB.innerHTML='';
+  Object.entries(srcLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
+    const oA=document.createElement('option');oA.value=code;oA.textContent=name+' ('+code+')';
+    const oB=document.createElement('option');oB.value=code;oB.textContent=name+' ('+code+')';
+    if(bidirLangs.length>=1&&code===bidirLangs[0])oA.selected=true;
+    if(bidirLangs.length>=2&&code===bidirLangs[1])oB.selected=true;
+    selA.appendChild(oA);selB.appendChild(oB);
+  });
+  // Defaults if no stored langs
+  if(bidirLangs.length<2){
+    if(!bidirLangs[0])selA.value='EN';
+    if(!bidirLangs[1])selB.value='AR';
+  }
+}
+
+function restoreBidirState(){
+  const toggle=document.getElementById('bidirToggle');
+  const controls=document.getElementById('bidirControls');
+  toggle.checked=bidirEnabled;
+  controls.style.display=bidirEnabled?'block':'none';
+  document.getElementById('tunedSwapToggle').checked=bidirTunedSwap;
+  // Show/hide tuned swap label based on whisper backend
+  document.getElementById('tunedSwapLabel').style.display=isWhisper?'flex':'none';
+}
+
+function toggleBidir(){
+  bidirEnabled=document.getElementById('bidirToggle').checked;
+  document.getElementById('bidirControls').style.display=bidirEnabled?'block':'none';
+  const langA=document.getElementById('bidirLangA').value;
+  const langB=document.getElementById('bidirLangB').value;
+  bidirLangs=[langA,langB];
+
+  const fd=new FormData();
+  fd.append('bidirectional_enabled', bidirEnabled?'true':'false');
+  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
+  // When enabling, also set input_lang to langA
+  if(bidirEnabled) fd.append('input_lang', langA);
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    loadCfg();
+  });
+}
+
+function onBidirLangChange(){
+  const langA=document.getElementById('bidirLangA').value;
+  const langB=document.getElementById('bidirLangB').value;
+  bidirLangs=[langA,langB];
+  const fd=new FormData();
+  fd.append('bidirectional_langs', JSON.stringify(bidirLangs));
+  if(bidirEnabled){
+    fd.append('bidirectional_enabled','true');
+    fd.append('input_lang', langA);
+  }
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    loadCfg();
+  });
+}
+
+function swapBidirLangs(){
+  // Swap which language is being spoken. The 2 display slots stay fixed —
+  // slot 0 is always langA, slot 1 is always langB on screen.
+  // The server copies caption to the matching slot and translates the other.
+  const curInput=document.getElementById('iInputLang').value;
+  const other=(curInput===bidirLangs[0])?bidirLangs[1]:bidirLangs[0];
+
+  document.getElementById('iInputLang').value=other;
+
+  const fd=new FormData();
+  fd.append('input_lang', other);
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    loadCfg();
+  });
+}
+
+function onTunedSwapChange(){
+  bidirTunedSwap=document.getElementById('tunedSwapToggle').checked;
+  const fd=new FormData();
+  fd.append('bidirectional_tuned_swap', bidirTunedSwap?'true':'false');
+  fetch('/api/config',{method:'POST',body:fd});
+}
+
+function updateDetectionIndicator(sourceId, detectedLang){
+  const el=document.getElementById('detectionIndicator');
+  if(!el||!bidirEnabled) return;
+  const langName=srcLangs[detectedLang]||detectedLang;
+  const dot='<span style="color:#4CAF50">&#9679;</span>';
+  el.innerHTML=t('operator.detection')+': '+dot+' '+esc(langName)+' ('+esc(detectedLang)+')';
+}
+
+function buildTransSlots(){
+  const el=document.getElementById('transSlots');el.innerHTML='';
+  const note=document.getElementById('extNote');
+  note.style.display=transCount>2?'block':'none';
+
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]||{lang:'ES',color:'#FFD54F',mode:'deepl'};
+    if(!tr.mode) tr.mode='deepl';
+    const isAutoSlot=bidirEnabled&&tr.auto_bidir;
+    const dest=i<2?t('operator.translation_dest_main'):t('operator.translation_dest_ext');
+    const slot=document.createElement('div');slot.className='tslot';
+    if(isAutoSlot) slot.style.opacity='0.6';
+
+    if(isAutoSlot){
+      // Locked auto-managed bi-directional slot
+      const fromLang=bidirLangs.length>=2?(i===0?bidirLangs[1]:bidirLangs[0]):'?';
+      const toLang=bidirLangs.length>=2?(i===0?bidirLangs[0]:bidirLangs[1]):'?';
+      const fromName=srcLangs[fromLang]||fromLang;
+      const toName=srcLangs[toLang]||toLang;
+      const autoLabel=t('operator.auto_slot_label',{from:fromName,to:toName});
+      slot.innerHTML=`
+        <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
+        <div style="font-size:11px;font-weight:600;color:var(--ac);padding:6px 0">${esc(autoLabel)}</div>`;
+    } else {
+      const curMode=tr.mode||'deepl';
+      slot.innerHTML=`
+        <div class="tslot-hdr"><span class="tslot-num">${t('operator.translation_slot',{num:i+1})}</span><span class="tslot-dest">${dest}</span></div>
+        <select onchange="onSlotLangChange(${i},this.value)" id="tslot_lang_${i}"></select>
+        <select onchange="onSlotModeChange(${i},this.value)" id="tslot_mode_${i}" style="margin-top:4px">
+          <option value="deepl"${curMode==='deepl'?' selected':''}>${t('operator.mode_deepl')}</option>
+          <option value="offline-auto"${curMode==='offline-auto'?' selected':''}>${t('operator.mode_offline_auto')}</option>
+          <option value="offline-opus"${curMode==='offline-opus'?' selected':''}>${t('operator.mode_offline_opus')}</option>
+          <option value="offline-m2m"${curMode==='offline-m2m'?' selected':''}>${t('operator.mode_offline_m2m')}</option>
+        </select>
+        <div id="tslot_offline_${i}" style="display:none;margin-top:4px;font-size:10px;color:rgba(255,255,255,.55)"></div>`;
+    }
+    el.appendChild(slot);
+
+    if(!isAutoSlot){
+      // Populate language dropdown for user-managed slots
+      const sel=slot.querySelector(`#tslot_lang_${i}`);
+      if(sel){
+        Object.entries(tgtLangs).sort((a,b)=>a[1].localeCompare(b[1])).forEach(([code,name])=>{
+          const o=document.createElement('option');o.value=code;o.textContent=name+' ('+code+')';
+          if(code===tr.lang)o.selected=true;
+          sel.appendChild(o);
+        });
+      }
+      updateSlotOfflineStatus(i);
+    }
+  }
+  const coresRow=document.getElementById('translateCoresRow');
+  const hasOffline=translations.some(tr=>tr.mode&&tr.mode.startsWith('offline'));
+  if(coresRow){
+    coresRow.style.display=hasOffline?'block':'none';
+    const inp=document.getElementById('iTranslateCores');
+    const maxCores=Math.max(1,systemCpuCount-1);
+    const effective=translateCores>0?translateCores:translateCoresDefault;
+    if(inp){
+      inp.min=1;
+      inp.max=maxCores;
+      inp.value=effective;
+    }
+    const infoEl=document.getElementById('translateCoresInfo');
+    if(infoEl){
+      infoEl.title='How many CPU cores to use for translation. Default is '+translateCoresDefault+'. Increase if translation is lagging behind real-time. Decrease if translation is causing system lag.';
+    }
+  }
+}
+
+function onSlotModeChange(idx,mode){
+  if(translations[idx])translations[idx].mode=mode;
+  updateSlotOfflineStatus(idx);
+  updateTranslationHint();
+  saveAll();
+}
+function onTranslateCoresChange(val){
+  const n=parseInt(val,10);
+  if(isNaN(n)||n<1) return;
+  const maxCores=Math.max(1,systemCpuCount-1);
+  const clamped=Math.min(n,maxCores);
+  translateCores=clamped;
+  const inp=document.getElementById('iTranslateCores');
+  if(inp) inp.value=clamped;
+  const fd=new FormData();
+  fd.append('translate_cores',clamped);
+  fetch('/api/config',{method:'POST',body:fd});
+  fetch('/api/offline-translate/reload',{method:'POST'});
+}
+
+function updateSlotOfflineStatus(idx){
+  const tr=translations[idx];
+  if(!tr) return;
+  const el=document.getElementById('tslot_offline_'+idx);
+  if(!el) return;
+  const mode=tr.mode||'deepl';
+  if(mode==='deepl'){el.style.display='none';return}
+  el.style.display='block';
+  const lang=tr.lang;
+  const opus=offlineStatus.opus||{};
+  const m2m=offlineStatus.m2m100||{};
+  let html='';
+
+  if(mode==='offline-opus'){
+    const info=opus[lang];
+    if(info&&info.available){
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_opus_ready',{name:esc(info.name||lang)});
+    } else if(info){
+      const opusSz=info.size_mb>=1000?(info.size_mb/1000).toFixed(1)+' GB':info.size_mb+' MB';
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_opus_not_downloaded')+' <a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">'+t('operator.offline_opus_download_link',{size:opusSz})+'</a>';
+    } else {
+      html='<span style="color:#f44336">&#10007;</span> '+t('operator.offline_opus_no_model',{lang:esc(lang)});
+    }
+  } else if(mode==='offline-m2m'){
+    if(m2m.available){
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_m2m_ready');
+    } else {
+      const m2mSz=m2m.size_mb>=1000?(m2m.size_mb/1000).toFixed(1)+' GB':m2m.size_mb+' MB';
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_m2m_not_downloaded')+' <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">'+t('operator.offline_opus_download_link',{size:m2mSz})+'</a>';
+    }
+  } else {
+    // Auto
+    const opusInfo=opus[lang];
+    const hasOpus=opusInfo&&opusInfo.available;
+    const hasM2m=m2m.available;
+    if(hasOpus||hasM2m){
+      let parts=[];
+      if(hasOpus) parts.push('OPUS-MT');
+      if(hasM2m) parts.push('M2M-100');
+      html='<span style="color:#4CAF50">&#10003;</span> '+t('operator.offline_auto_ready',{engines:parts.join(' + ')});
+    } else {
+      html='<span style="color:#FF9800">&#9888;</span> '+t('operator.offline_auto_none')+' ';
+      if(opusInfo){
+        html+='<a href="#" onclick="downloadOfflineModel(\'opus\',\''+lang+'\');return false" style="color:var(--ac)">'+t('operator.offline_download_opus')+'</a>';
+      }
+      html+=' <a href="#" onclick="downloadOfflineModel(\'m2m\',\'\');return false" style="color:var(--ac)">'+t('operator.offline_download_m2m')+'</a>';
+    }
+  }
+  el.innerHTML=html;
+}
+
+function downloadOfflineModel(type,lang){
+  if(type==='opus'){
+    // Show immediate "starting" feedback
+    _showDownloadProgress('opus-'+lang, 0, 'Starting download...');
+    const fd=new FormData();fd.append('lang',lang);
+    fetch('/api/offline-translate/download-opus',{method:'POST',body:fd}).then(r=>r.json()).then(r=>{
+      if(r.status==='started'||r.status==='already_in_progress'){
+        startOfflinePoll('opus-'+lang);
+      } else if(r.status==='already_available'){
+        refreshOfflineStatus();
+      }
+    });
+  } else {
+    _showDownloadProgress('m2m100', 0, 'Starting download...');
+    fetch('/api/offline-translate/download-m2m',{method:'POST'}).then(r=>r.json()).then(r=>{
+      if(r.status==='started'||r.status==='already_in_progress'){
+        startOfflinePoll('m2m100');
+      } else if(r.status==='already_available'){
+        refreshOfflineStatus();
+      }
+    });
+  }
+}
+
+// L-OP3: removed unused _downloadSlots declaration
+
+function _showDownloadProgress(key, pct, msg){
+  // Find all translation slots that would display this key and show progress
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]; if(!tr) continue;
+    const el=document.getElementById('tslot_offline_'+i);
+    if(!el) continue;
+    const mode=tr.mode||'deepl';
+    const lang=tr.lang;
+    const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='offline-auto');
+    const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='offline-auto');
+    if(matchesOpus||matchesM2m){
+      const label = key.startsWith('opus-') ? 'OPUS-MT' : 'M2M-100';
+      const bar = pct>0 ? '<div style="background:#333;border-radius:3px;height:6px;margin-top:3px;width:100%"><div style="background:var(--ac);height:6px;border-radius:3px;width:'+pct+'%"></div></div>' : '';
+      el.innerHTML='<span style="color:var(--ac)">&#8635;</span> '+t('operator.offline_downloading',{engine:label,pct:pct}) + (msg?' — '+esc(msg):'') + bar;
+      el.style.display='block';
+    }
+  }
+}
+
+function startOfflinePoll(key){
+  if(offlinePollTimers[key]) return;
+  offlinePollTimers[key]=setInterval(()=>{
+    fetch('/api/offline-translate/progress/'+key).then(r=>r.json()).then(p=>{
+      if(p.status==='ready'){
+        clearInterval(offlinePollTimers[key]);delete offlinePollTimers[key];
+        refreshOfflineStatus();
+      } else if(p.status==='error'){
+        clearInterval(offlinePollTimers[key]);delete offlinePollTimers[key];
+        _showDownloadError(key, p.message||'Download failed');
+      } else {
+        // Show progress while downloading/converting
+        _showDownloadProgress(key, p.pct||0, p.message||p.status||'');
+      }
+    }).catch(()=>{});
+  },2000);
+}
+
+function _showDownloadError(key, msg){
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]; if(!tr) continue;
+    const el=document.getElementById('tslot_offline_'+i);
+    if(!el) continue;
+    const mode=tr.mode||'deepl';
+    const lang=tr.lang;
+    const matchesOpus = key==='opus-'+lang && (mode==='offline-opus'||mode==='offline-auto');
+    const matchesM2m = key==='m2m100' && (mode==='offline-m2m'||mode==='offline-auto');
+    if(matchesOpus||matchesM2m){
+      el.innerHTML='<span style="color:#f44336">&#10007;</span> '+esc(msg);
+      el.style.display='block';
+    }
+  }
+}
+
+function refreshOfflineStatus(){
+  fetch('/api/offline-translate/status').then(r=>r.json()).then(s=>{
+    offlineStatus=s;
+    for(let i=0;i<transCount;i++) updateSlotOfflineStatus(i);
+  }).catch(()=>{});
+}
+
+function updateTranslationHint(){
+  // Update the "uses API credits" hint on the pause button
+  const btn=document.getElementById('pauseBtn');
+  if(!btn||!translationPaused) return;
+  // H13: renamed lambda param from t to tr
+  const allOffline=transCount>0 && translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
+  const key = allOffline ? 'operator.resume_translation_offline' : 'operator.resume_translation_credits';
+  btn.textContent = t(key);
+  // Sync data-i18n so later applyTranslations() re-renders use the correct key
+  btn.setAttribute('data-i18n', key);
+}
+
+function onSlotLangChange(idx,lang){
+  if(translations[idx])translations[idx].lang=lang;
+  updateSlotOfflineStatus(idx);
+  saveAll();
+}
+
+// ── Color swatches ──
+// H9: store hex in data-hex for reliable persistence on caption color swatches
+function buildColorSwatches(){
+  // Caption color
+  const cc=document.getElementById('captionColors');cc.innerHTML='';
+  const curCap=cfg.caption_color||'#FFFFFF';
+  palette.forEach(c=>{
+    const s=document.createElement('div');s.className='swatch'+(c.hex===curCap?' active':'');
+    s.style.background=c.hex;s.dataset.hex=c.hex;s.title=c.name;
+    s.onclick=()=>{cc.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'));s.classList.add('active');saveAll()};
+    cc.appendChild(s);
+  });
+
+  // Translation colors
+  const tc=document.getElementById('transColors');tc.innerHTML='';
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]||{color:'#FFD54F'};
+    const wrap=document.createElement('div');wrap.style.marginTop='8px';
+    wrap.innerHTML=`<span class="clbl">${t('operator.translation_color_label',{num:i+1})}</span>`;
+    const row=document.createElement('div');row.className='swatch-row';row.style.marginTop='4px';
+    palette.forEach(c=>{
+      const s=document.createElement('div');s.className='swatch'+(c.hex===tr.color?' active':'');
+      s.style.background=c.hex;s.title=c.name;
+      s.onclick=()=>{row.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'));s.classList.add('active');translations[i].color=c.hex;saveAll()};
+      row.appendChild(s);
+    });
+    wrap.appendChild(row);tc.appendChild(wrap);
+  }
+}
+
+// ── Source list ──
+function buildSourceList(){
+    const el=document.getElementById('sourceList');
+    if(!el)return;
+    let h='';
+    sources.forEach(s=>{
+        const focused=s.id===focusedSourceId?' source-focused':'';
+        const col=s.color||getComputedStyle(document.body).color;
+        h+=`<div class="source-row${focused}" onclick="focusSource(${s.id})">
+            <span class="color-swatch" style="background:${esc(col)}"
+                  onclick="event.stopPropagation();openColorPicker(${s.id})" title="${t('operator.change_color_title')}"></span>
+            <input class="source-name" value="${esc(s.speaker||s.name)}"
+                   onchange="renameSource(${s.id},this.value)"
+                   onclick="event.stopPropagation()">
+            <span class="source-device">${esc(s.name)}</span>
+        </div>`;
+    });
+    el.innerHTML=h;
+}
+
+function focusSource(id){
+    focusedSourceId=id;
+    buildSourceList();
+}
+
+function renameSource(id, newName){
+    if(ws&&ws.readyState===1){
+        ws.send(JSON.stringify({type:'set_speaker',speaker:newName,source_id:id}));
+    }
+    const s=sources.find(x=>x.id===id);
+    if(s) s.speaker=newName;
+    buildSourceList();
+}
+
+// ── Color Picker ──
+let cpSourceId=-1, cpHue=0, cpSat=100, cpBri=100, cpDragging=null;
+
+function openColorPicker(sourceId){
+    cpSourceId=sourceId;
+    const s=sources.find(x=>x.id===sourceId);
+    if(s&&s.color){
+        const hsb=hexToHSB(s.color);
+        cpHue=hsb.h; cpSat=hsb.s; cpBri=hsb.b;
+    } else {
+        cpHue=0; cpSat=0; cpBri=100;
+    }
+    document.getElementById('colorPickerOverlay').style.display='flex';
+    renderPresets();
+    drawHueBar();
+    drawSBSquare();
+    updateCpPreview();
+}
+
+function closeColorPicker(){
+    document.getElementById('colorPickerOverlay').style.display='none';
+    cpDragging=null;
+}
+
+function renderPresets(){
+    const el=document.getElementById('cpPresets');
+    const bg=getComputedStyle(document.querySelector('.preview')||document.body).backgroundColor||'#1a1a2e';
+    // L-OP1: removed unused bgColor param from generatePresets
+    const presets=generatePresets();
+    let h='';
+    presets.forEach(c=>{
+        h+=`<span style="background:${c}" onclick="cpSelectPreset('${c}')" title="${c}"></span>`;
+    });
+    el.innerHTML=h;
+}
+
+// L-OP1: removed unused bgColor parameter
+function generatePresets(){
+    const presets=[];
+    for(let i=0;i<32;i++){
+        const hue=(i*360/32)%360;
+        const hex=hsbToHex(hue,85,70+(i%2)*15);
+        presets.push(hex);
+    }
+    return presets;
+}
+
+function cpSelectPreset(hex){
+    const hsb=hexToHSB(hex);
+    cpHue=hsb.h; cpSat=hsb.s; cpBri=hsb.b;
+    // L-OP2: redraw hue bar on preset select
+    drawHueBar();
+    drawSBSquare();
+    updateCpPreview();
+}
+
+function drawHueBar(){
+    const c=document.getElementById('cpHue');
+    const ctx=c.getContext('2d');
+    const grad=ctx.createLinearGradient(0,0,c.width,0);
+    for(let i=0;i<=6;i++) grad.addColorStop(i/6,`hsl(${i*60},100%,50%)`);
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,0,c.width,c.height);
+    // Indicator
+    const x=cpHue/360*c.width;
+    ctx.beginPath();ctx.arc(x,c.height/2,8,0,Math.PI*2);
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    c.onmousedown=e=>{cpDragging='hue';cpHueMove(e)};
+    // M26: touch support for hue bar
+    c.ontouchstart=e=>{e.preventDefault();cpDragging='hue';cpHueMove(e.touches[0])};
+}
+
+function cpHueMove(e){
+    const c=document.getElementById('cpHue');
+    const r=c.getBoundingClientRect();
+    cpHue=Math.max(0,Math.min(360,(e.clientX-r.left)/r.width*360));
+    drawHueBar(); drawSBSquare(); updateCpPreview();
+}
+
+function drawSBSquare(){
+    const c=document.getElementById('cpSquare');
+    const ctx=c.getContext('2d');
+    ctx.fillStyle=`hsl(${cpHue},100%,50%)`;
+    ctx.fillRect(0,0,c.width,c.height);
+    const gw=ctx.createLinearGradient(0,0,c.width,0);
+    gw.addColorStop(0,'rgba(255,255,255,1)');gw.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=gw;ctx.fillRect(0,0,c.width,c.height);
+    const gb=ctx.createLinearGradient(0,0,0,c.height);
+    gb.addColorStop(0,'rgba(0,0,0,0)');gb.addColorStop(1,'rgba(0,0,0,1)');
+    ctx.fillStyle=gb;ctx.fillRect(0,0,c.width,c.height);
+    // Indicator
+    const x=cpSat/100*c.width, y=(1-cpBri/100)*c.height;
+    ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);
+    ctx.strokeStyle='#000';ctx.lineWidth=1;ctx.stroke();
+    c.onmousedown=e=>{cpDragging='sb';cpSBMove(e)};
+    // M26: touch support for SB square
+    c.ontouchstart=e=>{e.preventDefault();cpDragging='sb';cpSBMove(e.touches[0])};
+}
+
+function cpSBMove(e){
+    const c=document.getElementById('cpSquare');
+    const r=c.getBoundingClientRect();
+    cpSat=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));
+    cpBri=Math.max(0,Math.min(100,(1-(e.clientY-r.top)/r.height)*100));
+    drawSBSquare(); updateCpPreview();
+}
+
+// Global mouse handlers for dragging
+document.addEventListener('mousemove',e=>{
+    if(cpDragging==='hue')cpHueMove(e);
+    else if(cpDragging==='sb')cpSBMove(e);
+});
+document.addEventListener('mouseup',()=>{cpDragging=null});
+// M26: Global touch handlers for dragging
+document.addEventListener('touchmove',e=>{
+    if(cpDragging){e.preventDefault();const touch=e.touches[0];if(cpDragging==='hue')cpHueMove(touch);else if(cpDragging==='sb')cpSBMove(touch)}
+},{passive:false});
+document.addEventListener('touchend',()=>{cpDragging=null});
+
+// C1: renamed from updatePreview to updateCpPreview to avoid collision with preview-rebuilding updatePreview
+function updateCpPreview(){
+    const hex=hsbToHex(cpHue,cpSat,cpBri);
+    document.getElementById('cpPreview').style.background=hex;
+    document.getElementById('cpHex').textContent=hex;
+}
+
+function cpReset(){
+    cpHue=0;cpSat=0;cpBri=100;
+    drawHueBar();drawSBSquare();updateCpPreview();
+}
+
+function cpApply(){
+    const hex=hsbToHex(cpHue,cpSat,cpBri);
+    const s=sources.find(x=>x.id===cpSourceId);
+    if(s) s.color=hex;
+    if(ws&&ws.readyState===1){
+        ws.send(JSON.stringify({type:'set_speaker',speaker:s?s.speaker:'',source_id:cpSourceId,color:hex}));
+    }
+    buildSourceList();
+    closeColorPicker();
+}
+
+// ── Color conversion utilities ──
+function hsbToHex(h,s,b){
+    s/=100;b/=100;
+    const k=n=>(n+h/60)%6;
+    const f=n=>b*(1-s*Math.max(0,Math.min(k(n),4-k(n),1)));
+    const r=Math.round(f(5)*255),g=Math.round(f(3)*255),bl=Math.round(f(1)*255);
+    return '#'+[r,g,bl].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+
+function hexToHSB(hex){
+    hex=hex.replace('#','');
+    const r=parseInt(hex.substr(0,2),16)/255;
+    const g=parseInt(hex.substr(2,2),16)/255;
+    const b=parseInt(hex.substr(4,2),16)/255;
+    const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
+    let h=0;
+    if(d!==0){
+        if(max===r)h=60*(((g-b)/d)%6);
+        else if(max===g)h=60*((b-r)/d+2);
+        else h=60*((r-g)/d+4);
+    }
+    if(h<0)h+=360;
+    const s=max===0?0:d/max*100;
+    return{h,s,b:max*100};
+}
+
+// ── Speakers ──
+function buildSpeakerBtns(){
+  const el=document.getElementById('spGrid');
+  if(!el)return;
+  let h=`<button class="spbtn spwide${activeSp===0?' act':''}" onclick="setSp(0)">${t('operator.speaker_no_label')}<span class="hk">0</span></button>`;
+  speakers.forEach((n,i)=>{
+    const idx=i+1;
+    const hk=idx<=9?`<span class="hk">${idx}</span>`:'';
+    if(editingSpeakerIdx===idx){
+      // Edit mode: inline form with name, key select, save, remove
+      const opts=speakers.map((_,j)=>`<option value="${j+1}"${j+1===idx?' selected':''}>${t('operator.speaker_key_label',{num:j+1})}</option>`).join('');
+      h+=`<div class="sp-edit">
+        <input type="text" value="${esc(n)}" id="spEditName" placeholder="${t('operator.speaker_edit_placeholder')}"
+          onkeydown="if(event.key==='Enter')saveSpEdit(${idx});else if(event.key==='Escape')cancelSpEdit()">
+        <select id="spEditKey">${opts}</select>
+        <button class="btn btn-p" onclick="saveSpEdit(${idx})" title="${t('operator.speaker_edit_save_title')}">&#10003;</button>
+        <button class="btn btn-d" onclick="removeSp(${idx})" title="${t('operator.speaker_edit_remove_title')}">&#10005;</button>
+        <button class="btn btn-g" onclick="cancelSpEdit()" title="${t('operator.speaker_edit_cancel_title')}">Esc</button>
+      </div>`;
+    } else {
+      const enrolled = voiceIdEnrolled.has(n);
+      const vidBadge = enrolled ? '<span class="sp-vid" title="Voice enrolled"></span>' : '';
+      h+=`<button class="spbtn${activeSp===idx?' act':''}" onclick="setSp(${idx})" ondblclick="startSpEdit(event,${idx})">${vidBadge}${esc(n)}${hk}</button>`;
+      if(bidirEnabled){
+        const spLang=speakerLangs[n]||'';
+        let langOpts=`<option value="">${t('operator.auto_detect')}</option>`;
+        bidirLangs.forEach(l=>{
+          const lName=srcLangs[l]||l;
+          langOpts+=`<option value="${esc(l)}"${spLang===l?' selected':''}>${esc(lName)}</option>`;
+        });
+        const safeName=esc(n).replace(/'/g,'&#39;');
+        h+=`<select class="sp-lang-select" onchange="setSpeakerLang('${safeName}',this.value)" onclick="event.stopPropagation()" style="grid-column:span 1;padding:3px 4px;border-radius:4px;border:1px solid var(--bdr);background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);font-size:9px;cursor:pointer">${langOpts}</select>`;
+      }
+    }
+  });
+  // Show "+" slot if under 50
+  if(speakers.length<50){
+    h+=`<button class="spbtn spbtn-add" onclick="document.getElementById('iNewSp').focus()">+</button>`;
+  }
+  el.innerHTML=h;
+  if(editingSpeakerIdx>0){
+    const inp=document.getElementById('spEditName');
+    if(inp){inp.focus();inp.select()}
+  }
+}
+function setSp(idx){
+  if(editingSpeakerIdx>0) return; // Don't switch while editing
+  activeSp=idx;
+  const name=(idx>0&&idx<=speakers.length)?speakers[idx-1]:'';
+  document.getElementById('pSpeaker').textContent=name;
+  buildSpeakerBtns();
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({
+    type:'set_speaker',speaker:name,source_id:focusedSourceId
+  }));
+}
+function setSpeakerLang(speakerName, lang){
+  if(lang) speakerLangs[speakerName]=lang;
+  else delete speakerLangs[speakerName];
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({
+    type:'set_speaker_lang',speaker:speakerName,lang:lang||null
+  }));
+}
+function addSp(){
+  const inp=document.getElementById('iNewSp');
+  const n=inp.value.trim();if(!n||speakers.length>=50)return;
+  speakers.push(n);inp.value='';buildSpeakerBtns();saveAll();
+}
+function startSpEdit(e,idx){
+  e.preventDefault();e.stopPropagation();
+  editingSpeakerIdx=idx;
+  buildSpeakerBtns();
+}
+function saveSpEdit(idx){
+  const nameInp=document.getElementById('spEditName');
+  const keySelect=document.getElementById('spEditKey');
+  const newName=nameInp.value.trim();
+  if(!newName){removeSp(idx);return} // Empty name = remove
+  const newKey=parseInt(keySelect.value);
+  const arrayIdx=idx-1;
+  const oldName=speakers[arrayIdx];
+  speakers[arrayIdx]=newName;
+  // Migrate speaker lang mapping when name changes (purely client-side)
+  if(oldName && oldName!==newName){
+    if(speakerLangs && speakerLangs[oldName]!==undefined){
+      speakerLangs[newName]=speakerLangs[oldName];
+      delete speakerLangs[oldName];
+    }
+    // Voice ID handling: if the old name had an enrolled voiceprint, warn the
+    // operator that they'll need to re-enroll under the new name. We do NOT
+    // call /api/voice-id/unenroll here because the server has no rename
+    // endpoint — calling unenroll would silently delete the voice profile.
+    if(voiceIdEnrolled.has(oldName)){
+      const ok = confirm('"' + oldName + '" has an enrolled voiceprint.\n\n' +
+        'Renaming to "' + newName + '" will keep the OLD voice profile under "' + oldName + '" on the server.\n' +
+        'You will need to re-enroll "' + newName + '" by selecting that speaker while they are talking.\n\n' +
+        'Continue with rename?');
+      if(!ok){
+        speakers[arrayIdx]=oldName;  // revert
+        return;
+      }
+      voiceIdEnrolled.delete(oldName);
+      // Don't add newName to voiceIdEnrolled — there's no server-side enrollment for it yet
+    }
+  }
+  // If key changed, swap speakers at the two positions
+  if(newKey!==idx){
+    const newArrayIdx=newKey-1;
+    const tmp=speakers[arrayIdx];speakers[arrayIdx]=speakers[newArrayIdx];speakers[newArrayIdx]=tmp;
+    if(activeSp===idx)activeSp=newKey;
+    else if(activeSp===newKey)activeSp=idx;
+  }
+  editingSpeakerIdx=-1;
+  buildSpeakerBtns();saveAll();
+}
+function removeSp(idx){
+  speakers.splice(idx-1,1);
+  if(activeSp===idx)activeSp=0;
+  else if(activeSp>idx)activeSp--;
+  editingSpeakerIdx=-1;
+  buildSpeakerBtns();saveAll();
+  // Notify server of speaker change
+  const name=(activeSp>0&&activeSp<=speakers.length)?speakers[activeSp-1]:'';
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'set_speaker',speaker:name}));
+}
+function cancelSpEdit(){
+  editingSpeakerIdx=-1;
+  buildSpeakerBtns();
+}
+
+let resetTimeout=null;
+function resetSpeakers(){
+    const c=document.getElementById('resetContainer');
+    c.innerHTML=`<span style="color:#FFD54F">${t('operator.reset_confirm')} </span>
+        <button class="btn btn-r" onclick="confirmReset()">${t('operator.reset_yes')}</button>
+        <button class="btn" onclick="cancelReset()">${t('operator.reset_no')}</button>`;
+    resetTimeout=setTimeout(cancelReset,10000);
+}
+// M29: confirmReset now chains state clearing inside .then() and adds .catch()
+function confirmReset(){
+    clearTimeout(resetTimeout);
+    fetch('/api/speakers/reset',{method:'POST'}).then(r=>{
+      if(!r.ok) throw new Error('Reset failed: '+r.status);
+      return r.json();
+    }).then(()=>{
+      speakers=[];
+      activeSp=0;
+      buildSpeakerBtns();
+      sources.forEach(s=>{s.speaker='';s.color='';});
+      buildSourceList();
+      cancelReset();
+    }).catch(e=>{
+      alert('Failed to reset speakers: '+e.message);
+      cancelReset();
+    });
+}
+function cancelReset(){
+    clearTimeout(resetTimeout);
+    document.getElementById('resetContainer').innerHTML=
+        `<button class="btn" onclick="resetSpeakers()">${t('operator.reset_speakers')}</button>`;
+}
+
+let translationPaused = true;
+let captioningPaused = true;
+let saveTranscriptsEnabled = true;
+
+function toggleLive(){
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_captioning_paused', paused:!captioningPaused}));
+}
+
+function togglePause(){
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_translation_paused', paused:!translationPaused}));
+}
+
+function updateSessionHint(){
+  const h = document.getElementById('sessionHint');
+  if(captioningPaused && translationPaused) h.textContent=t('operator.session_hint_both_paused');
+  else if(captioningPaused) h.textContent=t('operator.session_hint_captioning_paused');
+  else if(translationPaused) h.textContent=t('operator.session_hint_translation_paused');
+  else h.textContent=t('operator.session_hint_both_active');
+}
+
+function toggleSaveTranscripts(){
+  saveTranscriptsEnabled = document.getElementById('iSaveTranscripts').checked;
+  updateSaveToggleUI();
+  if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:'set_save_transcripts', enabled:saveTranscriptsEnabled}));
+}
+
+function updateSaveToggleUI(){
+  const knob = document.getElementById('saveToggleKnob');
+  const cb = document.getElementById('iSaveTranscripts');
+  cb.checked = saveTranscriptsEnabled;
+  if(saveTranscriptsEnabled){
+    knob.style.left='22px'; knob.style.background='#4CAF50';
+  } else {
+    knob.style.left='2px'; knob.style.background='#888';
+  }
+}
+
+function clearCaptions(){
+  prevClearAll();
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'clear_captions'}));
+}
+
+// ── Sliders ──
+// M21-M22: Immediate UI update, debounced save/send
+function onFsChange(v){document.getElementById('vFs').textContent=v+'px';debouncedSaveAll()}
+function onLnChange(v){document.getElementById('vLn').textContent=v;debouncedSaveAll()}
+function onMicChange(v){debouncedMicSend(v)}
+
+// ── Footer ──
+function uploadFooter(inp){
+  if(!inp.files[0])return;
+  const fd=new FormData();fd.append('file',inp.files[0]);
+  fetch('/api/upload-footer',{method:'POST',body:fd}).then(r=>r.json()).then(r=>{
+    if(r.filename){
+      const u='/uploads/'+r.filename+'?t='+Date.now();
+      document.getElementById('footerPrevImg').src=u;document.getElementById('footerPrev').style.display='block';
+      document.getElementById('pFooterImg').src=u;document.getElementById('pFooter').style.display='block';
+      document.getElementById('footerPosControls').style.display='block';
+    }
+  });
+}
+function rmFooter(){
+  fetch('/api/remove-footer',{method:'POST'}).then(()=>{
+    document.getElementById('footerPrev').style.display='none';document.getElementById('pFooter').style.display='none';
+    document.getElementById('footerPosControls').style.display='none';
+  });
+}
+function setFooterPos(pct) {
+  document.getElementById('iFooterPos').value = pct;
+  const fd = new FormData();
+  fd.append('footer_position', pct);
+  fetch('/api/config', {method: 'POST', body: fd});
+}
+
+// ── Save all config ──
+function saveAll(){
+  const fd=new FormData();
+  fd.append('session_title',document.getElementById('iTitle').value);
+  fd.append('deepl_api_key',document.getElementById('iKey').value);
+  fd.append('input_lang',document.getElementById('iInputLang').value);
+  fd.append('translation_count',transCount);
+  fd.append('translations_json',JSON.stringify(translations));
+  fd.append('speakers',JSON.stringify(speakers));
+  fd.append('font_size',document.getElementById('iFs').value);
+  fd.append('max_lines',document.getElementById('iLn').value);
+  fd.append('footer_text',document.getElementById('iFooterText').value);
+  // H9: Get active BG hex from data-hex attribute, fallback to style.background
+  const abg=document.querySelector('.bg-opt.active');
+  if(abg)fd.append('bg_color',abg.dataset.hex||abg.style.background);
+  // Get active font
+  const af=document.querySelector('.font-opt.active');
+  if(af)fd.append('font_family',af.dataset.id);
+  // H9: Get caption color hex from data-hex attribute, fallback to style.background
+  const ac=document.querySelector('#captionColors .swatch.active');
+  if(ac)fd.append('caption_color',ac.dataset.hex||ac.style.background);
+
+  fetch('/api/config',{method:'POST',body:fd}).then(r=>r.json()).then(()=>{
+    document.getElementById('pTitle').textContent=document.getElementById('iTitle').value||t('operator.preview_default_title');
+    const hasKey=!!document.getElementById('iKey').value;
+    // H13: renamed lambda param from t to tr
+    const anyDeepL=translations.some(tr=>!tr.mode||tr.mode==='deepl');
+    document.getElementById('warn').style.display=(!hasKey&&anyDeepL)?'block':'none';
+    applyPreviewStyle();
+    updatePreview();
+  });
+}
+
+// ── Preview (accumulating lines with right-click correction) ──
+const prevSlots={}; // slotId -> {el, lines[], interimEl, color, lastSpeaker}
+
+function applyPreviewStyle(){
+  const box=document.getElementById('prevBox');
+  // H9: use data-hex for reliable background color
+  const abg=document.querySelector('.bg-opt.active');
+  if(abg)box.style.background=abg.dataset.hex||abg.style.background;
+}
+
+function updatePreview(){
+  const el=document.getElementById('pSections');el.innerHTML='';
+  Object.keys(prevSlots).forEach(k=>delete prevSlots[k]);
+  const inputName=srcLangs[document.getElementById('iInputLang').value]||'English';
+  const capColor=document.querySelector('#captionColors .swatch.active');
+  // H9: use data-hex for reliable caption color
+  const cc=capColor?(capColor.dataset.hex||capColor.style.background):'#fff';
+
+  // Caption section
+  _addPrevSection(el, 'caption', inputName+' Captioning', cc);
+
+  // Translation sections
+  for(let i=0;i<transCount;i++){
+    const tr=translations[i]||{lang:'ES',color:'#FFD54F'};
+    const name=tgtLangs[tr.lang]||tr.lang;
+    const dest=i<2?'':'(ext)';
+    const dv=document.createElement('div');dv.className='prev-divider';el.appendChild(dv);
+    _addPrevSection(el, 'trans_'+i, name+(dest?' '+dest:''), tr.color);
+  }
+}
+
+function _addPrevSection(parent, id, label, color){
+  const sec=document.createElement('div');sec.className='prev-section';
+  const lbl=document.createElement('div');lbl.className='prev-lbl';lbl.textContent=label;
+  sec.appendChild(lbl);
+  const box=document.createElement('div');box.className='prev-text';box.style.color=color;
+  const interim=document.createElement('div');interim.className='prev-line interim';interim.style.display='none';
+  box.appendChild(interim);
+  sec.appendChild(box);parent.appendChild(sec);
+  prevSlots[id]={el:box, lines:[], interimEl:interim, color:color, lastSpeaker:null};
+}
+
+function prevAddLine(slotId, text, speaker, lineId){
+  const s=prevSlots[slotId]; if(!s)return;
+  const line=document.createElement('div');
+  line.className='prev-line';line.style.color=s.color;
+  if(lineId!==undefined) line.dataset.lineId=lineId;
+  if(speaker && speaker!==s.lastSpeaker){
+    const tag=document.createElement('span');tag.className='sp-tag';
+    tag.textContent=speaker+': ';line.appendChild(tag);s.lastSpeaker=speaker;
+  }
+  const txt=document.createTextNode(text);line.appendChild(txt);line._textNode=txt;
+  line._originalText=text; // store for edit dialog
+  // Right-click for captions only (slotId==='caption')
+  if(slotId==='caption' && lineId!==undefined){
+    line.oncontextmenu=e=>{e.preventDefault();openEditDialog(lineId, text, line)};
+    line.title=t('operator.preview_right_click_hint');
+  }
+  s.el.insertBefore(line, s.interimEl);
+  s.interimEl.style.display='none';
+  s.lines.push(line);
+  while(s.lines.length>50){s.lines.shift().remove()}
+  requestAnimationFrame(()=>{s.el.scrollTop=s.el.scrollHeight});
+}
+
+function prevSetInterim(slotId, text, speaker){
+  const s=prevSlots[slotId]; if(!s)return;
+  if(text){
+    s.interimEl.textContent='';
+    if(speaker && speaker!==s.lastSpeaker){
+      const tag=document.createElement('span');tag.className='sp-tag';
+      tag.textContent=speaker+': ';s.interimEl.appendChild(tag);
+    }
+    s.interimEl.appendChild(document.createTextNode(text));
+    s.interimEl.style.display='block';
+  } else {
+    s.interimEl.style.display='none';s.interimEl.textContent='';
+  }
+  requestAnimationFrame(()=>{s.el.scrollTop=s.el.scrollHeight});
+}
+
+function prevCorrectLine(slotId, lineId, newText){
+  const s=prevSlots[slotId]; if(!s)return;
+  for(let i=s.lines.length-1;i>=0;i--){
+    if(s.lines[i].dataset.lineId==lineId){
+      const el=s.lines[i];
+      if(el._textNode) el._textNode.textContent=newText;
+      el._originalText=newText;
+      el.classList.add('corrected');
+      // Update the right-click handler with new text
+      if(slotId==='caption'){
+        el.oncontextmenu=e=>{e.preventDefault();openEditDialog(lineId, newText, el)};
+      }
+      return;
+    }
+  }
+}
+
+function prevClearAll(){
+  Object.values(prevSlots).forEach(s=>{
+    s.lines.forEach(l=>l.remove());s.lines=[];
+    s.interimEl.style.display='none';s.interimEl.textContent='';
+    s.lastSpeaker=null;
+  });
+}
+
+// ── Edit Dialog ──
+function openEditDialog(lineId, currentText, lineEl){
+  // Remove any existing dialog
+  closeEditDialog();
+  const overlay=document.createElement('div');overlay.className='edit-overlay';overlay.id='editOverlay';
+  overlay.onclick=e=>{if(e.target===overlay)closeEditDialog()};
+  const dlg=document.createElement('div');dlg.className='edit-dialog';
+  // Position near the line
+  const rect=lineEl.getBoundingClientRect();
+  dlg.style.left=Math.min(rect.left, window.innerWidth-440)+'px';
+  dlg.style.top=Math.min(rect.bottom+4, window.innerHeight-200)+'px';
+  // M30: use raw currentText in textarea (textareas treat content as raw text, no esc() needed)
+  dlg.innerHTML=`
+    <h4>${t('operator.edit_dialog_title')}</h4>
+    <div class="edit-original">${t('operator.edit_dialog_original',{text:esc(currentText)})}</div>
+    <textarea id="editText">${currentText}</textarea>
+    <div class="edit-btns">
+      <button class="btn btn-g" onclick="closeEditDialog()">${t('operator.edit_dialog_cancel')}</button>
+      <button class="btn btn-p" onclick="submitCorrection(${lineId})">${t('operator.edit_dialog_save')}</button>
+    </div>`;
+  overlay.appendChild(dlg);document.body.appendChild(overlay);
+  const ta=document.getElementById('editText');
+  ta.focus();ta.setSelectionRange(0,ta.value.length);
+  ta.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submitCorrection(lineId)}
+    if(e.key==='Escape')closeEditDialog();
+  });
+}
+
+function closeEditDialog(){
+  const ov=document.getElementById('editOverlay');
+  if(ov)ov.remove();
+}
+
+function submitCorrection(lineId){
+  const ta=document.getElementById('editText');
+  if(!ta)return;
+  const newText=ta.value.trim();
+  if(!newText){closeEditDialog();return}
+  if(ws&&ws.readyState===1){
+    ws.send(JSON.stringify({type:'correct_caption', line_id:lineId, text:newText}));
+  }
+  closeEditDialog();
+}
+
+// ── WebSocket ──
+function connect(){
+  ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
+  ws.onopen=()=>{recon=0;document.getElementById('sDot').className='dot conn';document.getElementById('sTxt').textContent=t('operator.status_connected')};
+  ws.onmessage=e=>{
+    // L-OP5: wrap JSON parse in try/catch
+    let m;
+    try { m=JSON.parse(e.data); } catch(err) { console.error('WS parse error:', err); return; }
+    if(m.type==='status'){
+      if(m.model)document.getElementById('badge').textContent=t('operator.engine_badge',{engine:m.model});
+      if(m.state==='speech')document.getElementById('sTxt').textContent=t('operator.status_speech_detected');
+      else if(m.state==='silence')document.getElementById('sTxt').textContent=t('operator.status_connected_listening');
+    }
+    else if(m.type==='interim'){
+      prevSetInterim('caption', m.text||'', m.speaker||'');
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_interim',{text:m.text||'',speaker:m.speaker||''});
+    }
+    else if(m.type==='final'){
+      prevSetInterim('caption','');
+      if(m.text){
+        prevAddLine('caption', m.text, m.speaker||'', m.line_id);
+        if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_final',{text:m.text,speaker:m.speaker||'',line_id:m.line_id,detected_lang:m.detected_lang});
+      }
+      document.getElementById('pSpeaker').textContent=m.speaker||'';
+      if(m.detected_lang && m.source_id!==undefined){
+        updateDetectionIndicator(m.source_id, m.detected_lang);
+      }
+    }
+    else if(m.type==='interim_translation'){
+      if(m.slot!==undefined) prevSetInterim('trans_'+m.slot, m.translated||'', m.speaker||'');
+    }
+    else if(m.type==='final_translation'){
+      if(m.slot!==undefined){
+        prevSetInterim('trans_'+m.slot,'');
+        if(m.translated) prevAddLine('trans_'+m.slot, m.translated, m.speaker||'', m.line_id);
+      }
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire('on_translation',{translated:m.translated,lang:m.lang,slot:m.slot,speaker:m.speaker||'',line_id:m.line_id});
+    }
+    else if(m.type==='correct_line'){
+      if(m.line_id!==undefined&&m.text) prevCorrectLine('caption', m.line_id, m.text);
+    }
+    else if(m.type==='correct_translation'){
+      if(m.line_id!==undefined&&m.slot!==undefined&&m.translated)
+        prevCorrectLine('trans_'+m.slot, m.line_id, m.translated);
+    }
+    else if(m.type==='offline_translate_error'){
+      // Surface offline-translation failures in the slot's status line
+      const el=document.getElementById('tslot_offline_'+m.slot);
+      if(el){
+        el.style.display='block';
+        el.innerHTML='<span style="color:#f44336">&#10007;</span> '+
+                     t('operator.offline_error_prefix')+': '+esc(m.reason||'');
+      }
+      console.warn('[offline]',m.lang,m.mode,m.reason);
+    }
+    else if(m.type==='config_update'){
+      document.getElementById('pTitle').textContent=m.session_title||t('operator.preview_default_title');
+      if(m.ui_language) loadTranslations(m.ui_language);
+      if(typeof window.refreshPluginPalette==='function') window.refreshPluginPalette();
+    }
+    else if(m.type==='translation_paused'){
+      translationPaused=m.paused;
+      const btn=document.getElementById('pauseBtn');
+      if(translationPaused){
+        // H13: renamed lambda param from t to tr
+        const allOffline=translations.slice(0,transCount).every(tr=>(tr.mode||'deepl').startsWith('offline'));
+        btn.textContent=allOffline?t('operator.resume_translation_offline'):t('operator.resume_translation_credits');
+        btn.style.background='rgba(255,255,255,.08)';btn.style.color='rgba(255,255,255,.55)';btn.style.borderColor='rgba(255,255,255,.1)';
+      } else{btn.textContent=t('operator.pause_translation');btn.style.background='#FF9800';btn.style.color='#000';btn.style.borderColor='#FF9800'}
+      updateSessionHint();
+    }
+    else if(m.type==='captioning_paused'){
+      captioningPaused=m.paused;
+      const btn=document.getElementById('liveBtn');
+      if(captioningPaused){btn.textContent=t('operator.go_live');btn.style.background='#4CAF50';btn.style.color='#fff'}
+      else{btn.textContent=t('operator.pause_captioning');btn.style.background='#f44336';btn.style.color='#fff'}
+      updateSessionHint();
+      if(window.LinguaTaxi&&window.LinguaTaxi.plugins) LinguaTaxi.plugins.fire(m.paused?'on_session_stop':'on_session_start',{});
+    }
+    else if(m.type==='save_transcripts'){
+      saveTranscriptsEnabled=m.enabled;
+      updateSaveToggleUI();
+    }
+    else if(m.type==='clear_captions'){
+      prevClearAll();
+    }
+    else if(m.type==='source_list'){
+      sources=m.sources||[];
+      // H10: only reset focusedSourceId if current one is not in the new list
+      if(sources.length>0 && !sources.find(s=>s.id===focusedSourceId)) focusedSourceId=sources[0].id;
+      buildSourceList();
+    }
+    else if(m.type==='source_added'){
+      sources.push(m.source);
+      buildSourceList();
+    }
+    else if(m.type==='source_removed'){
+      sources=sources.filter(s=>s.id!==m.source_id);
+      if(focusedSourceId===m.source_id){
+        // L-OP4: set focusedSourceId to null when all sources removed
+        if(sources.length>0) focusedSourceId=sources[0].id;
+        else focusedSourceId=null;
+      }
+      buildSourceList();
+    }
+    else if(m.type==='speaker_change'){
+      // Update source speaker in local state
+      if(m.source_id!==undefined){
+        const s=sources.find(x=>x.id===m.source_id);
+        if(s){
+          s.speaker=m.speaker;
+          if(m.color) s.color=m.color;
+        }
+        buildSourceList();
+      }
+      // Auto-detected speaker change — update active speaker button
+      if(m.auto && m.speaker){
+        const spIdx=speakers.indexOf(m.speaker);
+        if(spIdx>=0){
+          activeSp=spIdx+1;
+          document.getElementById('pSpeaker').textContent=m.speaker;
+          buildSpeakerBtns();
+        }
+      }
+      // Fire plugin event for auto speaker changes
+      if(m.auto && window.LinguaTaxi && window.LinguaTaxi.plugins){
+        LinguaTaxi.plugins.fire('on_auto_speaker_change',{speaker:m.speaker,previous:m.previous||'',confidence:m.confidence||0});
+      }
+    }
+    else if(m.type==='voice_id_enrolled'){
+      if(m.speaker) voiceIdEnrolled.add(m.speaker);
+      buildSpeakerBtns();
+    }
+  };
+  ws.onclose=()=>{
+    document.getElementById('sDot').className='dot';
+    document.getElementById('sTxt').textContent=t('operator.status_reconnecting');
+    // H11: show feedback when reconnection stops after 50 attempts
+    if(recon<50){
+      setTimeout(connect,Math.min(1000*Math.pow(1.5,recon++),10000));
+    } else {
+      document.getElementById('sTxt').textContent='Connection lost. Please refresh the page.';
+    }
+  };
+  // H12: add onerror handler so errors trigger onclose reconnection path
+  ws.onerror = () => { ws.close(); };
+}
+connect();
+
+// ── Button sync: poll server status every 5s ──
+function pollStatus() {
+  fetch('/api/status').then(r => r.json()).then(s => {
+    if (s.captioning_paused !== undefined && s.captioning_paused !== captioningPaused) {
+      captioningPaused = s.captioning_paused;
+      const btn = document.getElementById('liveBtn');
+      if (captioningPaused) {
+        btn.textContent = t('operator.go_live');
+        btn.style.background = '#4CAF50';
+        btn.style.color = '#fff';
+      } else {
+        btn.textContent = t('operator.pause_captioning');
+        btn.style.background = '#f44336';
+        btn.style.color = '#fff';
+      }
+    }
+    if (s.translation_paused !== undefined && s.translation_paused !== translationPaused) {
+      translationPaused = s.translation_paused;
+      const btn = document.getElementById('pauseBtn');
+      if (translationPaused) {
+        const allOffline = translations.slice(0, transCount).every(tr => (tr.mode || 'deepl').startsWith('offline'));
+        btn.textContent = allOffline ? t('operator.resume_translation_offline') : t('operator.resume_translation_credits');
+        btn.style.background = 'rgba(255,255,255,.08)';
+        btn.style.color = 'rgba(255,255,255,.55)';
+        btn.style.borderColor = 'rgba(255,255,255,.1)';
+      } else {
+        btn.textContent = t('operator.pause_translation');
+        btn.style.background = '#FF9800';
+        btn.style.color = '#000';
+        btn.style.borderColor = '#FF9800';
+      }
+    }
+    updateSessionHint();
+  }).catch(() => {});
+}
+
+setInterval(pollStatus, 5000);
+pollStatus();
+
+// ── Keyboard ──
+document.addEventListener('keydown',e=>{
+  if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
+  if(e.key==='c'||e.key==='C'){clearCaptions();return}
+  if(e.key==='p'||e.key==='P'){togglePause();return}
+  if(e.key==='l'||e.key==='L'){toggleLive();return}
+  if((e.key==='x'||e.key==='X')&&bidirEnabled){swapBidirLangs();return}
+  if(e.key==='0'){setSp(0);return}
+  const n=parseInt(e.key);
+  if(n>=1&&n<=9&&n<=speakers.length)setSp(n);
+});

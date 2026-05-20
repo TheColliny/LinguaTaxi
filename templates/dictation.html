@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Dictation — LinguaTaxi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/dictation.css">
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="title"><span class="dot" id="dot"></span> <span data-i18n="dictation.toolbar_title">Dictation</span></div>
+  <button class="btn btn-go" id="goBtn" onclick="toggleTranscribing()" data-i18n="dictation.start_btn">Start</button>
+  <div class="mode-toggle" id="modeToggle">
+    <button class="mt-opt active" id="mtToggle" onclick="setMode('toggle')" data-i18n="dictation.mode_toggle">Toggle</button>
+    <button class="mt-opt" id="mtHold" onclick="setMode('hold')" data-i18n="dictation.mode_hold">Hold</button>
+  </div>
+  <div class="ptt-group">
+    <span class="ptt-key" id="pttLabel" data-i18n="dictation.ptt_label">PTT:</span>
+    <span class="ptt-key" id="pttKeyDisplay">none</span>
+    <button class="btn" id="pttBtn" onclick="startCapture()" style="padding:3px 8px;font-size:10px" data-i18n="dictation.ptt_set">Set</button>
+  </div>
+  <span class="status" id="status">Connecting...</span>
+  <span class="wordcount" id="wordcount">0 words</span>
+  <button class="btn btn-accent" onclick="copyAll()" title="Copy all text to clipboard" data-i18n="dictation.copy_btn">Copy</button>
+  <button class="btn btn-accent" onclick="saveFile()" title="Save as .txt file" data-i18n="dictation.save_btn">Save</button>
+  <button class="btn btn-danger" onclick="clearAll()" title="Clear all text" data-i18n="dictation.clear_btn">Clear</button>
+</div>
+<div class="ptt-msg" id="pttMsg"></div>
+
+<div class="settings-row">
+  <label data-i18n="dictation.save_to_label">Save to:</label>
+  <input type="text" id="saveDir" placeholder="Loading..." spellcheck="false" onkeydown="if(event.key==='Enter')updateDir()" data-i18n="dictation.save_to_placeholder" data-i18n-ph>
+  <button class="btn" onclick="updateDir()" style="padding:4px 10px;font-size:10px" data-i18n="dictation.set_btn">Set</button>
+</div>
+
+<div class="interim-bar" id="interimBar" style="display:none">
+  <span class="interim-label" data-i18n="dictation.hearing_label">Hearing:</span>
+  <span class="interim-text" id="interimText"></span>
+</div>
+
+<div class="editor-wrap">
+  <textarea class="editor" id="editor" spellcheck="true"
+    placeholder="Click Start then speak — text will appear here.&#10;&#10;You can click anywhere to position your cursor.&#10;New speech will be inserted at the cursor position.&#10;You can freely edit, select, and type in this area." data-i18n="dictation.editor_placeholder" data-i18n-ph></textarea>
+  <div class="insert-hint" id="insertHint" style="opacity:0" data-i18n="dictation.insert_at_cursor">Insert at cursor</div>
+</div>
+
+<script src="/static/js/dictation.js"></script>
+</body>
+</html>

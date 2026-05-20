@@ -146,7 +146,7 @@ def register_operator_routes(app: FastAPI) -> None:
         """Serve the operator panel HTML page."""
         import server as _srv
 
-        html = (_srv.BASE_DIR / "operator.html").read_text(encoding="utf-8")
+        html = (_srv.BASE_DIR / "templates" / "operator.html").read_text(encoding="utf-8")
         html = html.replace("<!-- PLUGIN_CSS -->", _srv.plugin_dispatcher.get_css_links())
         html = html.replace("<!-- PLUGIN_PANELS -->", _srv.plugin_dispatcher.get_panel_html())
         html = html.replace("<!-- PLUGIN_JS -->", _srv.plugin_dispatcher.get_js_scripts())

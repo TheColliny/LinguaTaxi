@@ -33,7 +33,7 @@ def register_dictation_routes(app: FastAPI) -> None:
     async def dict_index() -> FileResponse:
         """Serve the dictation HTML page."""
         import server as _srv
-        return FileResponse(_srv.BASE_DIR / "dictation.html")
+        return FileResponse(_srv.BASE_DIR / "templates" / "dictation.html")
 
     @app.post("/api/shutdown")
     async def dict_shutdown() -> JSONResponse:

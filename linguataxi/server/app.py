@@ -131,12 +131,13 @@ def _load_speaker_config() -> None:
 plugin_dispatcher.discover()
 plugin_dispatcher.load_enabled(operator_app)
 
-# Serve core static files on all 3 apps
+# Serve core static files on all apps
 _static_dir: Path = BASE_DIR / "static"
 if _static_dir.is_dir():
     operator_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
     display_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static_d")
     extended_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static_e")
+    dictation_app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static_dict")
 
 # Import route registration + plugin file handler
 from linguataxi.server.routes.operator import (  # noqa: E402
