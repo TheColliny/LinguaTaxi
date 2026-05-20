@@ -35,7 +35,7 @@ async def broadcast_all(msg: dict[str, Any]) -> None:
                 await ws.send_text(data)
             except Exception:
                 dead.add(ws)
-        cs -= dead
+        cs.difference_update(dead)
 
 
 async def broadcast_dictation(msg: dict[str, Any]) -> None:
@@ -53,7 +53,7 @@ async def broadcast_dictation(msg: dict[str, Any]) -> None:
             await ws.send_text(data)
         except Exception:
             dead.add(ws)
-    dictation_clients -= dead
+    dictation_clients.difference_update(dead)
 
 
 def _bc(loop: asyncio.AbstractEventLoop, msg: dict[str, Any]) -> None:
