@@ -237,7 +237,7 @@ class ModelDownloadHelper:
 
         # Scrollable checkbox area
         cb_canvas = tk.Canvas(f, bg=app.BG, highlightthickness=0)
-        cb_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=cb_canvas.yview)
+        cb_scrollbar = ctk.CTkScrollbar(f, orientation="vertical", command=cb_canvas.yview)
         cb_frame = ctk.CTkFrame(cb_canvas)
         cb_frame.bind(
             "<Configure>",
@@ -504,7 +504,7 @@ class ModelDownloadHelper:
         ).pack(pady=(0, 12))
 
         cb_canvas = tk.Canvas(f, bg=app.BG, highlightthickness=0)
-        cb_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=cb_canvas.yview)
+        cb_scrollbar = ctk.CTkScrollbar(f, orientation="vertical", command=cb_canvas.yview)
         cb_frame = ctk.CTkFrame(cb_canvas)
         cb_frame.bind(
             "<Configure>",
@@ -773,7 +773,7 @@ class ModelDownloadHelper:
             m2m_info = {"name": "M2M-100 Multilingual", "size_mb": 4800, "available": False}
 
         ol_canvas = tk.Canvas(f, bg=app.BG, highlightthickness=0)
-        ol_scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=ol_canvas.yview)
+        ol_scrollbar = ctk.CTkScrollbar(f, orientation="vertical", command=ol_canvas.yview)
         ol_inner = ctk.CTkFrame(ol_canvas)
         ol_inner.bind(
             "<Configure>",
@@ -1091,7 +1091,7 @@ class ModelDownloadHelper:
         ctk.CTkLabel(f, textvariable=status_var, wraplength=560).pack(fill="x", pady=(0, 8))
 
         canvas = tk.Canvas(f, bg=app.BG, highlightthickness=0)
-        scrollbar = ctk.CTkScrollbar(f, orient="vertical", command=canvas.yview)
+        scrollbar = ctk.CTkScrollbar(f, orientation="vertical", command=canvas.yview)
         list_frame = ctk.CTkFrame(canvas)
 
         list_frame.bind(
