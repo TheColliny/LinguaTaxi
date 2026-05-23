@@ -497,6 +497,13 @@ class LinguaTaxiApp(ctk.CTk):
         )
         self._delete_btn.grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
+        self._keys_btn = ctk.CTkButton(
+            model_grid, text=_t("launcher.manage_api_keys"),
+            fg_color=self.BG3, hover_color=self.ACCENT, text_color=self.FG,
+            height=30, command=self._model_helper.show_key_manager_dialog,
+        )
+        self._keys_btn.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
         # Log Area
         ctk.CTkLabel(
             main, text=_t("launcher.server_log_frame"),
@@ -1301,6 +1308,7 @@ class LinguaTaxiApp(ctk.CTk):
         self._tuned_btn.configure(text=_t("launcher.download_tuned_models"))
         self._offline_btn.configure(text=_t("launcher.download_offline_models"))
         self._delete_btn.configure(text=_t("launcher.delete_installed_models"))
+        self._keys_btn.configure(text=_t("launcher.manage_api_keys"))
         self._vosk_btn.configure(text=_t("launcher.download_vosk_models"))
 
         self.open_tdir_btn.configure(text=_t("launcher.open_transcripts"))

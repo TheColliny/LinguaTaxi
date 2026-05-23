@@ -48,6 +48,190 @@ class ModelDownloadHelper:
     def _find_python(self) -> str:
         return self._app._server_mgr.find_python()
 
+    # ── API key helpers ─────────────────────────────────────────────
+
+    @staticmethod
+    def _load_api_keys() -> dict[str, str]:
+        from linguataxi.settings import get_setting
+        return get_setting("api_keys", {})
+
+    @staticmethod
+    def _save_api_keys(keys: dict[str, str]) -> None:
+        from linguataxi.settings import set_setting
+        set_setting("api_keys", keys)
+
+    def _get_download_env(self) -> dict[str, str]:
+        """Build an env dict for model-download subprocesses.
+
+        Injects stored API tokens (HF_TOKEN, etc.) alongside
+        PYTHONUNBUFFERED so download progress streams in real time.
+        """
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        keys = self._load_api_keys()
+        hf = keys.get("huggingface", "")
+        if hf:
+            env["HF_TOKEN"] = hf
+            env["HUGGING_FACE_HUB_TOKEN"] = hf
+        return env
+
+    @staticmethod
+    def mask_key(value: str) -> str:
+        """Mask an API key for display, preserving ``-`` and ``.`` chars.
+
+        The last 4 characters are always shown in clear text.
+        Everything else is replaced with ``*`` except hyphens and dots.
+        """
+        if not value or len(value) <= 4:
+            return value
+        clear_tail = value[-4:]
+        masked = []
+        for ch in value[:-4]:
+            if ch in ("-", "."):
+                masked.append(ch)
+            else:
+                masked.append("*")
+        return "".join(masked) + clear_tail
+
+    # ── Key Manager Dialog ──────────────────────────────────────────
+
+    _KEY_SERVICES: list[dict[str, str]] = [
+        {
+            "id": "huggingface",
+            "label_key": "launcher.dialog_keys_hf_label",
+            "hint_key": "launcher.dialog_keys_hf_hint",
+        },
+        {
+            "id": "deepl",
+            "label_key": "launcher.dialog_keys_deepl_label",
+            "hint_key": "launcher.dialog_keys_deepl_hint",
+        },
+    ]
+
+    def show_key_manager_dialog(self) -> None:
+        """Show dialog for managing API keys and access tokens."""
+        app = self._app
+        keys = self._load_api_keys()
+
+        dlg = ctk.CTkToplevel(app)
+        dlg.title(_t("launcher.dialog_keys_title"))
+        dlg.geometry("520x420")
+        dlg.minsize(400, 300)
+        dlg.resizable(True, True)
+        dlg.configure(fg_color=app.BG)
+        dlg.transient(app)
+        dlg.grab_set()
+
+        dlg.update_idletasks()
+        px = app.winfo_x() + (app.winfo_width() - 520) // 2
+        py = app.winfo_y() + (app.winfo_height() - 420) // 2
+        dlg.geometry(f"+{px}+{py}")
+
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
+        f.pack(fill="both", expand=True, padx=16, pady=12)
+
+        ctk.CTkLabel(
+            f, text=_t("launcher.dialog_keys_heading"),
+            font=("Segoe UI", 13, "bold"),
+            text_color=app.ACCENT, fg_color=app.BG,
+        ).pack(pady=(0, 4))
+
+        ctk.CTkLabel(
+            f, text=_t("launcher.dialog_keys_description"),
+            justify="center", wraplength=460,
+        ).pack(pady=(0, 16))
+
+        entries: dict[str, ctk.CTkEntry] = {}
+        status_var = tk.StringVar(value="")
+
+        for svc in self._KEY_SERVICES:
+            svc_id = svc["id"]
+            stored = keys.get(svc_id, "")
+
+            ctk.CTkLabel(
+                f, text=_t(svc["label_key"]),
+                font=("Segoe UI", 11, "bold"),
+                text_color=app.FG, anchor="w",
+            ).pack(fill="x", pady=(8, 0))
+
+            ctk.CTkLabel(
+                f, text=_t(svc["hint_key"]),
+                text_color="#999", anchor="w",
+                font=("Segoe UI", 9),
+            ).pack(fill="x", pady=(0, 4))
+
+            row = ctk.CTkFrame(f, fg_color="transparent")
+            row.pack(fill="x", pady=(0, 4))
+
+            entry = ctk.CTkEntry(
+                row, placeholder_text=_t("launcher.dialog_keys_placeholder"),
+                width=380,
+            )
+            entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+            if stored:
+                entry.insert(0, self.mask_key(stored))
+                entry.configure(state="disabled")
+
+            entries[svc_id] = entry
+
+            def _make_clear(sid: str = svc_id, ent: ctk.CTkEntry = entry) -> None:
+                keys.pop(sid, None)
+                self._save_api_keys(keys)
+                ent.configure(state="normal")
+                ent.delete(0, "end")
+                status_var.set(
+                    _t("launcher.dialog_keys_cleared", name=_t(
+                        next(s["label_key"] for s in self._KEY_SERVICES if s["id"] == sid)
+                    ))
+                )
+
+            clear_btn = ctk.CTkButton(
+                row, text=_t("launcher.dialog_keys_clear"),
+                width=60, fg_color="#c62828", hover_color="#f44336",
+                text_color="#fff",
+                command=_make_clear,
+            )
+            clear_btn.pack(side="right")
+
+        # Save + Close buttons
+        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(20, 0))
+
+        def _save() -> None:
+            for svc in self._KEY_SERVICES:
+                svc_id = svc["id"]
+                ent = entries[svc_id]
+                raw = ent.get().strip()
+                if not raw or raw == self.mask_key(keys.get(svc_id, "")):
+                    continue
+                keys[svc_id] = raw
+                ent.configure(state="normal")
+                ent.delete(0, "end")
+                ent.insert(0, self.mask_key(raw))
+                ent.configure(state="disabled")
+            self._save_api_keys(keys)
+            if keys.get("deepl"):
+                from linguataxi.settings import load_config, save_config
+                cfg = load_config()
+                cfg["deepl_api_key"] = keys["deepl"]
+                save_config(cfg)
+            status_var.set(_t("launcher.dialog_keys_saved"))
+
+        ctk.CTkButton(
+            btn_frame, text=_t("launcher.dialog_keys_save"),
+            fg_color="#66BB6A", hover_color="#81C784", text_color="#000",
+            command=_save,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_frame, text=_t("launcher.close"),
+            command=dlg.destroy,
+        ).pack(side="right")
+
+        ctk.CTkLabel(btn_frame, textvariable=status_var, text_color="#66BB6A").pack(
+            side="left", padx=(12, 0),
+        )
+
     # ── First-run check ──────────────────────────────────────────────
 
     def needs_model_download(self) -> bool:
@@ -132,6 +316,7 @@ class ModelDownloadHelper:
                     stderr=subprocess.STDOUT,
                     universal_newlines=True,
                     cwd=str(self._app_dir),
+                    env=self._get_download_env(),
                     **kwargs,
                 )
 
@@ -349,7 +534,7 @@ class ModelDownloadHelper:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 universal_newlines=True, cwd=str(self._app_dir),
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env=self._get_download_env(),
                 **kwargs,
             )
 
@@ -945,7 +1130,7 @@ class ModelDownloadHelper:
                         proc = subprocess.Popen(
                             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             universal_newlines=True, cwd=str(self._app_dir),
-                            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                            env=self._get_download_env(),
                             **kwargs,
                         )
                     except Exception as e:

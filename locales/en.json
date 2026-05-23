@@ -141,6 +141,20 @@
   "launcher.dialog_models_refresh": "Refresh",
   "launcher.dialog_models_delete_btn": "Delete",
 
+  "launcher.manage_api_keys": "\ud83d\udd11  Manage API Keys & Tokens",
+  "launcher.dialog_keys_title": "API Keys & Tokens",
+  "launcher.dialog_keys_heading": "API Keys & Tokens",
+  "launcher.dialog_keys_description": "Enter API keys or access tokens for services that require\nauthentication. Keys are stored locally on this machine.",
+  "launcher.dialog_keys_hf_label": "HuggingFace Token",
+  "launcher.dialog_keys_hf_hint": "Required for downloading gated models. Get one at huggingface.co/settings/tokens",
+  "launcher.dialog_keys_deepl_label": "DeepL API Key",
+  "launcher.dialog_keys_deepl_hint": "For online translation. Get a free key at deepl.com/pro-api",
+  "launcher.dialog_keys_placeholder": "Paste key here...",
+  "launcher.dialog_keys_save": "Save",
+  "launcher.dialog_keys_clear": "Clear",
+  "launcher.dialog_keys_saved": "Keys saved.",
+  "launcher.dialog_keys_cleared": "{name} key cleared.",
+
   "launcher.download_selected": "Download Selected",
   "launcher.close": "Close",
 
