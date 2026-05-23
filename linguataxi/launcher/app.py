@@ -1003,7 +1003,7 @@ class LinguaTaxiApp(ctk.CTk):
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_update_available_heading", version=version),
             font=("Segoe UI", 12, "bold"),
-            foreground=self.ACCENT, background=self.BG,
+            text_color=self.ACCENT, fg_color=self.BG,
         ).pack(pady=(0, 4))
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_update_current_version", version=VERSION),

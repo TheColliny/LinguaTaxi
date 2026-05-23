@@ -92,8 +92,8 @@ class ModelDownloadHelper:
             f,
             text=_t("launcher.dialog_downloading_model"),
             font=("Segoe UI", 12, "bold"),
-            foreground=app.ACCENT,
-            background=app.BG,
+            text_color=app.ACCENT,
+            fg_color=app.BG,
         ).pack(pady=(0, 8))
 
         status_var = tk.StringVar(value=_t("launcher.dialog_preparing_download"))
@@ -215,7 +215,7 @@ class ModelDownloadHelper:
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_tuned_heading"),
             font=("Segoe UI", 13, "bold"),
-            foreground=app.ACCENT, background=app.BG,
+            text_color=app.ACCENT, fg_color=app.BG,
         ).pack(pady=(0, 4))
 
         ctk.CTkLabel(
@@ -495,7 +495,7 @@ class ModelDownloadHelper:
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_vosk_heading"),
             font=("Segoe UI", 13, "bold"),
-            foreground=app.ACCENT, background=app.BG,
+            text_color=app.ACCENT, fg_color=app.BG,
         ).pack(pady=(0, 4))
 
         ctk.CTkLabel(
@@ -747,7 +747,7 @@ class ModelDownloadHelper:
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_offline_heading"),
             font=("Segoe UI", 13, "bold"),
-            foreground=app.ACCENT, background=app.BG,
+            text_color=app.ACCENT, fg_color=app.BG,
         ).pack(pady=(0, 4))
 
         ctk.CTkLabel(
@@ -1084,7 +1084,7 @@ class ModelDownloadHelper:
         ctk.CTkLabel(
             f, text=_t("launcher.dialog_models_heading"),
             font=("Segoe UI", 13, "bold"),
-            foreground=app.ACCENT, background=app.BG,
+            text_color=app.ACCENT, fg_color=app.BG,
         ).pack(pady=(0, 4))
 
         status_var = tk.StringVar(value=_t("launcher.dialog_models_loading"))
