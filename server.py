@@ -112,6 +112,8 @@ _proxy.__spec__ = _this.__spec__
 _proxy.__path__ = getattr(_this, "__path__", None)  # type: ignore[assignment]
 _proxy.__package__ = _this.__package__
 sys.modules[__name__] = _proxy
+if __name__ != "server":
+    sys.modules["server"] = _proxy
 
 
 if __name__ == "__main__":
