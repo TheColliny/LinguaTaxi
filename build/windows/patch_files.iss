@@ -1,4 +1,5 @@
-; Auto-generated — Patch 4 for v1.0.3b
-; Enable WASAPI auto_convert so 16kHz streams work when system mixer is at 48kHz
+; Auto-generated — Patch 5 for v1.0.3b
+; Name-based device dedup + host API fallback for reliable audio capture
 Source: "..\..\linguataxi\server\audio.py"; DestDir: "{app}\linguataxi\server"; Flags: ignoreversion
+Source: "..\..\linguataxi\launcher\settings_panel.py"; DestDir: "{app}\linguataxi\launcher"; Flags: ignoreversion
 Source: "..\..\version.json"; DestDir: "{app}"; Flags: ignoreversion
