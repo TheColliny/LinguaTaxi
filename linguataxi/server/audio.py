@@ -615,62 +615,67 @@ def _open_input_stream(
     """
     bs: int = int(SAMPLE_RATE * CHUNK_DURATION)
 
-    wasapi_kw: dict[str, Any] = {}
-    if sys.platform == "win32":
-        try:
-            wasapi_kw["extra_settings"] = sd.WasapiSettings(exclusive=False, auto_convert=True)
-        except Exception:
-            pass
-
-    first_err: Exception | None = None
-
-    # First try: open at the target 16 kHz
-    try:
-        s = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
-                           blocksize=bs, device=source.device_index, callback=callback,
-                           **wasapi_kw)
+    def _try_open(dev_idx: int | str, rate: int, cb: Callable[..., None]) -> sd.InputStream:
+        blk = int(rate * CHUNK_DURATION)
+        s = sd.InputStream(samplerate=rate, channels=CHANNELS, dtype=DTYPE,
+                           blocksize=blk, device=dev_idx, callback=cb)
         s.start()
-        log.info(f"Audio stream opened for [{source.name}] at {SAMPLE_RATE} Hz "
-                 f"(device: {source.device_index or 'default'})")
         return s
-    except Exception as e:
-        first_err = e
-        log.debug(f"[{source.name}] cannot open at {SAMPLE_RATE} Hz: {first_err}")
 
-    # Fallback: open at the device's native rate and resample
-    try:
-        dev_info = sd.query_devices(source.device_index)
-        native_rate = int(dev_info["default_samplerate"])
-    except Exception:
-        raise first_err  # can't determine native rate -- re-raise original error
-
-    if native_rate == SAMPLE_RATE:
-        raise first_err  # native rate is already what we tried
-
-    native_bs: int = int(native_rate * CHUNK_DURATION)
-
-    # Build a resampling callback that converts native_rate -> SAMPLE_RATE
-    def _resample_cb(indata: np.ndarray, frames: int, ti: Any, status: Any) -> None:
-        if status:
-            log.warning(f"Audio [{source.name}]: {status}")
-        # Simple linear interpolation resample (good enough for speech)
+    def _make_resample_cb(native_rate: int) -> Callable[..., None]:
         ratio = SAMPLE_RATE / native_rate
-        n_out = int(len(indata) * ratio)
-        indices = np.linspace(0, len(indata) - 1, n_out).astype(np.float32)
-        idx_floor = indices.astype(np.intp)
-        idx_ceil = np.minimum(idx_floor + 1, len(indata) - 1)
-        frac = (indices - idx_floor).reshape(-1, 1)
-        resampled = indata[idx_floor] * (1 - frac) + indata[idx_ceil] * frac
-        source.queue.put(resampled.astype(np.float32))
+        def _resample_cb(indata: np.ndarray, frames: int, ti: Any, status: Any) -> None:
+            if status:
+                log.warning(f"Audio [{source.name}]: {status}")
+            n_out = int(len(indata) * ratio)
+            indices = np.linspace(0, len(indata) - 1, n_out).astype(np.float32)
+            idx_floor = indices.astype(np.intp)
+            idx_ceil = np.minimum(idx_floor + 1, len(indata) - 1)
+            frac = (indices - idx_floor).reshape(-1, 1)
+            resampled = indata[idx_floor] * (1 - frac) + indata[idx_ceil] * frac
+            source.queue.put(resampled.astype(np.float32))
+        return _resample_cb
 
-    s = sd.InputStream(samplerate=native_rate, channels=CHANNELS, dtype=DTYPE,
-                       blocksize=native_bs, device=source.device_index,
-                       callback=_resample_cb, **wasapi_kw)
-    s.start()
-    log.info(f"Audio stream opened for [{source.name}] at {native_rate} Hz "
-             f"(native rate, resampling to {SAMPLE_RATE} Hz) "
-             f"(device: {source.device_index or 'default'})")
-    return s
+    def _try_device(dev_idx: int | str) -> sd.InputStream:
+        """Try opening a device at 16 kHz, then at its native rate."""
+        first: Exception | None = None
+        try:
+            s = _try_open(dev_idx, SAMPLE_RATE, callback)
+            log.info(f"Audio stream opened for [{source.name}] at {SAMPLE_RATE} Hz "
+                     f"(device: {dev_idx})")
+            return s
+        except Exception as e:
+            first = e
+            log.debug(f"[{source.name}] device {dev_idx} at {SAMPLE_RATE} Hz: {e}")
+
+        dev_info = sd.query_devices(dev_idx)
+        native_rate = int(dev_info["default_samplerate"])
+        if native_rate == SAMPLE_RATE:
+            raise first
+        s = _try_open(dev_idx, native_rate, _make_resample_cb(native_rate))
+        log.info(f"Audio stream opened for [{source.name}] at {native_rate} Hz "
+                 f"(resampling to {SAMPLE_RATE}) (device: {dev_idx})")
+        return s
+
+    # Primary attempt with the requested device index
+    try:
+        return _try_device(source.device_index)
+    except Exception as primary_err:
+        log.debug(f"[{source.name}] primary device {source.device_index} failed: {primary_err}")
+
+    # Fallback: find same device name under a different host API
+    if sys.platform == "win32" and source.name:
+        all_devs = sd.query_devices()
+        for alt_idx, d in enumerate(all_devs):
+            if (d["name"] == source.name
+                    and alt_idx != source.device_index
+                    and d.get("max_input_channels", 0) > 0):
+                try:
+                    return _try_device(alt_idx)
+                except Exception:
+                    continue
+
+    raise primary_err
 
 
 def start_source_capture(source: AudioSource) -> None:

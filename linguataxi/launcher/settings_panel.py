@@ -82,9 +82,10 @@ def save_settings(cfg: dict[str, Any]) -> None:
 def list_mics() -> list[tuple[int, str, bool]]:
     """Return list of ``(index, name, is_loopback)`` for currently active input devices.
 
-    On Windows, filters to WASAPI devices only to eliminate duplicates
-    across MME/DirectSound/WDM-KS host APIs and to exclude disconnected
-    Bluetooth devices that older APIs still report as available.
+    On Windows, deduplicates by device name across host APIs (MME,
+    DirectSound, WASAPI, WDM-KS) so each physical device appears once.
+    Validates each candidate with ``check_input_settings`` and skips
+    devices that fail (e.g. disconnected Bluetooth).
     """
     try:
         import sounddevice as sd
@@ -93,23 +94,51 @@ def list_mics() -> list[tuple[int, str, bool]]:
         sd._initialize()
 
         devices = sd.query_devices()
-        hostapis = sd.query_hostapis()
 
-        wasapi_idx: int | None = None
-        for idx, api in enumerate(hostapis):
-            if "wasapi" in api.get("name", "").lower():
-                wasapi_idx = idx
-                break
+        if IS_WIN:
+            hostapis = sd.query_hostapis()
+            api_rank = {}
+            for idx, api in enumerate(hostapis):
+                name_l = api.get("name", "").lower()
+                if "wasapi" in name_l:
+                    api_rank[idx] = 0
+                elif "mme" in name_l:
+                    api_rank[idx] = 1
+                elif "directsound" in name_l or "ds" in name_l:
+                    api_rank[idx] = 2
+                else:
+                    api_rank[idx] = 3
 
-        mics: list[tuple[int, str, bool]] = []
+            by_name: dict[str, list[tuple[int, dict]]] = {}
+            for i, d in enumerate(devices):
+                if d.get("max_input_channels", 0) > 0:
+                    by_name.setdefault(d["name"], []).append((i, d))
+
+            mics: list[tuple[int, str, bool]] = []
+            for name, candidates in by_name.items():
+                candidates.sort(key=lambda x: api_rank.get(x[1].get("hostapi"), 99))
+                for i, d in candidates:
+                    try:
+                        sd.check_input_settings(
+                            device=i, channels=1,
+                            samplerate=d.get("default_samplerate", 16000),
+                        )
+                    except sd.PortAudioError:
+                        continue
+                    is_loopback = any(
+                        kw in name.lower()
+                        for kw in ["loopback", "stereo mix", "what u hear"]
+                    )
+                    mics.append((i, name, is_loopback))
+                    break
+            return mics
+
+        mics = []
         for i, d in enumerate(devices):
             if d.get("max_input_channels", 0) > 0:
-                if wasapi_idx is not None and d.get("hostapi") != wasapi_idx:
-                    continue
                 try:
                     sd.check_input_settings(
-                        device=i,
-                        channels=1,
+                        device=i, channels=1,
                         samplerate=d.get("default_samplerate", 16000),
                     )
                 except sd.PortAudioError:
@@ -117,7 +146,7 @@ def list_mics() -> list[tuple[int, str, bool]]:
                 name = d["name"]
                 is_loopback = any(
                     kw in name.lower()
-                    for kw in ["loopback", "stereo mix", "what u hear", "wasapi"]
+                    for kw in ["loopback", "stereo mix", "what u hear"]
                 )
                 mics.append((i, name, is_loopback))
         return mics
