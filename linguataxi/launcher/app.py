@@ -408,11 +408,21 @@ class LinguaTaxiApp(ctk.CTk):
         settings_inner.pack(fill="x", padx=12, pady=12)
 
         # Audio Sources
+        audio_header = ctk.CTkFrame(settings_inner, fg_color="transparent")
+        audio_header.pack(fill="x")
         self._audio_lbl = ctk.CTkLabel(
-            settings_inner, text=_t("launcher.audio_sources"),
+            audio_header, text=_t("launcher.audio_sources"),
             font=("Segoe UI", 10, "bold"), text_color=self.ACCENT,
         )
-        self._audio_lbl.pack(anchor="w")
+        self._audio_lbl.pack(side="left")
+        self._refresh_audio_btn = ctk.CTkButton(
+            audio_header, text=_t("launcher.refresh_devices"),
+            fg_color=self.BG3, hover_color=self.ACCENT,
+            text_color=self.FG, height=22, width=80,
+            font=("Segoe UI", 10),
+            command=lambda: self._settings_helper.refresh_all_sources(),
+        )
+        self._refresh_audio_btn.pack(side="right")
         self._source_frames: list[tuple[Any, Any, Any]] = []
         self._sources_container = ctk.CTkFrame(settings_inner, fg_color="transparent")
         self._sources_container.pack(fill="x", pady=(2, 4))
@@ -1278,6 +1288,7 @@ class LinguaTaxiApp(ctk.CTk):
 
         self._browse_btn.configure(text=_t("launcher.browse"))
         self._audio_lbl.configure(text=_t("launcher.audio_sources"))
+        self._refresh_audio_btn.configure(text=_t("launcher.refresh_devices"))
         self._add_source_btn.configure(text=_t("launcher.add_source"))
         self._backend_lbl.configure(text=_t("launcher.speech_backend"))
 

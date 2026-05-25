@@ -80,14 +80,25 @@ def save_settings(cfg: dict[str, Any]) -> None:
 # ── Microphone detection ────────────────────────────────────────────
 
 def list_mics() -> list[tuple[int, str, bool]]:
-    """Return list of ``(index, name, is_loopback)`` for available input devices."""
+    """Return list of ``(index, name, is_loopback)`` for currently active input devices."""
     try:
         import sounddevice as sd
+
+        sd._terminate()
+        sd._initialize()
 
         devices = sd.query_devices()
         mics: list[tuple[int, str, bool]] = []
         for i, d in enumerate(devices):
             if d.get("max_input_channels", 0) > 0:
+                try:
+                    sd.check_input_settings(
+                        device=i,
+                        channels=1,
+                        samplerate=d.get("default_samplerate", 16000),
+                    )
+                except sd.PortAudioError:
+                    continue
                 name = d["name"]
                 is_loopback = any(
                     kw in name.lower()
@@ -228,6 +239,16 @@ class SettingsHelper:
         elif IS_WIN:
             values.append(_t("launcher.no_system_audio"))
         combo.configure(values=values)
+
+    def refresh_all_sources(self) -> None:
+        """Re-scan devices and update every source dropdown, preserving selections."""
+        app = self._app
+        for _, combo, var in app._source_frames:
+            prev = var.get()
+            self.refresh_source_combo(combo)
+            if prev in combo.cget("values"):
+                var.set(prev)
+        app._log_system("Audio devices refreshed.")
 
     def get_source_indices(self) -> list[int]:
         """Get device indices for all configured audio sources."""

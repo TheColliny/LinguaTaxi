@@ -38,6 +38,7 @@
   "launcher.system_audio_separator": "\u2500\u2500 System Audio \u2500\u2500",
   "launcher.no_system_audio": "\u2500\u2500 No system audio found (enable Stereo Mix) \u2500\u2500",
   "launcher.add_source": "+ Add Source",
+  "launcher.refresh_devices": "\u21bb Refresh",
   "launcher.speech_backend": "Speech Backend:",
   "launcher.backend_auto": "auto",
   "launcher.backend_whisper": "whisper (best)",
