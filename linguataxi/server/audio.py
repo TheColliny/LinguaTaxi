@@ -618,7 +618,7 @@ def _open_input_stream(
     wasapi_kw: dict[str, Any] = {}
     if sys.platform == "win32":
         try:
-            wasapi_kw["extra_settings"] = sd.WasapiSettings(exclusive=False)
+            wasapi_kw["extra_settings"] = sd.WasapiSettings(exclusive=False, auto_convert=True)
         except Exception:
             pass
 
