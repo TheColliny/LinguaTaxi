@@ -80,7 +80,12 @@ def save_settings(cfg: dict[str, Any]) -> None:
 # ── Microphone detection ────────────────────────────────────────────
 
 def list_mics() -> list[tuple[int, str, bool]]:
-    """Return list of ``(index, name, is_loopback)`` for currently active input devices."""
+    """Return list of ``(index, name, is_loopback)`` for currently active input devices.
+
+    On Windows, filters to WASAPI devices only to eliminate duplicates
+    across MME/DirectSound/WDM-KS host APIs and to exclude disconnected
+    Bluetooth devices that older APIs still report as available.
+    """
     try:
         import sounddevice as sd
 
@@ -88,9 +93,19 @@ def list_mics() -> list[tuple[int, str, bool]]:
         sd._initialize()
 
         devices = sd.query_devices()
+        hostapis = sd.query_hostapis()
+
+        wasapi_idx: int | None = None
+        for idx, api in enumerate(hostapis):
+            if "wasapi" in api.get("name", "").lower():
+                wasapi_idx = idx
+                break
+
         mics: list[tuple[int, str, bool]] = []
         for i, d in enumerate(devices):
             if d.get("max_input_channels", 0) > 0:
+                if wasapi_idx is not None and d.get("hostapi") != wasapi_idx:
+                    continue
                 try:
                     sd.check_input_settings(
                         device=i,
