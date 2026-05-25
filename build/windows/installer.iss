@@ -52,7 +52,7 @@ SetupIconFile=..\..\assets\linguataxi.ico
 #endif
 UninstallDisplayIcon={app}\assets\linguataxi.ico
 UninstallDisplayName={#MyAppName}
-Compression=lzma2/ultra64
+Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
