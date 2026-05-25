@@ -658,9 +658,11 @@ def _open_input_stream(
         return s
 
     # Primary attempt with the requested device index
+    primary_err: Exception | None = None
     try:
         return _try_device(source.device_index)
-    except Exception as primary_err:
+    except Exception as e:
+        primary_err = e
         log.debug(f"[{source.name}] primary device {source.device_index} failed: {primary_err}")
 
     # Fallback: find same device name under a different host API
