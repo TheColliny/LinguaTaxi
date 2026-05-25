@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import queue
+import sys
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -614,15 +615,26 @@ def _open_input_stream(
     """
     bs: int = int(SAMPLE_RATE * CHUNK_DURATION)
 
+    wasapi_kw: dict[str, Any] = {}
+    if sys.platform == "win32":
+        try:
+            wasapi_kw["extra_settings"] = sd.WasapiSettings(exclusive=False)
+        except Exception:
+            pass
+
+    first_err: Exception | None = None
+
     # First try: open at the target 16 kHz
     try:
         s = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE,
-                           blocksize=bs, device=source.device_index, callback=callback)
+                           blocksize=bs, device=source.device_index, callback=callback,
+                           **wasapi_kw)
         s.start()
         log.info(f"Audio stream opened for [{source.name}] at {SAMPLE_RATE} Hz "
                  f"(device: {source.device_index or 'default'})")
         return s
-    except Exception as first_err:
+    except Exception as e:
+        first_err = e
         log.debug(f"[{source.name}] cannot open at {SAMPLE_RATE} Hz: {first_err}")
 
     # Fallback: open at the device's native rate and resample
@@ -653,7 +665,7 @@ def _open_input_stream(
 
     s = sd.InputStream(samplerate=native_rate, channels=CHANNELS, dtype=DTYPE,
                        blocksize=native_bs, device=source.device_index,
-                       callback=_resample_cb)
+                       callback=_resample_cb, **wasapi_kw)
     s.start()
     log.info(f"Audio stream opened for [{source.name}] at {native_rate} Hz "
              f"(native rate, resampling to {SAMPLE_RATE} Hz) "
