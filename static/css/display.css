@@ -41,3 +41,21 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 .footer-banner.vis{display:flex;align-items:center}
 .footer-banner img{height:auto;max-height:100%;max-width:min(95%,1000px);object-fit:contain;border-radius:5px;position:absolute;transform:translateX(-50%);transition:left .3s ease}
 .footer-banner .footer-text{position:absolute;transform:translateX(-50%);transition:left .3s ease;font-size:clamp(12px,1.5vh,20px);color:rgba(255,255,255,.7);white-space:nowrap;font-weight:600;letter-spacing:.03em}
+
+/* ── Fact-check chyron ── */
+.fc-chyron{flex-shrink:0;display:none;height:clamp(36px,5vh,52px);background:linear-gradient(90deg,#1a1a3e,#0d0d2b);border-top:2px solid rgba(79,195,247,.3);overflow:hidden;position:relative}
+.fc-chyron.vis{display:flex;align-items:center}
+.fc-chyron-label{flex-shrink:0;padding:0 1.2vw;font-weight:800;font-size:clamp(11px,1.3vh,16px);text-transform:uppercase;letter-spacing:.12em;color:#fff;background:rgba(79,195,247,.15);height:100%;display:flex;align-items:center;border-right:2px solid rgba(79,195,247,.3);z-index:1}
+.fc-chyron-track{flex:1;overflow:hidden;position:relative;height:100%;display:flex;align-items:center}
+.fc-chyron-scroll{display:flex;align-items:center;gap:4vw;white-space:nowrap;position:absolute;animation:chyron-scroll linear infinite;will-change:transform}
+.fc-chyron-item{display:inline-flex;align-items:center;gap:.8vw;font-size:clamp(14px,1.6vh,22px);font-weight:600}
+.fc-chyron-verdict{padding:.15em .6em;border-radius:4px;font-weight:800;font-size:.85em;text-transform:uppercase;letter-spacing:.05em}
+.fc-chyron-verdict.v-true{background:#2e7d32;color:#c8e6c9}
+.fc-chyron-verdict.v-mostly-true{background:#558b2f;color:#dcedc8}
+.fc-chyron-verdict.v-mixed{background:#f57f17;color:#fff8e1}
+.fc-chyron-verdict.v-mostly-false{background:#d84315;color:#ffccbc}
+.fc-chyron-verdict.v-false{background:#b71c1c;color:#ffcdd2}
+.fc-chyron-verdict.v-unverifiable{background:#455a64;color:#cfd8dc}
+.fc-chyron-score{font-family:monospace;opacity:.7;font-size:.85em}
+.fc-chyron-sep{color:rgba(79,195,247,.4);font-size:1.2em}
+@keyframes chyron-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}

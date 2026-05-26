@@ -269,14 +269,45 @@
     results.unshift(data);
     if (results.length > MAX_RESULTS) results.pop();
 
-    if (!elResults) return;
-    if (elEmpty) elEmpty.style.display = 'none';
-    const el = document.createElement('div');
-    el.className = 'fc-card';
-    el.innerHTML = buildCardHTML(data);
-    elResults.insertBefore(el, elResults.firstChild);
-    trimResults();
-    updateCount();
+    appendToChyron(data);
+  }
+
+  // ── Chyron (audience-side scrolling ticker) ─────────────────────────────
+  let chyronItems = [];
+  const MAX_CHYRON = 20;
+
+  function verdictClass(v) {
+    return 'v-' + (v || 'unverifiable').toLowerCase().replace(/\s+/g, '-');
+  }
+
+  function appendToChyron(r) {
+    const chyron = document.getElementById('fcChyron');
+    const track  = document.getElementById('fcChyronTrack');
+    if (!chyron || !track) return;
+
+    chyronItems.unshift(r);
+    if (chyronItems.length > MAX_CHYRON) chyronItems.pop();
+    chyron.classList.add('vis');
+    rebuildChyronTrack(track);
+  }
+
+  function rebuildChyronTrack(track) {
+    const items = chyronItems.map(r => {
+      const vLabel = (r.verdict || 'UNVERIFIABLE').replace(/_/g, ' ');
+      const vCls   = verdictClass(r.verdict);
+      const score  = r.accuracy_score != null ? `<span class="fc-chyron-score">${Math.round(r.accuracy_score)}%</span>` : '';
+      return `<span class="fc-chyron-item"><span class="fc-chyron-verdict ${vCls}">${esc(vLabel)}</span>\u201C${esc(r.statement)}\u201D${score}</span>`;
+    }).join('<span class="fc-chyron-sep">\u2022</span>');
+
+    // Duplicate content so scrolling loops seamlessly
+    track.innerHTML = `<div class="fc-chyron-scroll">${items}<span class="fc-chyron-sep">\u2022</span>${items}<span class="fc-chyron-sep">\u2022</span></div>`;
+
+    const scroll = track.querySelector('.fc-chyron-scroll');
+    if (!scroll) return;
+    const halfW = scroll.scrollWidth / 2;
+    const speed = 80; // px per second
+    const dur   = halfW / speed;
+    scroll.style.animationDuration = dur + 's';
   }
 
   // ── Rendering ────────────────────────────────────────────────────────────
