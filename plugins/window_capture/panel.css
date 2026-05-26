@@ -1,0 +1,93 @@
+/* LinguaTaxi — Window Capture Panel Styles
+   Scoped to wc-* to avoid collisions. */
+
+/* ── Operator controls ────────────────────────────────────────────────── */
+.wc-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.wc-btn {
+  padding: 6px 14px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.7);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.wc-btn--start {
+  border-color: rgba(79,195,247,0.35);
+  color: #4FC3F7;
+  background: rgba(79,195,247,0.08);
+}
+.wc-btn--start:hover {
+  background: rgba(79,195,247,0.18);
+  border-color: rgba(79,195,247,0.5);
+}
+
+.wc-btn--stop {
+  border-color: rgba(244,67,54,0.35);
+  color: #EF5350;
+  background: rgba(244,67,54,0.08);
+}
+.wc-btn--stop:hover {
+  background: rgba(244,67,54,0.18);
+  border-color: rgba(244,67,54,0.5);
+}
+
+.wc-status {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  font-family: monospace;
+  letter-spacing: 0.02em;
+}
+
+/* ── Operator preview ─────────────────────────────────────────────────── */
+.wc-preview-wrap {
+  padding: 4px 12px 8px;
+}
+
+#wc-preview {
+  width: 100%;
+  max-height: 180px;
+  border-radius: 4px;
+  background: #000;
+  object-fit: contain;
+}
+
+/* ── Display video ────────────────────────────────────────────────────── */
+#wc-display {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+}
+
+#wc-video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.wc-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.25);
+  pointer-events: none;
+}

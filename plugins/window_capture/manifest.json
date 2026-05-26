@@ -1,0 +1,28 @@
+{
+  "id": "window_capture",
+  "name": "Window Capture",
+  "version": "1.0.0",
+  "description": "Captures an application window (e.g. Zoom) via getDisplayMedia and streams it to the display grid at up to 30fps.",
+  "author": "LinguaTaxi",
+  "hooks": [],
+  "has_routes": true,
+  "has_panel": true,
+  "route_prefix": "/api/window-capture",
+  "settings_schema": {
+    "fps": {
+      "type": "number",
+      "label": "Capture FPS (1-30)",
+      "default": 30
+    },
+    "bitrate": {
+      "type": "number",
+      "label": "Video bitrate (bps, e.g. 1500000)",
+      "default": 1500000
+    },
+    "max_height": {
+      "type": "number",
+      "label": "Max capture height (px)",
+      "default": 480
+    }
+  }
+}

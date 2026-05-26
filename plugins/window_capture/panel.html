@@ -1,0 +1,14 @@
+<div id="wc-operator" style="display:none">
+  <div class="wc-controls">
+    <button class="wc-btn wc-btn--start" id="wc-start" onclick="window._wcStart()">Select Window</button>
+    <button class="wc-btn wc-btn--stop" id="wc-stop" onclick="window._wcStop()" style="display:none">Stop Capture</button>
+    <span class="wc-status" id="wc-status"></span>
+  </div>
+  <div class="wc-preview-wrap" id="wc-preview-wrap" style="display:none">
+    <video id="wc-preview" muted playsinline autoplay></video>
+  </div>
+</div>
+<div id="wc-display" style="display:none">
+  <video id="wc-video" muted playsinline autoplay style="display:none"></video>
+  <div class="wc-empty" id="wc-empty">No window capture active</div>
+</div>

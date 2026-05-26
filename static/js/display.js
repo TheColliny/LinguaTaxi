@@ -498,6 +498,11 @@ function handleMsg(msg) {
         buildGrid();
       }
       break;
+    case 'wc_init':
+      if (window.LinguaTaxi && window.LinguaTaxi.plugins) {
+        window.LinguaTaxi.plugins.fire('on_binary', msg.mime);
+      }
+      break;
     default: break;
   }
 }
@@ -506,7 +511,15 @@ function handleMsg(msg) {
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
   ws.onopen = () => { recon = 0; setCaptionDot('conn'); };
-  ws.onmessage = e => { try { handleMsg(JSON.parse(e.data)); } catch (err) {} };
+  ws.onmessage = e => {
+    if (typeof e.data !== 'string') {
+      if (window.LinguaTaxi && window.LinguaTaxi.plugins) {
+        window.LinguaTaxi.plugins.fire('on_binary', e.data);
+      }
+      return;
+    }
+    try { handleMsg(JSON.parse(e.data)); } catch (err) {}
+  };
   ws.onclose = () => {
     setCaptionDot('');
     if (recon < 50) setTimeout(connect, Math.min(1000 * Math.pow(1.5, recon++), 10000));
