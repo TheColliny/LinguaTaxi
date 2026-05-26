@@ -138,25 +138,48 @@ class PluginDispatcher:
         return enabled.get(plugin_id, True)
 
     def load_enabled(self, operator_app: Any = None) -> None:
-        """Load all enabled plugins.
+        """Load all discovered plugins.
+
+        Panel assets (HTML, JS, CSS) are loaded for ALL plugins so that
+        disabled plugins still render their UI (with an Enable toggle).
+        Routes and hooks are only mounted for enabled plugins.
 
         Args:
             operator_app: The operator FastAPI app for mounting plugin routes.
         """
         for pid, manifest in self._manifests.items():
             lp = LoadedPlugin(manifest)
-            if not self.is_enabled(pid):
-                self._plugins[pid] = lp
-                continue
-            try:
-                self._load_plugin(lp, operator_app)
-            except Exception as e:
-                lp.error = str(e)[:300]
-                log.error(f"Plugin '{pid}' failed to load: {e}")
+            self._load_panel_assets(lp)
+            if self.is_enabled(pid):
+                try:
+                    self._load_plugin(lp, operator_app)
+                except Exception as e:
+                    lp.error = str(e)[:300]
+                    log.error(f"Plugin '{pid}' failed to load: {e}")
             self._plugins[pid] = lp
 
+    def _load_panel_assets(self, lp: LoadedPlugin) -> None:
+        """Load panel HTML/JS/CSS paths for a plugin (regardless of enabled state).
+
+        Args:
+            lp: The LoadedPlugin to populate with panel assets.
+        """
+        m = lp.manifest
+        plugin_dir = m.path
+        if not m.has_panel:
+            return
+        html_file = plugin_dir / "panel.html"
+        if html_file.exists():
+            lp.panel_html = html_file.read_text(encoding="utf-8")
+        js_file = plugin_dir / "panel.js"
+        if js_file.exists():
+            lp.panel_js_path = f"/plugins/{m.id}/panel.js"
+        css_file = plugin_dir / "panel.css"
+        if css_file.exists():
+            lp.panel_css_path = f"/plugins/{m.id}/panel.css"
+
     def _load_plugin(self, lp: LoadedPlugin, operator_app: Any) -> None:
-        """Load a single plugin's module and assets.
+        """Load a single plugin's module, routes, and hooks.
 
         Args:
             lp: The LoadedPlugin to populate.
@@ -182,17 +205,6 @@ class PluginDispatcher:
                 if operator_app and hasattr(mod, "router"):
                     operator_app.include_router(mod.router)
                     log.info(f"Plugin '{m.id}': mounted router at {m.route_prefix}")
-
-        if m.has_panel:
-            html_file = plugin_dir / "panel.html"
-            if html_file.exists():
-                lp.panel_html = html_file.read_text(encoding="utf-8")
-            js_file = plugin_dir / "panel.js"
-            if js_file.exists():
-                lp.panel_js_path = f"/plugins/{m.id}/panel.js"
-            css_file = plugin_dir / "panel.css"
-            if css_file.exists():
-                lp.panel_css_path = f"/plugins/{m.id}/panel.css"
 
         for hook in m.hooks:
             if hook not in self._hooks:
@@ -271,14 +283,14 @@ class PluginDispatcher:
         self.config["plugins_enabled"][plugin_id] = enabled
 
     def get_css_links(self) -> str:
-        """Generate HTML link tags for all enabled plugin CSS files.
+        """Generate HTML link tags for all plugin CSS files.
 
         Returns:
             HTML string with ``<link>`` tags.
         """
         lines: list[str] = []
         for pid, lp in self._plugins.items():
-            if self.is_enabled(pid) and lp.panel_css_path:
+            if lp.panel_css_path:
                 lines.append(f'<link rel="stylesheet" href="{lp.panel_css_path}">')
         return "\n".join(lines)
 
@@ -318,14 +330,14 @@ class PluginDispatcher:
         return "\n".join(panels)
 
     def get_js_scripts(self) -> str:
-        """Generate HTML script tags for all enabled plugin JS files.
+        """Generate HTML script tags for all plugin JS files.
 
         Returns:
             HTML string with ``<script>`` tags.
         """
         lines: list[str] = []
         for pid, lp in self._plugins.items():
-            if self.is_enabled(pid) and lp.panel_js_path:
+            if lp.panel_js_path:
                 lines.append(f'<script src="{lp.panel_js_path}"></script>')
         return "\n".join(lines)
 

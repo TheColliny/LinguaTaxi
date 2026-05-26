@@ -241,17 +241,19 @@ Source: ".\{#VenvSrc}\*"; DestDir: "{app}\venv"; Excludes: "__pycache__,*.pyc"; 
 ; re-extraction (the bundled models for the same build are byte-identical).
 ; To force a re-extract, the operator can delete the model directory first.
 ; Note: `onlyifdoesntexist` overrides `ignoreversion` — drop the latter as it's a no-op here.
+; `uninsneveruninstall` prevents Inno's built-in uninstaller from deleting these
+; files before CurUninstallStepChanged runs — our code handles user-chosen deletion.
 #ifexist ".\models_prebuilt\vosk-model-small-en-us-0.15\README"
-Source: ".\models_prebuilt\vosk-model-small-en-us-0.15\*"; DestDir: "{app}\models\vosk-model-small-en-us-0.15"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs
+Source: ".\models_prebuilt\vosk-model-small-en-us-0.15\*"; DestDir: "{app}\models\vosk-model-small-en-us-0.15"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs
 #endif
 #if EDITION == "Full"
   #ifexist ".\models_prebuilt\faster-whisper-large-v3-turbo\model.bin"
-Source: ".\models_prebuilt\faster-whisper-large-v3-turbo\*"; DestDir: "{app}\models\faster-whisper-large-v3-turbo"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs
+Source: ".\models_prebuilt\faster-whisper-large-v3-turbo\*"; DestDir: "{app}\models\faster-whisper-large-v3-turbo"; Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs
   #endif
 #endif
 ; ── Silero language detection (bundled for both editions — 16 MB, MIT licensed) ──
 #ifexist ".\models_prebuilt\silero-lang-detect\lang_classifier_95.onnx"
-Source: ".\models_prebuilt\silero-lang-detect\*"; DestDir: "{app}\models\silero-lang-detect"; Flags: onlyifdoesntexist
+Source: ".\models_prebuilt\silero-lang-detect\*"; DestDir: "{app}\models\silero-lang-detect"; Flags: onlyifdoesntexist uninsneveruninstall
 #endif
 
 [Dirs]
@@ -721,6 +723,8 @@ begin
     Result := 'Whisper large-v3-turbo (GPU)'
   else if Pos('vosk-model', DirName) = 1 then
     Result := DirName + ' (CPU)'
+  else if DirName = 'silero-lang-detect' then
+    Result := 'Silero language detection (16 MB)'
   else if DirName = '_hf_cache' then
     Result := 'Download cache'
   else if DirName = 'm2m100-1.2b' then
@@ -811,6 +815,15 @@ begin
     if ModelCount < MAX_MODELS then
     begin
       ModelPaths[ModelCount] := TransDir + '\m2m100-1.2b';
+      ModelKeep[ModelCount] := True;
+      ModelCount := ModelCount + 1;
+    end;
+
+  // Silero language detection
+  if DirExists(ModelsDir + '\silero-lang-detect') then
+    if ModelCount < MAX_MODELS then
+    begin
+      ModelPaths[ModelCount] := ModelsDir + '\silero-lang-detect';
       ModelKeep[ModelCount] := True;
       ModelCount := ModelCount + 1;
     end;
