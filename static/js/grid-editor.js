@@ -384,8 +384,8 @@ function gleInitDragDrop() {
       const [r, c] = key.split('-').map(Number);
       const gridEl = document.getElementById('gleGrid');
       const gridRect = gridEl.getBoundingClientRect();
-      const cellW = gridRect.width / 4;
-      const cellH = gridRect.height / 4;
+      const cellW = gridRect.width / 10;
+      const cellH = gridRect.height / 10;
       const startX = e.clientX, startY = e.clientY;
       const startCS = parseInt(cellEl.style.gridColumn?.match(/span (\d+)/)?.[1] || '1');
       const startRS = parseInt(cellEl.style.gridRow?.match(/span (\d+)/)?.[1] || '1');
@@ -394,8 +394,8 @@ function gleInitDragDrop() {
       function onMove(ev) {
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
-        const newCS = Math.max(1, Math.min(4 - c, Math.round(startCS + dx / cellW)));
-        const newRS = Math.max(1, Math.min(4 - r, Math.round(startRS + dy / cellH)));
+        const newCS = Math.max(1, Math.min(10 - c, Math.round(startCS + dx / cellW)));
+        const newRS = Math.max(1, Math.min(10 - r, Math.round(startRS + dy / cellH)));
         if (newCS !== lastCS || newRS !== lastRS) {
           cellEl.style.gridColumn = `span ${newCS}`;
           cellEl.style.gridRow = `span ${newRS}`;

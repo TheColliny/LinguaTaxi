@@ -1,7 +1,7 @@
 /**
  * LinguaTaxi — Plugin Grid Manager
  *
- * 4×4 CSS grid where the operator drags plugins from a palette into cells,
+ * 10×10 CSS grid where the operator drags plugins from a palette into cells,
  * resizes cells by dragging bottom-right corner, rearranges by drag-and-drop
  * between cells. Layouts saved as named profiles (localStorage).
  *

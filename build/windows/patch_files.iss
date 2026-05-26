@@ -1,9 +1,8 @@
-; Auto-generated — Patch 2 for v1.0.3b
-; Window capture plugin, binary WebSocket support in display
+; Auto-generated — Patch 3 for v1.0.3b
+; Fix grid-editor resize handler (was still hardcoded to 4x4), include all grid files
+Source: "..\..\static\js\grid-editor.js"; DestDir: "{app}\static\js"; Flags: ignoreversion
+Source: "..\..\static\plugin_grid.js"; DestDir: "{app}\static"; Flags: ignoreversion
+Source: "..\..\static\css\display.css"; DestDir: "{app}\static\css"; Flags: ignoreversion
+Source: "..\..\static\css\operator.css"; DestDir: "{app}\static\css"; Flags: ignoreversion
 Source: "..\..\static\js\display.js"; DestDir: "{app}\static\js"; Flags: ignoreversion
-Source: "..\..\plugins\window_capture\manifest.json"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
-Source: "..\..\plugins\window_capture\routes.py"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
-Source: "..\..\plugins\window_capture\panel.html"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
-Source: "..\..\plugins\window_capture\panel.js"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
-Source: "..\..\plugins\window_capture\panel.css"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
 Source: "..\..\version.json"; DestDir: "{app}"; Flags: ignoreversion
