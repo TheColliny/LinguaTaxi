@@ -37,7 +37,7 @@
       loadSettings();
     } else {
       var dp = $('wc-display');
-      if (dp) dp.style.display = 'block';
+      if (dp) dp.style.display = '';
     }
   }
 

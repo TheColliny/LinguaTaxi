@@ -37,7 +37,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 
 .empty-grid{display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,.2);font-size:clamp(14px,1.6vw,22px);text-align:center;padding:5vh 4vw;line-height:1.5}
 .plugin-shell{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.plugin-shell .plugin-panel{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .plugin-shell .plugin-body{flex:1;overflow-y:auto;padding:1vh 1.2vw;color:rgba(255,255,255,.85)}
+.aud-cell--chromeless .plugin-body{padding:0;overflow:hidden}
 
 .footer-banner{flex-shrink:0;padding:.6vh 0 0;display:none;position:relative;height:6vh;min-height:30px;overflow:hidden}
 .footer-banner.vis{display:flex;align-items:center}
