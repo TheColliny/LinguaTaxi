@@ -18,8 +18,8 @@
  */
 
 (function(){
-  const GRID_COLS = 4;
-  const GRID_ROWS = 4;
+  const GRID_COLS = 10;
+  const GRID_ROWS = 10;
 
   // State
   let currentProfile = localStorage.getItem('lt_current_profile') || 'Default';

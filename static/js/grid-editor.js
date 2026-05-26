@@ -211,8 +211,8 @@ function gleRefreshContent() {
   html += '<div class="gle-body">';
 
   html += '<div style="flex:1"><div class="gle-grid" id="gleGrid">';
-  for (let r = 0; r < 4; r++) {
-    for (let c = 0; c < 4; c++) {
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 10; c++) {
       const key = r + '-' + c;
       if (spanned[key]) continue;
       const occ = occupied[key];

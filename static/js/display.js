@@ -62,12 +62,13 @@ function buildGrid() {
   const newTranslationStates = {};
 
   // Clamp + filter cells: silently skip any with out-of-bounds row/col
+  const GCOLS = 10, GROWS = 10;
   const cells = Object.values(currentGrid || {}).filter(c =>
     c && typeof c.row === 'number' && typeof c.col === 'number' &&
-    c.row >= 0 && c.row < 4 && c.col >= 0 && c.col < 4
+    c.row >= 0 && c.row < GROWS && c.col >= 0 && c.col < GCOLS
   );
   if (cells.length === 0) {
-    elGrid.innerHTML = '<div class="empty-grid" style="grid-column:span 4;grid-row:span 4">' +
+    elGrid.innerHTML = '<div class="empty-grid" style="grid-column:span ' + GCOLS + ';grid-row:span ' + GROWS + '">' +
       'No layout configured for this display.<br>' +
       'Open the operator panel and drag plugins into the grid.</div>';
     return;
@@ -78,9 +79,8 @@ function buildGrid() {
 
   cells.forEach(cell => {
     const pid = cell.pluginId;
-    // Clamp spans so they don't push outside the 4x4 grid
-    const colSpan = Math.max(1, Math.min(4 - cell.col, cell.colSpan || 1));
-    const rowSpan = Math.max(1, Math.min(4 - cell.row, cell.rowSpan || 1));
+    const colSpan = Math.max(1, Math.min(GCOLS - cell.col, cell.colSpan || 1));
+    const rowSpan = Math.max(1, Math.min(GROWS - cell.row, cell.rowSpan || 1));
     const div = document.createElement('div');
     div.className = 'aud-cell';
     div.style.gridColumn = (cell.col + 1) + ' / span ' + colSpan;
