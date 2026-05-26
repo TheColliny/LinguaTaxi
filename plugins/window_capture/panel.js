@@ -29,12 +29,7 @@
   document.addEventListener('DOMContentLoaded', function() { detectPage(); });
 
   async function detectPage() {
-    try {
-      const resp = await fetch('/api/window-capture/status');
-      isOperatorPage = resp.ok;
-    } catch(e) {
-      isOperatorPage = false;
-    }
+    isOperatorPage = !!document.getElementById('pluginGrid');
 
     if (isOperatorPage) {
       var op = $('wc-operator');
