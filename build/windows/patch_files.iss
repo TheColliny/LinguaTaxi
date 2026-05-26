@@ -1,8 +1,7 @@
-; Auto-generated — Patch 3 for v1.0.3b
-; Fix grid-editor resize handler (was still hardcoded to 4x4), include all grid files
+; Auto-generated — Patch 1 for v1.0.3b
+; Plugin loader: always load panel assets, grid-editor resize fix, page detection fix, uninstaller model preservation
+Source: "..\..\linguataxi\plugins\loader.py"; DestDir: "{app}\linguataxi\plugins"; Flags: ignoreversion
 Source: "..\..\static\js\grid-editor.js"; DestDir: "{app}\static\js"; Flags: ignoreversion
 Source: "..\..\static\plugin_grid.js"; DestDir: "{app}\static"; Flags: ignoreversion
-Source: "..\..\static\css\display.css"; DestDir: "{app}\static\css"; Flags: ignoreversion
-Source: "..\..\static\css\operator.css"; DestDir: "{app}\static\css"; Flags: ignoreversion
-Source: "..\..\static\js\display.js"; DestDir: "{app}\static\js"; Flags: ignoreversion
+Source: "..\..\plugins\window_capture\panel.js"; DestDir: "{app}\plugins\window_capture"; Flags: ignoreversion
 Source: "..\..\version.json"; DestDir: "{app}"; Flags: ignoreversion
