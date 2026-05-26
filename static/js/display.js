@@ -111,16 +111,18 @@ function buildGrid() {
       newTranslationStates[slotIdx] = translationStates[slotIdx] || { lines: [], lastSpeaker: null, color };
       newTranslationStates[slotIdx].color = color;
     } else if (pluginMap[pid]) {
-      // Real plugin — move the entire .plugin-panel into the cell so DOM
-      // identity (IDs, event listeners, panel.js refs) is preserved across
-      // grid rebuilds. The hidden container holds it when it's not in a cell.
       const p = pluginMap[pid];
-      const title = p.title || pid;
-      div.innerHTML =
-        '<div class="aud-cell-title">' + esc(title) + '</div>' +
-        '<div class="aud-cell-body plugin-shell" data-plugin-id="' + esc(pid) + '"></div>';
+      const chromeless = pid === 'window_capture';
+      if (chromeless) {
+        div.className = 'aud-cell aud-cell--chromeless';
+        div.innerHTML = '<div class="aud-cell-body plugin-shell" data-plugin-id="' + esc(pid) + '"></div>';
+      } else {
+        const title = p.title || pid;
+        div.innerHTML =
+          '<div class="aud-cell-title">' + esc(title) + '</div>' +
+          '<div class="aud-cell-body plugin-shell" data-plugin-id="' + esc(pid) + '"></div>';
+      }
       const shell = div.querySelector('.plugin-shell');
-      // Hide the panel's own header (we have aud-cell-title above)
       const ph = p.el.querySelector('.plugin-header');
       if (ph) ph.style.display = 'none';
       const pt = p.el.querySelector('.plugin-title');

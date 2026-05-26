@@ -18,6 +18,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--fon
 .dot.conn{background:#4CAF50;box-shadow:0 0 6px #4CAF50}
 .dot.paused{background:#FFA726;box-shadow:0 0 6px #FFA726}
 @keyframes pdot{0%,100%{opacity:1}50%{opacity:.4}}
+.aud-cell--chromeless{background:none;border:none;border-radius:0;padding:0}
+.aud-cell--chromeless .aud-cell-body{padding:0}
 .aud-cell-body{flex:1;overflow:hidden;min-height:0;display:flex;flex-direction:column}
 
 /* ── Live caption styling ── */
