@@ -16,7 +16,7 @@ IS_MAC: bool = sys.platform == "darwin"
 
 APP_NAME: str = "LinguaTaxi"
 APP_FULL: str = "LinguaTaxi \u2014 Live Caption & Translation"
-VERSION: str = "1.0.3b"
+VERSION: str = "1.0.0"
 GITHUB_REPO: str = "TheColliny/LinguaTaxi"
 
 # ── App Directory ──

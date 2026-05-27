@@ -6,7 +6,7 @@
 #   - macOS 12+ with Xcode Command Line Tools
 #   - Optional: create-dmg (brew install create-dmg) for fancy DMG
 #
-# Output: dist/LinguaTaxi-1.0.2.dmg
+# Output: dist/LinguaTaxi-1.0.0.dmg
 # ════════════════════════════════════════════════════════
 
 set -e
@@ -17,7 +17,7 @@ BUILD_DIR="$PROJECT_DIR/dist/mac_build"
 APP_BUNDLE="$BUILD_DIR/LinguaTaxi.app"
 DIST_DIR="$PROJECT_DIR/dist"
 # H20: Match Windows version
-VERSION="1.0.2"
+VERSION="1.0.0"
 RESOURCES="$APP_BUNDLE/Contents/Resources"
 
 echo ""

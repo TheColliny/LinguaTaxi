@@ -13,7 +13,7 @@ VENV="$SUPPORT_DIR/venv"
 LOG="$SUPPORT_DIR/install.log"
 PYTHON3=""
 # H20/M61: Single version constant used for setup marker comparison
-APP_VERSION="1.0.2"
+APP_VERSION="1.0.0"
 
 # ── Find Python 3 ──
 find_python() {

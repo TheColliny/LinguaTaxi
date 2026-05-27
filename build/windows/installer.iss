@@ -21,7 +21,7 @@
 
 #define MyAppName "LinguaTaxi - Live Caption and Translation"
 #define MyAppShortName "LinguaTaxi"
-#define MyAppVersion "1.0.3b"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "LinguaTaxi"
 #define MyAppURL "https://github.com/linguataxi"
 

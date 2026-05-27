@@ -20,8 +20,8 @@ setlocal EnableDelayedExpansion
 ::   4. Compiles both Inno Setup installers
 ::
 :: Output:
-::   dist\LinguaTaxi-GPU-Setup-1.0.3.exe    (Full, ~200 MB — CUDA downloaded at install)
-::   dist\LinguaTaxi-CPU-Setup-1.0.3.exe   (Lite, ~50 MB)
+::   dist\LinguaTaxi-GPU-Setup-1.0.0.exe    (Full, ~200 MB — CUDA downloaded at install)
+::   dist\LinguaTaxi-CPU-Setup-1.0.0.exe   (Lite, ~50 MB)
 :: ════════════════════════════════════════════════════════
 
 title LinguaTaxi - Build Installer
@@ -374,11 +374,11 @@ echo     BUILD COMPLETE
 echo   ========================================
 echo.
 echo   Output:
-if exist "%DIST_DIR%\LinguaTaxi-GPU-Setup-1.0.3.exe" (
-    echo     dist\LinguaTaxi-GPU-Setup-1.0.3.exe   (CPU+GPU Best Accuracy)
+if exist "%DIST_DIR%\LinguaTaxi-GPU-Setup-1.0.0.exe" (
+    echo     dist\LinguaTaxi-GPU-Setup-1.0.0.exe   (CPU+GPU Best Accuracy)
 )
-if exist "%DIST_DIR%\LinguaTaxi-CPU-Setup-1.0.3.exe" (
-    echo     dist\LinguaTaxi-CPU-Setup-1.0.3.exe   (CPU Only)
+if exist "%DIST_DIR%\LinguaTaxi-CPU-Setup-1.0.0.exe" (
+    echo     dist\LinguaTaxi-CPU-Setup-1.0.0.exe   (CPU Only)
 )
 echo.
 echo   To rebuild from scratch, delete:

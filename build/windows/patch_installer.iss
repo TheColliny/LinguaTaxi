@@ -6,7 +6,7 @@
 ;
 ; Required defines (passed by build_patch.bat):
 ;   /DEDITION=Full|Lite
-;   /DPATCH_VER=1.0.2
+;   /DPATCH_VER=1.0.0
 ;   /DPATCH_NUM=1
 ; ══════════════════════════════════════════════════════
 

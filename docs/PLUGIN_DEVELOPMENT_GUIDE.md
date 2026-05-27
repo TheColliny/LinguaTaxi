@@ -15,7 +15,7 @@ A complete guide to building drop-in plugins for LinguaTaxi — the real-time sp
 7. [Event System (Hooks)](#event-system-hooks)
 8. [Plugin Settings](#plugin-settings)
 9. [The Plugin Static File Server](#the-plugin-static-file-server)
-10. [The 4x4 Audience Display Grid](#the-4x4-audience-display-grid)
+10. [The 10x10 Audience Display Grid](#the-10x10-audience-display-grid)
 11. [Plugin-Scoped Library Code (`lib/`)](#plugin-scoped-library-code-lib)
 12. [Thread Safety and Performance](#thread-safety-and-performance)
 13. [Persisting Plugin Data](#persisting-plugin-data)
@@ -519,9 +519,9 @@ The static handler only serves files whose **suffix** is in the allowlist (`_PLU
 
 ---
 
-## The 4x4 Audience Display Grid
+## The 10x10 Audience Display Grid
 
-LinguaTaxi's main and extended audience displays render a **4×4 tile grid**. Each tile can be a built-in widget (live captions, translation slot) or a plugin panel. The operator designs the grid in the operator panel and saves layouts as named profiles.
+LinguaTaxi's main and extended audience displays render a **10×10 tile grid**. Each tile can be a built-in widget (live captions, translation slot) or a plugin panel. Tiles can span multiple rows and columns for flexible layouts. The operator designs the grid in the operator panel and saves layouts as named profiles.
 
 ### How a plugin becomes a grid tile
 
